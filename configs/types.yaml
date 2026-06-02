@@ -1,0 +1,19 @@
+mappings:
+  - canonical: string
+    aliases: [string, texte, text]
+  - canonical: string
+    aliases: [varchar, char]
+    parameter: max_length
+  - canonical: integer
+    aliases: [int, integer, bigint, smallint, entier]
+  - canonical: number
+    aliases: [double, float, numeric, "réel", real]
+  - canonical: number
+    aliases: [decimal]
+    parameters: [precision, scale]
+  - canonical: boolean
+    aliases: ["booléen", boolean, bool]
+  - canonical: date
+    aliases: [date]
+  - canonical: timestamp
+    aliases: ["date horodatée", timestamp, datetime]

@@ -1,0 +1,65 @@
+column_mapping:
+  name:
+    spec_name: Champ dans extract
+    mandatory: true
+  type:
+    spec_name: Type
+    mandatory: true
+  description:
+    spec_name: Description
+    mandatory: false
+  table:
+    spec_name: Table
+    mandatory: false
+  nullable:
+    spec_name: Obligatoire
+    mandatory: true
+    values:
+      "true":  ["non", "no", "false", "0", "n"]
+      "false": ["oui", "yes", "true", "1", "o", "y"]
+
+keys:
+  sheet_name: "Clés unitaires"
+  column_mapping:
+    table_name:
+      spec_name: "Table"
+      mandatory: true
+    primary_key:
+      spec_name: "Clé primaire"
+      mandatory: true
+      separator: "&"
+    foreign_key:
+      spec_name: "Clé étrangère"
+      mandatory: false
+      separator: ","
+    comments:
+      spec_name: "Commentaires"
+      mandatory: false
+
+joins:
+  sheet_name: "Clés de jointure"
+  column_mapping:
+    source_table:
+      spec_name: "Table Source"
+      mandatory: true
+    target_table:
+      spec_name: "Table Cible"
+      mandatory: true
+    source_column:
+      spec_name: "Clé Jointure Source"
+      mandatory: true
+    target_column:
+      spec_name: "Clé Jointure Cible"
+      mandatory: true
+    join_type:
+      spec_name: "Type de Jointure"
+      mandatory: true
+    cardinality:
+      spec_name: "Cardinalité"
+      mandatory: false
+    comment:
+      spec_name: "Commentaire"
+      mandatory: false
+    description:
+      spec_name: "Description / règle métier"
+      mandatory: false

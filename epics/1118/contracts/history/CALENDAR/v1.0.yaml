@@ -1,0 +1,47 @@
+version: '1.0'
+epic: '1118'
+generated_at: '2026-06-02T22:03:30Z'
+source:
+  spec_file: epics/1118/specs/Spec_example.xlsx
+  spec_sheet: CALENDAR
+table: CALENDAR
+fields:
+- name: test_id
+  type: number
+  nullable: false
+  description: Unique ID
+  primary_key: true
+- name: columnX1
+  type: boolean
+  nullable: true
+  description: DescX1
+- name: columnX2
+  type: timestamp
+  nullable: true
+  description: DescX2
+- name: columnX3
+  type: string
+  nullable: true
+  description: DescX3
+  max_length: 384
+- name: columnX4
+  type: string
+  nullable: true
+  description: DescX4
+  max_length: 384
+- name: proj_id
+  type: string
+  nullable: false
+  description: DescX3
+  max_length: 384
+  foreign_key:
+    table: PROJECT
+    column: proj_id
+- name: column1
+  type: string
+  nullable: false
+  description: DescX4
+  max_length: 384
+  foreign_key:
+    table: PROJECT
+    column: column1

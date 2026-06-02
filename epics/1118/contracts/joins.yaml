@@ -1,0 +1,15 @@
+version: '1.0'
+epic: '1118'
+generated_at: '2026-06-02T22:03:30Z'
+source:
+  spec_file: epics/1118/specs/Spec_example.xlsx
+  spec_sheet: Clés de jointure
+joins:
+- source_table: PROJECT
+  source_column: proj_id
+  target_table: CALENDAR
+  target_column: test_id
+  type: LEFT
+  cardinality: 1:n
+  description: Une WBS appartient obligatoirement à un projet
+  comment: Un projet possède plusieurs WBS

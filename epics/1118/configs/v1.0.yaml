@@ -1,0 +1,8 @@
+epic: 1118
+version: 1.0
+
+spec_file_name: Spec_example.xlsx
+
+tables: 
+  - table_name: PROJECT
+  - table_name: CALENDAR
