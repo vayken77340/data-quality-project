@@ -1,0 +1,13 @@
+version: '1.0'
+epic: '1118'
+generated_at: '2026-06-03T18:49:24Z'
+source:
+  spec_file: epics/1118/specs/Spec_example.xlsx
+  spec_sheet: PROJECT
+table: PROJECT
+errors:
+- kind: nullable_primary_key
+  field: column1
+  value: column1
+  message: field 'column1' on table 'PROJECT' is declared as a primary key but its
+    `nullable` flag is true; primary key columns must not be nullable

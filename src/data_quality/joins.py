@@ -69,20 +69,29 @@ _CARDINALITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_CARD_SIDE = r"(?:1|n|m|\*|many)"
 
-def parse_cardinality(raw: str) -> str | None:
+
+def parse_cardinality(raw: str, separator: str | None = None) -> str | None:
     """Normalize a cardinality string to `1:1`, `1:n`, `n:1`, or `n:m`.
 
-    Accepts variants like `1->n`, `1 -> n`, `1 to n`, `1:n`, `1:N`, `* to *`,
-    `many:many`, `n:m`. Both `n` and `m` are treated as "many"; the canonical
-    output uses `n:m` for the many-to-many case. Returns `None` on unparseable input.
+    With `separator=None`, accepts the permissive default set (`:`, `->`, ` to `).
+    With an explicit separator (e.g. `"->"`), only that exact divider is accepted
+    between the two sides (whitespace around it is still tolerated).
+
+    Both `n` and `m` are treated as "many"; the canonical output uses `n:m` for
+    the many-to-many case. Returns `None` on unparseable input.
     """
-    m = _CARDINALITY_RE.match(raw)
+    if separator is None:
+        m = _CARDINALITY_RE.match(raw)
+    else:
+        sep = re.escape(separator)
+        pattern = rf"^\s*(?P<left>{_CARD_SIDE})\s*{sep}\s*(?P<right>{_CARD_SIDE})\s*$"
+        m = re.match(pattern, raw, re.IGNORECASE)
     if m is None:
         return None
     left = "1" if m.group("left") == "1" else "n"
     right = "1" if m.group("right") == "1" else "n"
-    # The standard tokens are 1:1, 1:n, n:1, n:m.
     if left == "1" and right == "1":
         return "1:1"
     if left == "1" and right == "n":
@@ -328,7 +337,8 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
         cardinality_value: str | None = None
         raw_card = raw_cells.get("cardinality")
         if raw_card is not None and str(raw_card).strip() != "":
-            parsed = parse_cardinality(str(raw_card))
+            cardinality_separator = cm.cardinality.separator if cm.cardinality else None
+            parsed = parse_cardinality(str(raw_card), separator=cardinality_separator)
             if parsed is None:
                 out.errors.append(RejectionError(
                     kind="invalid_cardinality",

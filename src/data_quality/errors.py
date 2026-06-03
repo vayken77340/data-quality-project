@@ -59,6 +59,7 @@ REJECTION_KINDS = frozenset({
     "unknown_join_column",
     "invalid_join_type",
     "invalid_cardinality",
+    "nullable_primary_key",
 })
 
 

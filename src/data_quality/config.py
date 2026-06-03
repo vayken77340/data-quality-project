@@ -91,10 +91,18 @@ class ColumnMapping:
 
 @dataclass(frozen=True)
 class SplitColumnSpec:
-    """A column whose cell contains a list of items joined by a separator."""
+    """A column whose cell contains a list of items joined by a separator.
+
+    `allow_violations` is only meaningful for the `foreign_key` use case: when
+    True, FK resolution errors (`unknown_foreign_key_target`,
+    `ambiguous_foreign_key_target`) are demoted from rejections to warnings —
+    the contract still builds, but affected fields don't get the
+    `foreign_key` annotation. Default False keeps the strict behavior.
+    """
     spec_name: str
     mandatory: bool
     separator: str
+    allow_violations: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,6 +142,7 @@ class KeysColumnMapping:
                 spec_name=spec_name,
                 mandatory=bool(block.get("mandatory", False)),
                 separator=separator,
+                allow_violations=bool(block.get("allow_violations", False)),
             )
 
         return cls(
@@ -163,13 +172,25 @@ class KeysSpec:
 
 
 @dataclass(frozen=True)
+class CardinalityColumnSpec:
+    """Cardinality column. The optional `separator` constrains what divider
+    the parser accepts between the two sides of the cardinality value (e.g.
+    `1 -> n` with separator `->`). When None, the parser falls back to its
+    default permissive set (`:`, `->`, ` to `).
+    """
+    spec_name: str
+    mandatory: bool
+    separator: str | None = None
+
+
+@dataclass(frozen=True)
 class JoinsColumnMapping:
     source_table: ColumnSpec
     target_table: ColumnSpec
     source_column: ColumnSpec
     target_column: ColumnSpec
     join_type: ColumnSpec
-    cardinality: ColumnSpec | None = None
+    cardinality: CardinalityColumnSpec | None = None
     comment: ColumnSpec | None = None
     description: ColumnSpec | None = None
 
@@ -189,13 +210,33 @@ class JoinsColumnMapping:
                 raise ConfigError(f"joins.column_mapping.{key}.spec_name must be a non-empty string")
             return ColumnSpec(spec_name=spec_name, mandatory=bool(block.get("mandatory", False)))
 
+        def _cardinality_col(block: dict) -> CardinalityColumnSpec:
+            spec_name = block.get("spec_name")
+            if not isinstance(spec_name, str) or not spec_name:
+                raise ConfigError("joins.column_mapping.cardinality.spec_name must be a non-empty string")
+            separator = block.get("separator")
+            if separator is not None and (not isinstance(separator, str) or not separator):
+                raise ConfigError("joins.column_mapping.cardinality.separator, if set, must be a non-empty string")
+            return CardinalityColumnSpec(
+                spec_name=spec_name,
+                mandatory=bool(block.get("mandatory", False)),
+                separator=separator,
+            )
+
+        cardinality_block = raw.get("cardinality")
+        cardinality_spec: CardinalityColumnSpec | None = None
+        if cardinality_block is not None:
+            if not isinstance(cardinality_block, dict):
+                raise ConfigError("joins.column_mapping.cardinality must be a mapping")
+            cardinality_spec = _cardinality_col(cardinality_block)
+
         return cls(
             source_table=_col("source_table"),
             target_table=_col("target_table"),
             source_column=_col("source_column"),
             target_column=_col("target_column"),
             join_type=_col("join_type"),
-            cardinality=_col("cardinality") if "cardinality" in raw else None,
+            cardinality=cardinality_spec,
             comment=_col("comment") if "comment" in raw else None,
             description=_col("description") if "description" in raw else None,
         )

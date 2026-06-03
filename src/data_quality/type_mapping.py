@@ -136,8 +136,12 @@ def parse_type(raw: str | None, registry: TypeRegistry, *, sheet_row: int) -> tu
 
     parsed_kwargs: dict[str, int] = {}
     for slot, value in zip(entry.parameters, raw_args):
+        # Strip internal whitespace so French-style grouped numbers like
+        # `VARCHAR(40 000 000)` parse the same as `VARCHAR(40000000)`. Handles
+        # regular and non-breaking whitespace via `\s+` (Unicode by default).
+        compact = re.sub(r"\s+", "", value)
         try:
-            parsed_kwargs[slot] = int(value)
+            parsed_kwargs[slot] = int(compact)
         except ValueError:
             return None, RejectionError(
                 kind="unknown_type",

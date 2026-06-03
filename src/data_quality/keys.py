@@ -212,12 +212,21 @@ def enrich_field_contract_list(
     table: str,
     keys_rows_for_table: list[KeysRow],
     pk_index: dict[str, set[str]],
-) -> tuple[list[FieldContract], list[RejectionError]]:
-    """Apply PK flags and resolved FKs to the field list in-place. Returns
-    (the same list, errors). Multiple keys rows for the same table merge
-    additively (the spec author may split PK and FK declarations across rows).
+    *,
+    fk_allow_violations: bool = False,
+) -> tuple[list[FieldContract], list[RejectionError], list[RejectionError]]:
+    """Apply PK flags and resolved FKs to the field list in-place.
+
+    Returns `(fields, errors, fk_warnings)`. When `fk_allow_violations` is True,
+    FK resolution errors (`unknown_foreign_key_target`,
+    `ambiguous_foreign_key_target`) land in `fk_warnings` rather than `errors`;
+    the affected fields just don't get the `foreign_key` annotation.
+
+    Multiple keys rows for the same table merge additively (the spec author may
+    split PK and FK declarations across rows).
     """
     errors: list[RejectionError] = []
+    fk_warnings: list[RejectionError] = []
     by_name: dict[str, FieldContract] = {f.name: f for f in fields}
 
     # Aggregate PK and FK columns across all rows for this table.
@@ -226,6 +235,9 @@ def enrich_field_contract_list(
     for r in keys_rows_for_table:
         pk_cols.update(r.primary_keys)
         fk_cols.update(r.foreign_keys)
+
+    def _add_fk_error(err: RejectionError) -> None:
+        (fk_warnings if fk_allow_violations else errors).append(err)
 
     # Primary keys.
     for col in sorted(pk_cols):
@@ -241,13 +253,23 @@ def enrich_field_contract_list(
                 ),
             ))
             continue
+        if f.nullable is True:
+            errors.append(RejectionError(
+                kind="nullable_primary_key",
+                field=col,
+                value=col,
+                message=(
+                    f"field {col!r} on table {table!r} is declared as a primary key "
+                    f"but its `nullable` flag is true; primary key columns must not be nullable"
+                ),
+            ))
         f.primary_key = True
 
     # Foreign keys.
     for col in sorted(fk_cols):
         f = by_name.get(col)
         if f is None:
-            errors.append(RejectionError(
+            _add_fk_error(RejectionError(
                 kind="unknown_foreign_key_target",
                 field=col,
                 value=col,
@@ -259,7 +281,7 @@ def enrich_field_contract_list(
             continue
         targets = pk_index.get(col, set()) - {table}
         if not targets:
-            errors.append(RejectionError(
+            _add_fk_error(RejectionError(
                 kind="unknown_foreign_key_target",
                 field=col,
                 value=col,
@@ -270,7 +292,7 @@ def enrich_field_contract_list(
             ))
             continue
         if len(targets) > 1:
-            errors.append(RejectionError(
+            _add_fk_error(RejectionError(
                 kind="ambiguous_foreign_key_target",
                 field=col,
                 value=sorted(targets),
@@ -283,7 +305,7 @@ def enrich_field_contract_list(
         target_table = next(iter(targets))
         f.foreign_key = {"table": target_table, "column": col}
 
-    return fields, errors
+    return fields, errors, fk_warnings
 
 
 # ---------------------------------------------------------------------------

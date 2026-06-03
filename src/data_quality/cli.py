@@ -291,7 +291,10 @@ def _process_epic(
                 table_name_from_config=selector.table_name,
                 allow_unknown_types=allow_unknown_types,
             )
-            result = _enrich_with_keys(result, keys_data, pk_index)
+            result = _enrich_with_keys(
+                result, keys_data, pk_index,
+                fk_allow_violations=_fk_allow_violations(merged),
+            )
             result = _check_duplicate_table(result, sheet_name, seen_tables)
             if isinstance(result, Contract):
                 contracts_by_table[result.table] = result
@@ -348,6 +351,8 @@ def _enrich_with_keys(
     result: Contract | Rejection,
     keys_data: KeysData,
     pk_index: dict[str, set[str]],
+    *,
+    fk_allow_violations: bool = False,
 ) -> Contract | Rejection:
     """Apply keys-sheet PK/FK enrichment to a fresh build result.
 
@@ -398,7 +403,19 @@ def _enrich_with_keys(
             )],
         )
 
-    _, errors = enrich_field_contract_list(contract.fields, contract.table, rows_for_table, pk_index)
+    _, errors, fk_warnings = enrich_field_contract_list(
+        contract.fields,
+        contract.table,
+        rows_for_table,
+        pk_index,
+        fk_allow_violations=fk_allow_violations,
+    )
+    for w in fk_warnings:
+        print(
+            f"[WARN] {contract.table}: skipped FK enrichment ({w.kind}) on field {w.field!r} "
+            f"because allow_violations=true",
+            file=sys.stderr,
+        )
     if errors:
         return Rejection(
             version=contract.version,
@@ -478,7 +495,10 @@ def _backfill_missing_history(
                     table_name_from_config=selector.table_name,
                     allow_unknown_types=allow_unknown_types,
                 )
-                result = _enrich_with_keys(result, keys_data, pk_index)
+                result = _enrich_with_keys(
+                    result, keys_data, pk_index,
+                    fk_allow_violations=_fk_allow_violations(merged),
+                )
                 result = _check_duplicate_table(result, selector.table_name, seen_tables)
                 if isinstance(result, Rejection):
                     err_kinds = sorted({e.kind for e in result.errors})
@@ -492,6 +512,12 @@ def _backfill_missing_history(
                 _emit_drift_for_new_history(result, contracts_dir)
         finally:
             wb.close()
+
+
+def _fk_allow_violations(merged: MergedConfig) -> bool:
+    """True when the keys.column_mapping.foreign_key block declares `allow_violations: true`."""
+    fk = merged.keys.column_mapping.foreign_key
+    return fk is not None and fk.allow_violations
 
 
 def _emit_joins(

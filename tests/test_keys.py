@@ -65,8 +65,10 @@ def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_
     return wb
 
 
-def _field(name: str, type_: Type = Type.STRING) -> FieldContract:
-    return FieldContract(name=name, type=type_, nullable=True, description=None)
+def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> FieldContract:
+    """Default `nullable=False` so PK-enriched fields don't trip the
+    `nullable_primary_key` rule unless a test explicitly sets it."""
+    return FieldContract(name=name, type=type_, nullable=nullable, description=None)
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +247,7 @@ def test_enrich_pk_only_table():
     fields = [_field("user_id"), _field("name")]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert not errors
     assert fields[0].primary_key is True
     assert fields[1].primary_key is None
@@ -255,7 +257,7 @@ def test_enrich_composite_pk():
     fields = [_field("order_id"), _field("item_id"), _field("qty")]
     rows = [KeysRow(2, "ORDER_ITEMS", ["order_id", "item_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(fields, "ORDER_ITEMS", rows, pk_index)
+    _, errors, _ = enrich_field_contract_list(fields, "ORDER_ITEMS", rows, pk_index)
     assert not errors
     assert fields[0].primary_key is True
     assert fields[1].primary_key is True
@@ -266,7 +268,7 @@ def test_enrich_unknown_pk_field():
     fields = [_field("name")]  # no `user_id` field on this table
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert any(e.kind == "unknown_pk_field" for e in errors)
 
 
@@ -277,7 +279,7 @@ def test_enrich_fk_resolves_via_pk_index():
         KeysRow(3, "ORDERS", ["order_id"], ["user_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert not errors
@@ -288,7 +290,7 @@ def test_enrich_unknown_foreign_key_target():
     fields = [_field("ghost_col")]
     rows = [KeysRow(2, "ORDERS", ["order_id"], ["ghost_col"])]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(fields, "ORDERS", rows, pk_index)
+    _, errors, _ = enrich_field_contract_list(fields, "ORDERS", rows, pk_index)
     assert any(e.kind == "unknown_foreign_key_target" for e in errors)
 
 
@@ -300,7 +302,7 @@ def test_enrich_ambiguous_foreign_key_target():
         KeysRow(4, "ORDERS",  ["order_id"], ["id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert any(e.kind == "ambiguous_foreign_key_target" for e in errors)
@@ -313,7 +315,7 @@ def test_enrich_fk_column_missing_from_table():
         KeysRow(3, "ORDERS", ["order_id"], ["legacy_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert any(e.kind == "unknown_foreign_key_target" for e in errors)
@@ -327,7 +329,7 @@ def test_enrich_multi_fk_per_row():
         KeysRow(4, "ORDERS",   ["order_id"],   ["user_id", "product_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert not errors
@@ -345,7 +347,7 @@ def test_enrich_skips_tables_not_being_generated():
         KeysRow(3, "LEGACY_X", ["junk"], []),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields_users, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
@@ -360,13 +362,87 @@ def test_enrich_multiple_keys_rows_same_table_merge():
         KeysRow(4, "GROUPS", ["group_id"], []),
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
     assert fields[0].primary_key is True
     assert fields[1].primary_key is True
     assert fields[2].foreign_key == {"table": "GROUPS", "column": "group_id"}
+
+
+def test_enrich_pk_with_nullable_true_rejects():
+    """A field flagged as PK by the keys sheet must not be nullable.
+    Otherwise: nullable_primary_key rejection."""
+    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=True, description=None)]
+    rows = [KeysRow(2, "USERS", ["user_id"], [])]
+    pk_index = build_pk_index(rows)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert any(e.kind == "nullable_primary_key" and e.field == "user_id" for e in errors)
+
+
+def test_enrich_pk_with_nullable_false_ok():
+    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=False, description=None)]
+    rows = [KeysRow(2, "USERS", ["user_id"], [])]
+    pk_index = build_pk_index(rows)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert errors == []
+    assert fields[0].primary_key is True
+
+
+def test_enrich_pk_with_nullable_none_ok():
+    """nullable=None means `mandatory: false` on the source column with a blank
+    cell — no explicit declaration. The PK+nullable rule only fires on
+    nullable=True (explicit `is nullable`), not on absence."""
+    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=None, description=None)]
+    rows = [KeysRow(2, "USERS", ["user_id"], [])]
+    pk_index = build_pk_index(rows)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert errors == []
+
+
+def test_enrich_fk_allow_violations_demotes_unknown_target():
+    """FK rule violations land in `fk_warnings`, not `errors`, when
+    allow_violations=True. The field's foreign_key annotation just isn't set."""
+    fields = [_field("order_id"), _field("ghost_col")]
+    rows = [KeysRow(2, "ORDERS", ["order_id"], ["ghost_col"])]
+    pk_index = build_pk_index(rows)
+    _, errors, warnings = enrich_field_contract_list(
+        fields, "ORDERS", rows, pk_index, fk_allow_violations=True,
+    )
+    assert errors == []
+    assert any(w.kind == "unknown_foreign_key_target" for w in warnings)
+    assert fields[1].foreign_key is None
+
+
+def test_enrich_fk_allow_violations_demotes_ambiguous_target():
+    fields = [_field("order_id"), _field("id")]
+    rows = [
+        KeysRow(2, "TABLE_A", ["id"], []),
+        KeysRow(3, "TABLE_B", ["id"], []),
+        KeysRow(4, "ORDERS",  ["order_id"], ["id"]),
+    ]
+    pk_index = build_pk_index(rows)
+    _, errors, warnings = enrich_field_contract_list(
+        fields, "ORDERS",
+        [r for r in rows if r.table_name == "ORDERS"],
+        pk_index,
+        fk_allow_violations=True,
+    )
+    assert errors == []
+    assert any(w.kind == "ambiguous_foreign_key_target" for w in warnings)
+
+
+def test_enrich_fk_allow_violations_does_not_demote_pk_errors():
+    """PK errors are NOT downgraded by allow_violations (it's FK-specific)."""
+    fields = [_field("name")]  # no `user_id` field — PK reference is broken
+    rows = [KeysRow(2, "USERS", ["user_id"], [])]
+    pk_index = build_pk_index(rows)
+    _, errors, warnings = enrich_field_contract_list(
+        fields, "USERS", rows, pk_index, fk_allow_violations=True,
+    )
+    assert any(e.kind == "unknown_pk_field" for e in errors)
+    assert warnings == []
 
 
 def test_enrich_duplicate_pk_declaration_is_idempotent():
@@ -376,7 +452,7 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
         KeysRow(3, "USERS", ["user_id"], []),  # duplicate
     ]
     pk_index = build_pk_index(rows)
-    _, errors = enrich_field_contract_list(
+    _, errors, _ = enrich_field_contract_list(
         fields, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
@@ -606,6 +682,70 @@ def test_cli_keys_missing_table_rejects_that_table_only(tmp_path, repo_root, mon
     assert rejected.exists()
     rej = yaml.safe_load(rejected.read_text(encoding="utf-8"))
     assert any(e["kind"] == "keys_missing_table" for e in rej["errors"])
+
+
+def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
+    """defaults.yaml sets `foreign_key.allow_violations: true`. The spec has an
+    FK row pointing at a column that doesn't exist anywhere. Expect: the
+    contract still builds (exit 0); the offending field has no foreign_key."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "configs" / "types.yaml").write_text(
+        (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    edir = tmp_path / "epics" / "E"
+    (edir / "configs").mkdir(parents=True)
+    (edir / "specs").mkdir(parents=True)
+    (edir / "contracts").mkdir(parents=True)
+
+    # Custom defaults: include allow_violations: true on the FK entry.
+    (edir / "configs" / "defaults.yaml").write_text("""
+column_mapping:
+  name:        { spec_name: Champ dans extract, mandatory: true }
+  type:        { spec_name: Type, mandatory: true }
+  description: { spec_name: Description, mandatory: false }
+  nullable:
+    spec_name: Obligatoire
+    mandatory: true
+    values:
+      "true":  ["non"]
+      "false": ["oui"]
+
+keys:
+  sheet_name: Keys
+  column_mapping:
+    table_name:  { spec_name: Table, mandatory: true }
+    primary_key: { spec_name: PK, mandatory: true, separator: "|" }
+    foreign_key: { spec_name: FK, mandatory: false, separator: "|", allow_violations: true }
+    comments:    { spec_name: Comments, mandatory: false }
+""", encoding="utf-8")
+    (edir / "configs" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+        "tables:\n  - table_name: T\n",
+        encoding="utf-8",
+    )
+
+    wb = Workbook()
+    wb.active.title = "T"
+    ws = wb["T"]
+    ws.append(["Champ dans extract", "Type", "Description", "Obligatoire ?"])
+    ws.append(["x", "Double", "d", "OUI"])
+    # Keys sheet declares `ghost` as an FK on table T — ghost doesn't exist as
+    # a field. With allow_violations=true, that's a warning not a rejection.
+    add_keys_sheet(wb, [("T", "x", "ghost")])
+    wb.save(edir / "specs" / "spec.xlsx")
+
+    rc = main(["generate", "--epic", "E"])
+    assert rc == 0
+    canonical = edir / "contracts" / "T.yaml"
+    assert canonical.exists()
+    data = yaml.safe_load(canonical.read_text(encoding="utf-8"))
+    by_name = {f["name"]: f for f in data["fields"]}
+    # `x` got its PK flag; no `foreign_key` because the FK target was unresolved
+    # and allow_violations downgraded it to a warning.
+    assert by_name["x"].get("primary_key") is True
+    assert "foreign_key" not in by_name["x"]
 
 
 def test_cli_unknown_pk_field_rejection(tmp_path, repo_root, monkeypatch):

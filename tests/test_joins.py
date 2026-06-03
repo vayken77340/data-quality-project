@@ -533,6 +533,46 @@ def test_cli_joins_rejection_when_table_missing(tmp_path, repo_root, monkeypatch
 # ---------------------------------------------------------------------------
 
 
+def test_cardinality_custom_separator_accepts_only_declared():
+    """When the cardinality column declares `separator: "->"`, only that
+    divider parses successfully; other styles return None."""
+    assert parse_cardinality("1->n", separator="->") == "1:n"
+    assert parse_cardinality("1 -> n", separator="->") == "1:n"  # whitespace OK
+    assert parse_cardinality("1:n", separator="->") is None
+    assert parse_cardinality("1 to n", separator="->") is None
+
+
+def test_cardinality_custom_separator_with_spaces():
+    """Multi-char separators with spaces work too."""
+    assert parse_cardinality("1  -->  n", separator="-->") == "1:n"
+    assert parse_cardinality("1->n", separator="-->") is None
+
+
+def test_cardinality_separator_flows_from_config_through_reader():
+    """End-to-end: defaults declares `separator: "->"`, the parser rejects
+    `1:n` style values from the spec but accepts `1 -> n`."""
+    spec_strict = _spec("""
+sheet_name: Joins
+column_mapping:
+  source_table:  { spec_name: Source Table, mandatory: true }
+  target_table:  { spec_name: Target Table, mandatory: true }
+  source_column: { spec_name: Source Col,   mandatory: true }
+  target_column: { spec_name: Target Col,   mandatory: true }
+  join_type:     { spec_name: Type,         mandatory: true }
+  cardinality:   { spec_name: Card,         mandatory: false, separator: "->" }
+""")
+    # Spec uses the declared separator -> parses cleanly.
+    wb_ok = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", "1 -> n")])
+    res = read_joins_sheet(wb_ok, spec_strict)
+    assert not res.errors
+    assert res.rows[0].cardinality == "1:n"
+
+    # Spec uses a different separator -> invalid_cardinality.
+    wb_bad = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", "1:n")])
+    res2 = read_joins_sheet(wb_bad, spec_strict)
+    assert any(e.kind == "invalid_cardinality" for e in res2.errors)
+
+
 def test_join_type_aliases_has_canonical_set():
     canonical = {"INNER", "LEFT", "RIGHT", "FULL", "CROSS"}
     assert set(JOIN_TYPE_ALIASES.values()) == canonical

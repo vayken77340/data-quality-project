@@ -51,6 +51,27 @@ def test_decimal_precision_scale(registry):
     assert parsed.scale == 2
 
 
+@pytest.mark.parametrize("raw, expected", [
+    ("VARCHAR(40 000 000)", 40_000_000),       # French thousand grouping with spaces
+    ("VARCHAR(40 000)", 40_000),
+    ("VARCHAR (40 000 000)", 40_000_000),      # whitespace before parens still tolerated
+    ("varchar(1 234)", 1_234),
+    ("VARCHAR(1 2 3 4)", 1234), # non-breaking spaces inside
+])
+def test_varchar_with_grouped_number(registry, raw, expected):
+    parsed, err = parse_type(raw, registry, sheet_row=11)
+    assert err is None, f"unexpected rejection: {err}"
+    assert parsed.type is Type.STRING
+    assert parsed.max_length == expected
+
+
+def test_decimal_with_grouped_precision_and_scale(registry):
+    parsed, err = parse_type("decimal(1 000, 2)", registry, sheet_row=12)
+    assert err is None
+    assert parsed.precision == 1000
+    assert parsed.scale == 2
+
+
 def test_bigint(registry):
     parsed, err = parse_type("BIGINT", registry, sheet_row=8)
     assert err is None
