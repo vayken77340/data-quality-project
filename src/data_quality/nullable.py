@@ -8,16 +8,23 @@ from data_quality.errors import ConfigError, RejectionError
 @dataclass(frozen=True)
 class NullableMapping:
     spec_name: str
-    mandatory: bool
     true_values: frozenset[str]
     false_values: frozenset[str]
+    required: bool = True
+    value_required: bool = False
 
     @classmethod
     def from_dict(cls, raw: dict) -> "NullableMapping":
         spec_name = raw.get("spec_name")
         if not isinstance(spec_name, str) or not spec_name:
             raise ConfigError("column_mapping.nullable.spec_name must be a non-empty string")
-        mandatory = bool(raw.get("mandatory", False))
+        required = bool(raw.get("required", True))
+        value_required = bool(raw.get("value_required", False))
+        if not required and value_required:
+            raise ConfigError(
+                "column_mapping.nullable: cannot have `required: false` with `value_required: true`. "
+                "A column whose existence is optional cannot also require values per row."
+            )
         values = raw.get("values") or {}
         if not isinstance(values, dict):
             raise ConfigError("column_mapping.nullable.values must be a mapping of 'true'/'false' -> list")
@@ -34,7 +41,8 @@ class NullableMapping:
             )
         return cls(
             spec_name=spec_name,
-            mandatory=mandatory,
+            required=required,
+            value_required=value_required,
             true_values=true_set,
             false_values=false_set,
         )
@@ -54,19 +62,19 @@ def parse_nullable(
 
     Returns:
       (True/False, None)   on a recognized value
-      (None, RejectionError(missing_mandatory)) on empty + mandatory
-      (None, None) on empty + not mandatory (caller omits nullable from the contract)
+      (None, RejectionError(missing_mandatory)) on empty + value_required
+      (None, None) on empty + not value_required (caller omits nullable from the contract)
       (None, RejectionError(invalid_nullable)) on an unrecognized token
     """
     is_empty = raw is None or str(raw).strip() == ""
     if is_empty:
-        if mapping.mandatory:
+        if mapping.value_required:
             return None, RejectionError(
                 kind="missing_mandatory",
                 sheet_row=sheet_row,
                 column=mapping.spec_name,
                 field="nullable",
-                message=f"field 'nullable' (column {mapping.spec_name!r}) is mandatory but cell is empty",
+                message=f"field 'nullable' (column {mapping.spec_name!r}) requires a value but the cell is empty",
             )
         return None, None
 

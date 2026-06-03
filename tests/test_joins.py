@@ -44,14 +44,14 @@ from .conftest import add_keys_sheet, minimal_defaults_yaml
 _DEFAULT_JOINS_SPEC_YAML = """
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, mandatory: true }
-  target_table:  { spec_name: Target Table, mandatory: true }
-  source_column: { spec_name: Source Col,   mandatory: true }
-  target_column: { spec_name: Target Col,   mandatory: true }
-  join_type:     { spec_name: Type,         mandatory: true }
-  cardinality:   { spec_name: Card,         mandatory: false }
-  comment:       { spec_name: Comment,      mandatory: false }
-  description:   { spec_name: Description,  mandatory: false }
+  source_table:  { spec_name: Source Table, value_required: true }
+  target_table:  { spec_name: Target Table, value_required: true }
+  source_column: { spec_name: Source Col,   value_required: true }
+  target_column: { spec_name: Target Col,   value_required: true }
+  join_type:     { spec_name: Type,         value_required: true }
+  cardinality:   { spec_name: Card,         value_required: false }
+  comment:       { spec_name: Comment,      value_required: false }
+  description:   { spec_name: Description,  value_required: false }
 """
 
 
@@ -135,11 +135,11 @@ def test_joins_optional_columns_absent_ok():
     spec = _spec("""
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, mandatory: true }
-  target_table:  { spec_name: Target Table, mandatory: true }
-  source_column: { spec_name: Source Col,   mandatory: true }
-  target_column: { spec_name: Target Col,   mandatory: true }
-  join_type:     { spec_name: Type,         mandatory: true }
+  source_table:  { spec_name: Source Table, value_required: true }
+  target_table:  { spec_name: Target Table, value_required: true }
+  source_column: { spec_name: Source Col,   value_required: true }
+  target_column: { spec_name: Target Col,   value_required: true }
+  join_type:     { spec_name: Type,         value_required: true }
 """)
     wb = Workbook()
     ws = wb.create_sheet("Joins")
@@ -436,13 +436,13 @@ def _bootstrap_joins_epic(
 joins:
   sheet_name: Joins
   column_mapping:
-    source_table:  { spec_name: Source Table, mandatory: true }
-    target_table:  { spec_name: Target Table, mandatory: true }
-    source_column: { spec_name: Source Col,   mandatory: true }
-    target_column: { spec_name: Target Col,   mandatory: true }
-    join_type:     { spec_name: Type,         mandatory: true }
-    cardinality:   { spec_name: Card,         mandatory: false }
-    description:   { spec_name: Description,  mandatory: false }
+    source_table:  { spec_name: Source Table, value_required: true }
+    target_table:  { spec_name: Target Table, value_required: true }
+    source_column: { spec_name: Source Col,   value_required: true }
+    target_column: { spec_name: Target Col,   value_required: true }
+    join_type:     { spec_name: Type,         value_required: true }
+    cardinality:   { spec_name: Card,         value_required: false }
+    description:   { spec_name: Description,  value_required: false }
 """
     (edir / "configs" / "defaults.yaml").write_text(defaults, encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
@@ -554,12 +554,12 @@ def test_cardinality_separator_flows_from_config_through_reader():
     spec_strict = _spec("""
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, mandatory: true }
-  target_table:  { spec_name: Target Table, mandatory: true }
-  source_column: { spec_name: Source Col,   mandatory: true }
-  target_column: { spec_name: Target Col,   mandatory: true }
-  join_type:     { spec_name: Type,         mandatory: true }
-  cardinality:   { spec_name: Card,         mandatory: false, separator: "->" }
+  source_table:  { spec_name: Source Table, value_required: true }
+  target_table:  { spec_name: Target Table, value_required: true }
+  source_column: { spec_name: Source Col,   value_required: true }
+  target_column: { spec_name: Target Col,   value_required: true }
+  join_type:     { spec_name: Type,         value_required: true }
+  cardinality:   { spec_name: Card,         value_required: false, separator: "->" }
 """)
     # Spec uses the declared separator -> parses cleanly.
     wb_ok = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", "1 -> n")])

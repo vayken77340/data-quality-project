@@ -43,10 +43,10 @@ from .conftest import add_keys_sheet, minimal_keys_block_yaml
 _DEFAULT_KEYS_SPEC_YAML = """
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, mandatory: true }
-  primary_key: { spec_name: PK, mandatory: true, separator: "|" }
-  foreign_key: { spec_name: FK, mandatory: false, separator: "|" }
-  comments:    { spec_name: Comments, mandatory: false }
+  table_name:  { spec_name: Table, value_required: true }
+  primary_key: { spec_name: PK, value_required: true, separator: "|" }
+  foreign_key: { spec_name: FK, value_required: false, separator: "|" }
+  comments:    { spec_name: Comments, value_required: false }
 """
 
 
@@ -141,8 +141,8 @@ def test_keys_optional_columns_absent():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, mandatory: true }
-  primary_key: { spec_name: PK, mandatory: true, separator: "|" }
+  table_name:  { spec_name: Table, value_required: true }
+  primary_key: { spec_name: PK, value_required: true, separator: "|" }
 """)
     result = read_keys_sheet(wb, spec)
     assert not result.errors
@@ -200,8 +200,8 @@ def test_custom_separator():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, mandatory: true }
-  primary_key: { spec_name: PK, mandatory: true, separator: "," }
+  table_name:  { spec_name: Table, value_required: true }
+  primary_key: { spec_name: PK, value_required: true, separator: "," }
 """)
     wb = Workbook()
     ws = wb.create_sheet("Keys")
@@ -391,7 +391,7 @@ def test_enrich_pk_with_nullable_false_ok():
 
 
 def test_enrich_pk_with_nullable_none_ok():
-    """nullable=None means `mandatory: false` on the source column with a blank
+    """nullable=None means `value_required: false` on the source column with a blank
     cell — no explicit declaration. The PK+nullable rule only fires on
     nullable=True (explicit `is nullable`), not on absence."""
     fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=None, description=None)]
@@ -466,12 +466,12 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
 
 _VALID_COLUMN_MAPPING_YAML = """
 column_mapping:
-  name:        { spec_name: N, mandatory: true }
-  type:        { spec_name: T, mandatory: true }
-  description: { spec_name: D, mandatory: false }
+  name:        { spec_name: N, value_required: true }
+  type:        { spec_name: T, value_required: true }
+  description: { spec_name: D, value_required: false }
   nullable:
     spec_name: Obligatoire
-    mandatory: true
+    value_required: true
     values:
       "true":  ["non"]
       "false": ["oui"]
@@ -490,8 +490,8 @@ def test_keys_block_missing_sheet_name_raises_config_error(tmp_path):
     p.write_text(_VALID_COLUMN_MAPPING_YAML + """
 keys:
   column_mapping:
-    table_name:  { spec_name: Table, mandatory: true }
-    primary_key: { spec_name: PK, mandatory: true, separator: "|" }
+    table_name:  { spec_name: Table, value_required: true }
+    primary_key: { spec_name: PK, value_required: true, separator: "|" }
 """, encoding="utf-8")
     with pytest.raises(ConfigError, match="sheet_name"):
         Defaults.from_yaml(p)
@@ -501,8 +501,8 @@ def test_keys_block_partial_columns_only_required_two():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, mandatory: true }
-  primary_key: { spec_name: PK, mandatory: true, separator: "|" }
+  table_name:  { spec_name: Table, value_required: true }
+  primary_key: { spec_name: PK, value_required: true, separator: "|" }
 """)
     assert spec.column_mapping.foreign_key is None
     assert spec.column_mapping.comments is None
@@ -513,8 +513,8 @@ def test_keys_separator_required_non_empty():
         _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, mandatory: true }
-  primary_key: { spec_name: PK, mandatory: true, separator: "" }
+  table_name:  { spec_name: Table, value_required: true }
+  primary_key: { spec_name: PK, value_required: true, separator: "" }
 """)
 
 
@@ -586,12 +586,12 @@ def _bootstrap_keys_epic(
     (edir / "configs" / "defaults.yaml").write_text(
         """
 column_mapping:
-  name:        { spec_name: Champ dans extract, mandatory: true }
-  type:        { spec_name: Type, mandatory: true }
-  description: { spec_name: Description, mandatory: false }
+  name:        { spec_name: Champ dans extract, value_required: true }
+  type:        { spec_name: Type, value_required: true }
+  description: { spec_name: Description, value_required: false }
   nullable:
     spec_name: Obligatoire
-    mandatory: true
+    value_required: true
     values:
       "true":  ["non"]
       "false": ["oui"]
@@ -702,12 +702,12 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
     # Custom defaults: include allow_violations: true on the FK entry.
     (edir / "configs" / "defaults.yaml").write_text("""
 column_mapping:
-  name:        { spec_name: Champ dans extract, mandatory: true }
-  type:        { spec_name: Type, mandatory: true }
-  description: { spec_name: Description, mandatory: false }
+  name:        { spec_name: Champ dans extract, value_required: true }
+  type:        { spec_name: Type, value_required: true }
+  description: { spec_name: Description, value_required: false }
   nullable:
     spec_name: Obligatoire
-    mandatory: true
+    value_required: true
     values:
       "true":  ["non"]
       "false": ["oui"]
@@ -715,10 +715,10 @@ column_mapping:
 keys:
   sheet_name: Keys
   column_mapping:
-    table_name:  { spec_name: Table, mandatory: true }
-    primary_key: { spec_name: PK, mandatory: true, separator: "|" }
-    foreign_key: { spec_name: FK, mandatory: false, separator: "|", allow_violations: true }
-    comments:    { spec_name: Comments, mandatory: false }
+    table_name:  { spec_name: Table, value_required: true }
+    primary_key: { spec_name: PK, value_required: true, separator: "|" }
+    foreign_key: { spec_name: FK, value_required: false, separator: "|", allow_violations: true }
+    comments:    { spec_name: Comments, value_required: false }
 """, encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"

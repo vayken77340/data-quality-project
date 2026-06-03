@@ -22,16 +22,16 @@ KEYS_HEADERS = ("Table", "PK", "FK", "Comments")
 MINIMAL_DEFAULTS_YAML = """column_mapping:
   name:
     spec_name: Champ dans extract
-    mandatory: true
+    value_required: true
   type:
     spec_name: Type
-    mandatory: true
+    value_required: true
   description:
     spec_name: Description
-    mandatory: false
+    required: false
   nullable:
     spec_name: Obligatoire
-    mandatory: true
+    value_required: true
     values:
       "true":  ["non", "no", "false", "0", "n"]
       "false": ["oui", "yes", "true", "1", "o", "y"]
@@ -50,10 +50,10 @@ def minimal_keys_block_yaml(sheet_name: str = KEYS_SHEET_NAME) -> str:
         f"keys:\n"
         f"  sheet_name: {sheet_name!r}\n"
         f"  column_mapping:\n"
-        f"    table_name:  {{ spec_name: '{KEYS_HEADERS[0]}', mandatory: true }}\n"
-        f"    primary_key: {{ spec_name: '{KEYS_HEADERS[1]}', mandatory: true,  separator: '|' }}\n"
-        f"    foreign_key: {{ spec_name: '{KEYS_HEADERS[2]}', mandatory: false, separator: '|' }}\n"
-        f"    comments:    {{ spec_name: '{KEYS_HEADERS[3]}', mandatory: false }}\n"
+        f"    table_name:  {{ spec_name: '{KEYS_HEADERS[0]}', value_required: true }}\n"
+        f"    primary_key: {{ spec_name: '{KEYS_HEADERS[1]}', value_required: true,  separator: '|' }}\n"
+        f"    foreign_key: {{ spec_name: '{KEYS_HEADERS[2]}', separator: '|' }}\n"
+        f"    comments:    {{ spec_name: '{KEYS_HEADERS[3]}', required: false }}\n"
     )
 
 

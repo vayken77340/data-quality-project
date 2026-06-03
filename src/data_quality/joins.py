@@ -223,14 +223,12 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
     sheet_name = matches[0]
     ws = wb[sheet_name]
 
-    # Header row (depth-5 scan, mirrors keys/per-table sheets).
-    required_norm = {
-        normalize(cm.source_table.spec_name),
-        normalize(cm.target_table.spec_name),
-        normalize(cm.source_column.spec_name),
-        normalize(cm.target_column.spec_name),
-        normalize(cm.join_type.spec_name),
-    }
+    # Header row (depth-5 scan). Only columns with `required: true` (default)
+    # contribute to header discovery.
+    _required_for_header = [
+        cm.source_table, cm.target_table, cm.source_column, cm.target_column, cm.join_type,
+    ]
+    required_norm = {normalize(c.spec_name) for c in _required_for_header if c.required}
     located: tuple[int, list[str | None]] | None = None
     for row_idx, row in enumerate(
         ws.iter_rows(min_row=1, max_row=HEADER_SEARCH_DEPTH, values_only=True), start=1
@@ -264,10 +262,17 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
         "description":   find_column(headers, cm.description.spec_name) if cm.description else None,
     }
 
-    # Mandatory column headers must be present.
+    # Required column headers must be present.
+    required_columns = {
+        "source_table":  cm.source_table,
+        "target_table":  cm.target_table,
+        "source_column": cm.source_column,
+        "target_column": cm.target_column,
+        "join_type":     cm.join_type,
+    }
     missing: list[str] = []
-    for key in ("source_table", "target_table", "source_column", "target_column", "join_type"):
-        if indices[key] is None:
+    for key, col in required_columns.items():
+        if indices[key] is None and col.required:
             missing.append(key)
     if missing:
         out.errors.append(RejectionError(
@@ -275,15 +280,6 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
             message=f"joins sheet {sheet_name!r}: missing required column headers: {', '.join(missing)}",
         ))
         return out
-
-    # Mandatory cell extractor.
-    mandatory_keys = {
-        "source_table":  cm.source_table,
-        "target_table":  cm.target_table,
-        "source_column": cm.source_column,
-        "target_column": cm.target_column,
-        "join_type":     cm.join_type,
-    }
 
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx <= header_row:
@@ -295,26 +291,38 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
         raw_cells = {key: _cell(row, idx) for key, idx in indices.items()}
         row_errors: list[RejectionError] = []
         trimmed: dict[str, str] = {}
+        skip_row = False
 
-        # Mandatory cells.
-        for key, col in mandatory_keys.items():
+        # Per-row checks for each conceptually-required column. Blank cells in
+        # a `value_required: true` column produce a rejection; blank cells in
+        # a `value_required: false` column silently skip the row (we can't
+        # build a join without all five values).
+        for key, col in required_columns.items():
+            if indices[key] is None:
+                skip_row = True  # column header was absent (required=false)
+                continue
             value = raw_cells[key]
             if value is None or str(value).strip() == "":
-                row_errors.append(RejectionError(
-                    kind="missing_mandatory",
-                    sheet_row=row_idx,
-                    column=col.spec_name,
-                    field=key,
-                    message=(
-                        f"joins sheet {sheet_name!r} row {row_idx}: "
-                        f"column {col.spec_name!r} ({key}) is mandatory but cell is empty"
-                    ),
-                ))
-            else:
-                trimmed[key] = str(value).strip()
+                if col.value_required:
+                    row_errors.append(RejectionError(
+                        kind="missing_mandatory",
+                        sheet_row=row_idx,
+                        column=col.spec_name,
+                        field=key,
+                        message=(
+                            f"joins sheet {sheet_name!r} row {row_idx}: "
+                            f"column {col.spec_name!r} ({key}) requires a value but the cell is empty"
+                        ),
+                    ))
+                else:
+                    skip_row = True
+                continue
+            trimmed[key] = str(value).strip()
 
         if row_errors:
             out.errors.extend(row_errors)
+            continue
+        if skip_row:
             continue
 
         # Normalize join_type.

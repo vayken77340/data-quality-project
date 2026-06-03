@@ -38,9 +38,14 @@ class DriftChange:
 
 @dataclass
 class ConstraintColumnRef:
-    """The spec-column lookup info shared by every constraint."""
+    """The spec-column lookup info shared by every constraint.
+
+    `required` (default True): the column header must exist in the sheet.
+    `value_required` (default False): every non-empty row must have a value.
+    """
     spec_name: str
-    mandatory: bool
+    required: bool = True
+    value_required: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +57,14 @@ def parse_column_ref(raw: dict, *, name: str) -> ConstraintColumnRef:
     spec_name = raw.get("spec_name")
     if not isinstance(spec_name, str) or not spec_name:
         raise ConfigError(f"column_mapping.{name}.spec_name must be a non-empty string")
-    return ConstraintColumnRef(spec_name=spec_name, mandatory=bool(raw.get("mandatory", False)))
+    required = bool(raw.get("required", True))
+    value_required = bool(raw.get("value_required", False))
+    if not required and value_required:
+        raise ConfigError(
+            f"column_mapping.{name}: cannot have `required: false` with `value_required: true`. "
+            f"A column whose existence is optional cannot also require values per row."
+        )
+    return ConstraintColumnRef(spec_name=spec_name, required=required, value_required=value_required)
 
 
 DEFAULT_BOOL_TRUE = frozenset(["oui", "yes", "true", "1", "o", "y"])
@@ -217,12 +229,12 @@ class FieldConstraint(ABC):
     ) -> tuple[Any | None, RejectionError | None]:
         """Template method: every constraint shares the same blank-cell handling.
 
-        Blank + mandatory  -> missing_mandatory rejection.
-        Blank + optional   -> (None, None); the field omits this key in the contract.
-        Otherwise          -> dispatches to `_parse_non_empty` with the trimmed string.
+        Blank + value_required  -> missing_mandatory rejection.
+        Blank + optional        -> (None, None); the field omits this key in the contract.
+        Otherwise               -> dispatches to `_parse_non_empty` with the trimmed string.
         """
         if raw is None or str(raw).strip() == "":
-            if self.column.mandatory:
+            if self.column.value_required:
                 return None, self._missing_mandatory(ctx)
             return None, None
         return self._parse_non_empty(str(raw).strip(), raw, ctx)
@@ -255,7 +267,7 @@ class FieldConstraint(ABC):
             field=self.name,
             message=(
                 f"field {self.name!r} (column {self.column.spec_name!r}) "
-                f"is mandatory but cell is empty"
+                f"requires a value but the cell is empty"
             ),
         )
 

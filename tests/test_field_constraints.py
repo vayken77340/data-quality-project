@@ -112,15 +112,15 @@ def test_unknown_constraint_in_column_mapping_is_config_error():
     from data_quality.errors import ConfigError
     with pytest.raises(ConfigError):
         ColumnMapping.from_dict({
-            "name": {"spec_name": "N", "mandatory": True},
-            "type": {"spec_name": "T", "mandatory": True},
-            "description": {"spec_name": "D", "mandatory": False},
+            "name": {"spec_name": "N", "value_required": True},
+            "type": {"spec_name": "T", "value_required": True},
+            "description": {"spec_name": "D", "value_required": False},
             "nullable": {
                 "spec_name": "Obligatoire",
-                "mandatory": True,
+                "value_required": True,
                 "values": {"true": ["non"], "false": ["oui"]},
             },
-            "no_such_constraint_zzz": {"spec_name": "X", "mandatory": False},
+            "no_such_constraint_zzz": {"spec_name": "X", "value_required": False},
         })
 
 
@@ -151,15 +151,15 @@ def test_extensibility_register_custom_constraint(tmp_path):
     field_constraints.register(StartsWithConstraint)
     try:
         cm = ColumnMapping.from_dict({
-            "name": {"spec_name": "Field Name", "mandatory": True},
-            "type": {"spec_name": "Type", "mandatory": True},
-            "description": {"spec_name": "Description", "mandatory": False},
+            "name": {"spec_name": "Field Name", "value_required": True},
+            "type": {"spec_name": "Type", "value_required": True},
+            "description": {"spec_name": "Description", "value_required": False},
             "nullable": {
                 "spec_name": "Obligatoire",
-                "mandatory": True,
+                "value_required": True,
                 "values": {"true": ["non"], "false": ["oui"]},
             },
-            "starts_with": {"spec_name": "Prefix", "mandatory": False},
+            "starts_with": {"spec_name": "Prefix", "value_required": False},
         })
         assert "starts_with" in cm.constraints
     finally:
@@ -170,23 +170,23 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
     """Build a contract from synthetic spec rows that exercise list + pattern,
     confirm flat keys appear on the field block."""
     cm = ColumnMapping.from_dict({
-        "name": {"spec_name": "Field Name", "mandatory": True},
-        "type": {"spec_name": "Type", "mandatory": True},
-        "description": {"spec_name": "Description", "mandatory": False},
+        "name": {"spec_name": "Field Name", "value_required": True},
+        "type": {"spec_name": "Type", "value_required": True},
+        "description": {"spec_name": "Description", "value_required": False},
         "nullable": {
             "spec_name": "Obligatoire",
-            "mandatory": True,
+            "value_required": True,
             "values": {"true": ["non"], "false": ["oui"]},
         },
-        "list": {"spec_name": "Values", "mandatory": False, "separator": ","},
-        "pattern": {"spec_name": "Pattern", "mandatory": False},
+        "list": {"spec_name": "Values", "value_required": False, "separator": ","},
+        "pattern": {"spec_name": "Pattern", "value_required": False},
     })
     from data_quality.config import KeysSpec, MergedConfig, TableSelector
     keys = KeysSpec.from_dict({
         "sheet_name": "Keys",
         "column_mapping": {
-            "table_name":  {"spec_name": "Table", "mandatory": True},
-            "primary_key": {"spec_name": "PK", "mandatory": True, "separator": "|"},
+            "table_name":  {"spec_name": "Table", "value_required": True},
+            "primary_key": {"spec_name": "PK", "value_required": True, "separator": "|"},
         },
     })
     merged = MergedConfig(

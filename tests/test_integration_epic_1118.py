@@ -84,7 +84,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
 
     by_name = {f["name"]: f for f in data["fields"]}
     assert by_name["proj_id"]["type"] == "number"
-    assert by_name["proj_id"]["nullable"] is False  # OUI -> mandatory -> not nullable
+    assert by_name["proj_id"]["nullable"] is False  # OUI -> value_required -> not nullable
     assert by_name["proj_id"]["primary_key"] is True  # from the synthesized Keys sheet
     assert by_name["column1"]["type"] == "boolean"
     assert by_name["column1"]["nullable"] is True

@@ -120,20 +120,21 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
 
     header_row, headers = located
 
-    # Find each declared column. Mandatory columns missing -> header_not_found.
+    # Find each declared column. Columns whose `required: true` (default) are
+    # missing -> header_not_found.
     table_name_idx = find_column(headers, cm.table_name.spec_name)
     pk_idx = find_column(headers, cm.primary_key.spec_name)
     fk_idx = find_column(headers, cm.foreign_key.spec_name) if cm.foreign_key is not None else None
     # `comments` index isn't needed (never carried into the contract); validate header presence only.
 
     missing: list[str] = []
-    if table_name_idx is None and cm.table_name.mandatory:
+    if table_name_idx is None and cm.table_name.required:
         missing.append(f"table_name ({cm.table_name.spec_name!r})")
-    if pk_idx is None and cm.primary_key.mandatory:
+    if pk_idx is None and cm.primary_key.required:
         missing.append(f"primary_key ({cm.primary_key.spec_name!r})")
-    if cm.foreign_key is not None and fk_idx is None and cm.foreign_key.mandatory:
+    if cm.foreign_key is not None and fk_idx is None and cm.foreign_key.required:
         missing.append(f"foreign_key ({cm.foreign_key.spec_name!r})")
-    if cm.comments is not None and cm.comments.mandatory:
+    if cm.comments is not None and cm.comments.required:
         if find_column(headers, cm.comments.spec_name) is None:
             missing.append(f"comments ({cm.comments.spec_name!r})")
     if missing:
@@ -154,9 +155,9 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
         pk_raw = _cell(row, pk_idx)
         fk_raw = _cell(row, fk_idx) if fk_idx is not None else None
 
-        # table_name (mandatory)
+        # table_name (value_required honored)
         if table_raw is None or str(table_raw).strip() == "":
-            if cm.table_name.mandatory:
+            if cm.table_name.value_required:
                 out.errors.append(RejectionError(
                     kind="missing_mandatory",
                     sheet_row=row_idx,
@@ -164,16 +165,16 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
                     field="table_name",
                     message=(
                         f"keys sheet {sheet_name!r} row {row_idx}: "
-                        f"column {cm.table_name.spec_name!r} (table_name) is mandatory but cell is empty"
+                        f"column {cm.table_name.spec_name!r} (table_name) requires a value but the cell is empty"
                     ),
                 ))
             continue
         table_name = str(table_raw).strip()
 
-        # primary_key (mandatory, must yield >=1 after split)
+        # primary_key (must yield >=1 after split when value_required)
         primary_keys = split_separated(pk_raw, cm.primary_key.separator)
         if not primary_keys:
-            if cm.primary_key.mandatory:
+            if cm.primary_key.value_required:
                 out.errors.append(RejectionError(
                     kind="missing_mandatory",
                     sheet_row=row_idx,
@@ -182,7 +183,7 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
                     value=pk_raw,
                     message=(
                         f"keys sheet {sheet_name!r} row {row_idx} (table {table_name!r}): "
-                        f"column {cm.primary_key.spec_name!r} (primary_key) is mandatory but cell is empty"
+                        f"column {cm.primary_key.spec_name!r} (primary_key) requires a value but the cell is empty"
                     ),
                 ))
             continue

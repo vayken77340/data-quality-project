@@ -10,12 +10,12 @@ from data_quality.spec_reader import (
 
 
 COLUMN_MAPPING_RAW = {
-    "name": {"spec_name": "Champ dans extract", "mandatory": True},
-    "type": {"spec_name": "Type", "mandatory": True},
-    "description": {"spec_name": "Description", "mandatory": False},
+    "name": {"spec_name": "Champ dans extract", "value_required": True},
+    "type": {"spec_name": "Type", "value_required": True},
+    "description": {"spec_name": "Description", "value_required": False},
     "nullable": {
         "spec_name": "Obligatoire",
-        "mandatory": True,
+        "value_required": True,
         "values": {"true": ["non"], "false": ["oui"]},
     },
 }

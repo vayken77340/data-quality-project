@@ -76,17 +76,18 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
 
     col_idx: dict[str, int] = {}
     missing: list[str] = []
-    for logical, spec_name in (
-        ("name", mapping.name.spec_name),
-        ("type", mapping.type.spec_name),
-        ("description", mapping.description.spec_name),
-        ("nullable", mapping.nullable.spec_name),
+    for logical, col_spec in (
+        ("name", mapping.name),
+        ("type", mapping.type),
+        ("description", mapping.description),
+        ("nullable", mapping.nullable),
     ):
-        idx = find_column(headers, spec_name)
-        if idx is None:
-            missing.append(f"{logical} ({spec_name!r})")
-        else:
+        idx = find_column(headers, col_spec.spec_name)
+        if idx is not None:
             col_idx[logical] = idx
+        elif col_spec.required:
+            missing.append(f"{logical} ({col_spec.spec_name!r})")
+        # else: column is `required: false` and absent → skip silently
     if missing:
         return _header_not_found(
             f"sheet {sheet_name!r}: missing required columns: {', '.join(missing)}"
@@ -98,20 +99,24 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
         if idx is not None:
             col_idx["table"] = idx
             has_table_column = True
+        elif mapping.table.required:
+            return _header_not_found(
+                f"sheet {sheet_name!r}: missing required column: table ({mapping.table.spec_name!r})"
+            )
 
-    # Locate any declared optional constraint columns. Constraints with a
-    # `mandatory: true` flag whose column is missing become header_not_found.
+    # Locate any declared constraint columns. Columns with `required: true`
+    # (the default) that are missing produce `header_not_found`.
     constraint_cols: dict[str, int] = {}
     constraint_missing: list[str] = []
     for c_name, constraint in mapping.constraints.items():
         idx = find_column(headers, constraint.column.spec_name)
         if idx is not None:
             constraint_cols[c_name] = idx
-        elif constraint.column.mandatory:
+        elif constraint.column.required:
             constraint_missing.append(f"{c_name} ({constraint.column.spec_name!r})")
     if constraint_missing:
         return _header_not_found(
-            f"sheet {sheet_name!r}: missing mandatory constraint columns: "
+            f"sheet {sheet_name!r}: missing required constraint columns: "
             f"{', '.join(constraint_missing)}"
         )
 
@@ -159,15 +164,15 @@ def find_sheet_by_name(wb: Workbook, name: str) -> tuple[str | None, RejectionEr
 
 def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
     ws = wb[sheet_spec.sheet_name]
-    name_idx = sheet_spec.col_idx["name"]
-    type_idx = sheet_spec.col_idx["type"]
-    desc_idx = sheet_spec.col_idx["description"]
-    null_idx = sheet_spec.col_idx["nullable"]
+    # `description` and `nullable` may be absent if the spec declared
+    # `required: false`; cells for missing columns become None.
+    name_idx = sheet_spec.col_idx.get("name")
+    type_idx = sheet_spec.col_idx.get("type")
+    desc_idx = sheet_spec.col_idx.get("description")
+    null_idx = sheet_spec.col_idx.get("nullable")
     table_idx = sheet_spec.col_idx.get("table")
 
-    mapped_indices = {name_idx, type_idx, desc_idx, null_idx}
-    if table_idx is not None:
-        mapped_indices.add(table_idx)
+    mapped_indices = {i for i in (name_idx, type_idx, desc_idx, null_idx, table_idx) if i is not None}
     for idx in sheet_spec.constraint_cols.values():
         mapped_indices.add(idx)
 
@@ -206,11 +211,17 @@ def _row_is_empty(row: tuple, indices: set[int]) -> bool:
 
 
 def _locate_header_row(ws: Worksheet, mapping: ColumnMapping) -> tuple[int, list[str | None]] | None:
-    required_norm = {
-        normalize(mapping.name.spec_name),
-        normalize(mapping.type.spec_name),
-        normalize(mapping.nullable.spec_name),
-    }
+    # Only columns flagged `required: true` (the default) contribute to header
+    # detection. If a spec author marks e.g. `name.required: false`, header
+    # discovery falls back to whichever required-true columns remain.
+    candidates = [mapping.name, mapping.type, mapping.nullable]
+    required_norm = {normalize(c.spec_name) for c in candidates if c.required}
+    if not required_norm:
+        # Pathological config: nothing is required. Treat the first row as the header.
+        first = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if first is None:
+            return None
+        return 1, [None if c is None else str(c) for c in first]
     rows_iter = ws.iter_rows(min_row=1, max_row=HEADER_SEARCH_DEPTH, values_only=True)
     for row_idx, row in enumerate(rows_iter, start=1):
         present = {normalize(c) for c in row if c is not None}

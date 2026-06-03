@@ -1,19 +1,19 @@
 column_mapping:
   name:
     spec_name: Champ dans extract
-    mandatory: true
+    value_required: true
   type:
     spec_name: Type
-    mandatory: true
+    value_required: true
   description:
     spec_name: Description
-    mandatory: false
+    required: false
   table:
     spec_name: Table
-    mandatory: false
+    required: false
   nullable:
     spec_name: Obligatoire
-    mandatory: true
+    value_required: true
     values:
       "true":  ["non", "no", "false", "0", "n"]
       "false": ["oui", "yes", "true", "1", "o", "y"]
@@ -23,43 +23,42 @@ keys:
   column_mapping:
     table_name:
       spec_name: "Table"
-      mandatory: true
+      value_required: true
     primary_key:
       spec_name: "Clé primaire"
-      mandatory: true
+      value_required: true
       separator: "&"
     foreign_key:
       spec_name: "Clé étrangère"
-      mandatory: false
       separator: ","
+      allow_violations: true
     comments:
       spec_name: "Commentaires"
-      mandatory: false
+      required: false
 
 joins:
   sheet_name: "Clés de jointure"
   column_mapping:
     source_table:
       spec_name: "Table Source"
-      mandatory: true
+      value_required: true
     target_table:
       spec_name: "Table Cible"
-      mandatory: true
+      value_required: true
     source_column:
       spec_name: "Clé Jointure Source"
-      mandatory: true
+      value_required: true
     target_column:
       spec_name: "Clé Jointure Cible"
-      mandatory: true
+      value_required: true
     join_type:
       spec_name: "Type de Jointure"
-      mandatory: true
+      value_required: true
     cardinality:
       spec_name: "Cardinalité"
-      mandatory: false
     comment:
       spec_name: "Commentaire"
-      mandatory: false
+      required: false
     description:
       spec_name: "Description / règle métier"
-      mandatory: false
+      required: false

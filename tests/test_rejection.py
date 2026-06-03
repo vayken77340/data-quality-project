@@ -10,12 +10,12 @@ from data_quality.type_mapping import load_type_registry
 
 def _mapping():
     return ColumnMapping.from_dict({
-        "name": {"spec_name": "Champ dans extract", "mandatory": True},
-        "type": {"spec_name": "Type", "mandatory": True},
-        "description": {"spec_name": "Description", "mandatory": False},
+        "name": {"spec_name": "Champ dans extract", "value_required": True},
+        "type": {"spec_name": "Type", "value_required": True},
+        "description": {"spec_name": "Description", "value_required": False},
         "nullable": {
             "spec_name": "Obligatoire",
-            "mandatory": True,
+            "value_required": True,
             "values": {"true": ["non"], "false": ["oui"]},
         },
     })
@@ -25,8 +25,8 @@ def _keys_spec():
     return KeysSpec.from_dict({
         "sheet_name": "Keys",
         "column_mapping": {
-            "table_name":  {"spec_name": "Table", "mandatory": True},
-            "primary_key": {"spec_name": "PK", "mandatory": True, "separator": "|"},
+            "table_name":  {"spec_name": "Table", "value_required": True},
+            "primary_key": {"spec_name": "PK", "value_required": True, "separator": "|"},
         },
     })
 

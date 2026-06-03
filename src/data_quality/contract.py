@@ -151,17 +151,17 @@ def _check_mandatory_blank(
     """Shared 'is this cell blank, and is that ok?' check.
 
     Returns (trimmed string, None) if a value is present.
-    Returns (None, missing_mandatory error) if blank and mandatory.
+    Returns (None, missing_mandatory error) if blank and `col.value_required`.
     Returns (None, None) if blank and optional.
     """
     if raw is None or str(raw).strip() == "":
-        if col.mandatory:
+        if col.value_required:
             return None, RejectionError(
                 kind="missing_mandatory",
                 sheet_row=sheet_row,
                 column=col.spec_name,
                 field=field_name,
-                message=f"field {field_name!r} (column {col.spec_name!r}) is mandatory but cell is empty",
+                message=f"field {field_name!r} (column {col.spec_name!r}) requires a value but the cell is empty",
             )
         return None, None
     return str(raw).strip(), None
