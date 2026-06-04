@@ -3,35 +3,36 @@ from pathlib import Path
 import pytest
 import yaml
 
-from data_quality.config import (
+from data_contract.config import (
     ALL_TABLES,
     Defaults,
     EpicConfig,
     merge,
     select_version_config,
 )
-from data_quality.errors import ConfigError
+from data_contract.errors import ConfigError
 
 from .conftest import minimal_keys_block_yaml
 
 
 DEFAULTS_YAML = """
-column_mapping:
-  name:
-    spec_name: Champ dans extract
-    value_required: true
-  type:
-    spec_name: Type
-    value_required: true
-  description:
-    spec_name: Description
-    value_required: false
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non"]
-      "false": ["oui"]
+fields:
+  column_mapping:
+    name:
+      spec_name: Champ dans extract
+      value_required: true
+    type:
+      spec_name: Type
+      value_required: true
+    description:
+      spec_name: Description
+      value_required: false
+    nullable:
+      spec_name: Obligatoire
+      value_required: true
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
 """ + minimal_keys_block_yaml()
 
 
@@ -146,9 +147,10 @@ def test_merge_overrides_partial_column_mapping(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     override_yaml = (
         "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n"
-        "column_mapping:\n"
-        "  description:\n"
-        "    spec_name: Field Description\n"
+        "fields:\n"
+        "  column_mapping:\n"
+        "    description:\n"
+        "      spec_name: Field Description\n"
     )
     p = _write(cfgs / "v.yaml", override_yaml)
     defaults = Defaults.from_yaml(cfgs / "defaults.yaml")
@@ -175,25 +177,27 @@ def test_merge_preserves_defaults_constraints_when_overriding_unrelated_field(tm
     # at the end of DEFAULTS_YAML. We re-build the defaults file from scratch
     # here so the constraint sits under `column_mapping:`.
     _write(cfgs / "defaults.yaml", """
-column_mapping:
-  name:        { spec_name: Champ dans extract, value_required: true }
-  type:        { spec_name: Type, value_required: true }
-  description: { spec_name: Description, value_required: false }
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non"]
-      "false": ["oui"]
-  unique:
-    spec_name: Unique
-    value_required: false
+fields:
+  column_mapping:
+    name:        { spec_name: Champ dans extract, value_required: true }
+    type:        { spec_name: Type, value_required: true }
+    description: { spec_name: Description, value_required: false }
+    nullable:
+      spec_name: Obligatoire
+      value_required: true
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
+    unique:
+      spec_name: Unique
+      value_required: false
 """ + minimal_keys_block_yaml())
     override_yaml = (
         "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n"
-        "column_mapping:\n"
-        "  description:\n"
-        "    spec_name: Field Description\n"
+        "fields:\n"
+        "  column_mapping:\n"
+        "    description:\n"
+        "      spec_name: Field Description\n"
     )
     p = _write(cfgs / "v.yaml", override_yaml)
     defaults = Defaults.from_yaml(cfgs / "defaults.yaml")

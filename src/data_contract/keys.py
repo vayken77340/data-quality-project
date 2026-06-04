@@ -19,11 +19,11 @@ from dataclasses import dataclass, field
 
 from openpyxl.workbook.workbook import Workbook
 
-from data_quality.config import KeysSpec
-from data_quality.contract import FieldContract
-from data_quality.errors import RejectionError
-from data_quality.header_matcher import find_column, normalize
-from data_quality.spec_reader import HEADER_SEARCH_DEPTH, find_sheet_by_name
+from data_contract.config import KeysSpec
+from data_contract.contract import FieldContract
+from data_contract.errors import RejectionError
+from data_contract.header_matcher import find_column, normalize
+from data_contract.spec_reader import HEADER_SEARCH_DEPTH, find_sheet_by_name
 
 
 # ---------------------------------------------------------------------------
@@ -128,13 +128,13 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
     # `comments` index isn't needed (never carried into the contract); validate header presence only.
 
     missing: list[str] = []
-    if table_name_idx is None and cm.table_name.required:
+    if table_name_idx is None and cm.table_name.column_required:
         missing.append(f"table_name ({cm.table_name.spec_name!r})")
-    if pk_idx is None and cm.primary_key.required:
+    if pk_idx is None and cm.primary_key.column_required:
         missing.append(f"primary_key ({cm.primary_key.spec_name!r})")
-    if cm.foreign_key is not None and fk_idx is None and cm.foreign_key.required:
+    if cm.foreign_key is not None and fk_idx is None and cm.foreign_key.column_required:
         missing.append(f"foreign_key ({cm.foreign_key.spec_name!r})")
-    if cm.comments is not None and cm.comments.required:
+    if cm.comments is not None and cm.comments.column_required:
         if find_column(headers, cm.comments.spec_name) is None:
             missing.append(f"comments ({cm.comments.spec_name!r})")
     if missing:

@@ -1,22 +1,23 @@
-column_mapping:
-  name:
-    spec_name: Champ dans extract
-    value_required: true
-  type:
-    spec_name: Type
-    value_required: true
-  description:
-    spec_name: Description
-    required: false
-  table:
-    spec_name: Table
-    required: false
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non", "no", "false", "0", "n"]
-      "false": ["oui", "yes", "true", "1", "o", "y"]
+fields:
+  column_mapping:
+    name:
+      spec_name: Champ dans extract
+      value_required: true
+    type:
+      spec_name: Type
+      value_required: true
+    description:
+      spec_name: Description
+      column_required: false
+    table:
+      spec_name: Table
+      column_required: false
+    nullable:
+      spec_name: Obligatoire
+      value_required: true
+      values:
+        "true":  ["non", "no", "false", "0", "n"]
+        "false": ["oui", "yes", "true", "1", "o", "y"]
 
 keys:
   sheet_name: "Clés unitaires"
@@ -31,10 +32,9 @@ keys:
     foreign_key:
       spec_name: "Clé étrangère"
       separator: ","
-      allow_violations: true
     comments:
       spec_name: "Commentaires"
-      required: false
+      column_required: false
 
 joins:
   sheet_name: "Clés de jointure"
@@ -58,7 +58,7 @@ joins:
       spec_name: "Cardinalité"
     comment:
       spec_name: "Commentaire"
-      required: false
+      column_required: false
     description:
       spec_name: "Description / règle métier"
-      required: false
+      column_required: false

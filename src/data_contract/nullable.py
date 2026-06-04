@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from data_quality.errors import ConfigError, RejectionError
+from data_contract.errors import ConfigError, RejectionError
 
 
 @dataclass(frozen=True)
@@ -10,7 +10,7 @@ class NullableMapping:
     spec_name: str
     true_values: frozenset[str]
     false_values: frozenset[str]
-    required: bool = True
+    column_required: bool = True
     value_required: bool = False
 
     @classmethod
@@ -18,11 +18,11 @@ class NullableMapping:
         spec_name = raw.get("spec_name")
         if not isinstance(spec_name, str) or not spec_name:
             raise ConfigError("column_mapping.nullable.spec_name must be a non-empty string")
-        required = bool(raw.get("required", True))
+        column_required=bool(raw.get("column_required", True))
         value_required = bool(raw.get("value_required", False))
-        if not required and value_required:
+        if not column_required and value_required:
             raise ConfigError(
-                "column_mapping.nullable: cannot have `required: false` with `value_required: true`. "
+                "column_mapping.nullable: cannot have `column_required: false` with `value_required: true`. "
                 "A column whose existence is optional cannot also require values per row."
             )
         values = raw.get("values") or {}
@@ -41,8 +41,7 @@ class NullableMapping:
             )
         return cls(
             spec_name=spec_name,
-            required=required,
-            value_required=value_required,
+            column_required=column_required, value_required=value_required,
             true_values=true_set,
             false_values=false_set,
         )

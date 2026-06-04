@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 import yaml
 
-from data_quality.errors import ConfigError, RejectionError
+from data_contract.errors import ConfigError, RejectionError
 
 
 class Type(str, Enum):

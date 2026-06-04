@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from data_quality._util import now_iso_z
-from data_quality.contract import Contract, FieldContract
-from data_quality.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
-from data_quality.field_constraints.base import DriftChange
+from data_contract._util import now_iso_z
+from data_contract.contract import Contract, FieldContract
+from data_contract.field_constraints import constraint_for_contract_key
+from data_contract.field_constraints.base import DriftChange
 
 
 @dataclass
@@ -189,12 +189,9 @@ def _diff_field(name: str, old: FieldContract, new: FieldContract) -> list[Drift
 
     # Constraint diffs are dispatched through each registered constraint's `diff()` hook.
     constraint_keys = set(old.constraints) | set(new.constraints)
-    contract_key_to_constraint_name = {
-        cls.contract_key: c_name for c_name, cls in CONSTRAINT_REGISTRY.items()
-    }
     for ck in sorted(constraint_keys):
-        c_name = contract_key_to_constraint_name.get(ck)
-        if c_name is None:
+        cls = constraint_for_contract_key(ck)
+        if cls is None:
             # Unknown constraint key in the contract — surface as a generic change.
             if old.constraints.get(ck) != new.constraints.get(ck):
                 out.append(DriftChange(
@@ -204,7 +201,6 @@ def _diff_field(name: str, old: FieldContract, new: FieldContract) -> list[Drift
                     detail={"from": old.constraints.get(ck), "to": new.constraints.get(ck)},
                 ))
             continue
-        cls = CONSTRAINT_REGISTRY[c_name]
         change = cls.diff(name, old.constraints.get(ck), new.constraints.get(ck))
         if change is not None:
             out.append(change)

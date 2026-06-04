@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from data_quality.field_constraints.base import (
+from data_contract.field_constraints.base import (
     DriftChange,
     FieldConstraint,
     diff_added_or_removed,
@@ -10,8 +10,17 @@ from data_quality.field_constraints.base import (
 
 
 class PatternConstraint(FieldConstraint):
+    """A raw regex that values for a field must match.
+
+    Spec cell:    a regex string; validated by `re.compile` at parse time.
+    Contract output: flat string `pattern: <regex>`.
+    Drift:        added/changed = breaking; removed = additive.
+    """
+
     name = "pattern"
     contract_key = "pattern"
+
+    CONTRACT_VALUE_SCHEMA = {"type": "string", "minLength": 1}
 
     def _parse_non_empty(self, raw_str, raw_original, ctx):
         try:

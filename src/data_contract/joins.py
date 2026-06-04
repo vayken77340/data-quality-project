@@ -20,12 +20,12 @@ from typing import Any
 
 from openpyxl.workbook.workbook import Workbook
 
-from data_quality._util import dump_yaml, now_iso_z
-from data_quality.config import JoinsSpec
-from data_quality.contract import Contract
-from data_quality.errors import RejectionError
-from data_quality.header_matcher import find_column, normalize
-from data_quality.spec_reader import HEADER_SEARCH_DEPTH
+from data_contract._util import dump_yaml, now_iso_z
+from data_contract.config import JoinsSpec
+from data_contract.contract import Contract
+from data_contract.errors import RejectionError
+from data_contract.header_matcher import find_column, normalize
+from data_contract.spec_reader import HEADER_SEARCH_DEPTH
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
     _required_for_header = [
         cm.source_table, cm.target_table, cm.source_column, cm.target_column, cm.join_type,
     ]
-    required_norm = {normalize(c.spec_name) for c in _required_for_header if c.required}
+    required_norm = {normalize(c.spec_name) for c in _required_for_header if c.column_required}
     located: tuple[int, list[str | None]] | None = None
     for row_idx, row in enumerate(
         ws.iter_rows(min_row=1, max_row=HEADER_SEARCH_DEPTH, values_only=True), start=1
@@ -272,7 +272,7 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
     }
     missing: list[str] = []
     for key, col in required_columns.items():
-        if indices[key] is None and col.required:
+        if indices[key] is None and col.column_required:
             missing.append(key)
     if missing:
         out.errors.append(RejectionError(
@@ -427,24 +427,29 @@ def validate_joins(rows: list[JoinRow], contracts_by_table: dict[str, Contract])
 def write_joins_outputs(
     result: JoinsContract | JoinsRejection,
     contracts_dir: Path,
+    *,
+    write_history: bool = True,
 ) -> list[Path]:
     """Materialize the joins output, cleaning up the opposite side.
 
-    On success: writes `joins.yaml` + `history/joins/v<version>.yaml`,
-    deletes `rejected/joins.yaml` if present.
+    On success: writes `joins.yaml` (+ `history/<version>/joins.yaml` when
+    `write_history=True`), deletes `rejected/joins.yaml` if present.
     On rejection: writes `rejected/joins.yaml`, deletes `joins.yaml` if present.
     History is never touched on rejection.
     """
     canonical = contracts_dir / "joins.yaml"
     rejected = contracts_dir / "rejected" / "joins.yaml"
-    history = contracts_dir / "history" / "joins" / f"v{result.version}.yaml"
 
     if isinstance(result, JoinsContract):
         dump_yaml(canonical, result.to_dict())
-        dump_yaml(history, result.to_dict())
+        paths = [canonical]
+        if write_history:
+            history = contracts_dir / "history" / result.version / "joins.yaml"
+            dump_yaml(history, result.to_dict())
+            paths.append(history)
         if rejected.exists():
             rejected.unlink()
-        return [canonical, history]
+        return paths
 
     dump_yaml(rejected, result.to_dict())
     if canonical.exists():

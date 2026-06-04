@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field as dc_field
 from typing import Any, ClassVar
 
-from data_quality.errors import ConfigError, RejectionError
-from data_quality.type_mapping import Type
+from data_contract.errors import ConfigError, RejectionError
+from data_contract.type_mapping import Type
 
 
 # ---------------------------------------------------------------------------
@@ -40,11 +40,11 @@ class DriftChange:
 class ConstraintColumnRef:
     """The spec-column lookup info shared by every constraint.
 
-    `required` (default True): the column header must exist in the sheet.
+    `column_required` (default True): the column header must exist in the sheet.
     `value_required` (default False): every non-empty row must have a value.
     """
     spec_name: str
-    required: bool = True
+    column_required: bool = True
     value_required: bool = False
 
 
@@ -57,14 +57,38 @@ def parse_column_ref(raw: dict, *, name: str) -> ConstraintColumnRef:
     spec_name = raw.get("spec_name")
     if not isinstance(spec_name, str) or not spec_name:
         raise ConfigError(f"column_mapping.{name}.spec_name must be a non-empty string")
-    required = bool(raw.get("required", True))
+    column_required=bool(raw.get("column_required", True))
     value_required = bool(raw.get("value_required", False))
-    if not required and value_required:
+    if not column_required and value_required:
         raise ConfigError(
-            f"column_mapping.{name}: cannot have `required: false` with `value_required: true`. "
+            f"column_mapping.{name}: cannot have `column_required: false` with `value_required: true`. "
             f"A column whose existence is optional cannot also require values per row."
         )
-    return ConstraintColumnRef(spec_name=spec_name, required=required, value_required=value_required)
+    return ConstraintColumnRef(spec_name=spec_name, column_required=column_required, value_required=value_required)
+
+
+def _parse_sub_block(
+    raw: dict,
+    block_key: str,
+    allowed_fields: tuple[str, ...],
+    *,
+    name: str,
+) -> dict[str, Any]:
+    """Pull `raw[block_key]` (if present), validate every key is in the
+    constraint's allowlist, return the dict. Missing block returns {}.
+    """
+    block = raw.get(block_key)
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        raise ConfigError(f"column_mapping.{name}.{block_key} must be a mapping")
+    unknown = sorted(set(block) - set(allowed_fields))
+    if unknown:
+        raise ConfigError(
+            f"column_mapping.{name}.{block_key}: unknown keys {unknown}; "
+            f"accepted keys for {name!r}: {list(allowed_fields)}"
+        )
+    return dict(block)
 
 
 DEFAULT_BOOL_TRUE = frozenset(["oui", "yes", "true", "1", "o", "y"])
@@ -114,6 +138,26 @@ def parse_bool(
 # ---------------------------------------------------------------------------
 # Drift helpers shared by every constraint's `diff()` method.
 # ---------------------------------------------------------------------------
+
+
+def unwrap_structured_value(payload: Any) -> tuple[Any, dict[str, Any]]:
+    """Split a structured constraint payload into (value, params).
+
+    - `None`               -> (None, {})
+    - dict with `value:`   -> (payload["value"], <other keys>)
+    - flat scalar / list   -> (payload, {})
+
+    Accepts the legacy flat shape so old history snapshots written before a
+    constraint started carrying contract_params still diff cleanly against the
+    new structured form.
+    """
+    if payload is None:
+        return None, {}
+    if isinstance(payload, dict):
+        value = payload.get("value")
+        params = {k: payload[k] for k in payload if k != "value"}
+        return value, params
+    return payload, {}
 
 
 def diff_added_or_removed(
@@ -195,30 +239,70 @@ class FieldConstraint(ABC):
     name: ClassVar[str] = ""
     contract_key: ClassVar[str] = ""
 
+    # Allowlists of keys that may appear under each sub-block in YAML.
+    # Subclasses override to declare what they accept. Unknown keys raise
+    # ConfigError at parse time. Keys in SPEC_PARSING_FIELDS are consumed by
+    # the generator only; keys in CONTRACT_FIELDS are emitted into the
+    # contract output via `to_contract_value`.
+    SPEC_PARSING_FIELDS: ClassVar[tuple[str, ...]] = ()
+    CONTRACT_FIELDS: ClassVar[tuple[str, ...]] = ()
+
+    # JSON Schema fragment describing the shape of this constraint's value in
+    # the contract YAML. Used by `schema_export` to build the published
+    # contract schema. Constraints with dynamic content (e.g. enum sourced from
+    # a registry) may override `contract_value_schema()` as a classmethod
+    # instead. Default `None` becomes permissive `{}` at schema build time.
+    CONTRACT_VALUE_SCHEMA: ClassVar[dict[str, Any] | None] = None
+
+    @classmethod
+    def contract_value_schema(cls) -> dict[str, Any]:
+        """JSON Schema fragment for this constraint's value. Override when the
+        fragment depends on runtime state (e.g. a registry snapshot)."""
+        if cls.CONTRACT_VALUE_SCHEMA is None:
+            return {}
+        return dict(cls.CONTRACT_VALUE_SCHEMA)
+
     column: ConstraintColumnRef
     raw_config: dict[str, Any]
+    _spec_parsing_params: dict[str, Any]
+    _contract_params: dict[str, Any]
 
-    def __init__(self, column: ConstraintColumnRef, **_unused: Any) -> None:
-        # Subclasses with extra state override `__init__` and call super().__init__(column).
+    def __init__(self, column: ConstraintColumnRef) -> None:
         self.column = column
         self.raw_config = {}
+        self._spec_parsing_params = {}
+        self._contract_params = {}
 
     # -- config -------------------------------------------------------------
 
     @classmethod
     def from_config(cls, raw: dict) -> "FieldConstraint":
-        """Default implementation. Override only when extra constructor kwargs
-        aren't expressible via `_extra_init_args` (rare)."""
         column = parse_column_ref(raw, name=cls.name)
-        instance = cls(column=column, **cls._extra_init_args(raw))
+        spec_parsing = _parse_sub_block(raw, "spec_parsing", cls.SPEC_PARSING_FIELDS, name=cls.name)
+        contract_params = _parse_sub_block(raw, "contract_params", cls.CONTRACT_FIELDS, name=cls.name)
+        instance = cls(column=column)
         instance.raw_config = dict(raw)
+        instance._spec_parsing_params = spec_parsing
+        instance._contract_params = contract_params
+        instance._configure()
         return instance
 
-    @classmethod
-    def _extra_init_args(cls, raw: dict) -> dict[str, Any]:
-        """Hook for subclasses to inject extra kwargs into `__init__` from the
-        YAML config block. Default: none."""
-        return {}
+    def _configure(self) -> None:
+        """Hook for subclasses to read self._spec_parsing_params /
+        self._contract_params into typed attributes. Default: no-op."""
+
+    # -- contract emission --------------------------------------------------
+
+    def to_contract_value(self, parsed_value: Any) -> Any:
+        """Combine the per-field parsed value with this constraint's
+        contract_params for emission into the YAML.
+
+        - No contract_params  -> emit the parsed value as-is (flat).
+        - Has contract_params -> wrap as {"value": parsed_value, **contract_params}.
+        """
+        if not self._contract_params:
+            return parsed_value
+        return {"value": parsed_value, **self._contract_params}
 
     # -- cell parsing -------------------------------------------------------
 
@@ -295,22 +379,19 @@ class _BoolConstraint(FieldConstraint):
     A `true` cell emits the constraint into the contract as `true`;
     a `false` cell is omitted (the default state is "not set"), so the
     contract stays terse.
+
+    The optional `values:` block (true/false token lists) lives at the top
+    level of the constraint YAML, not under `spec_parsing:` — this is a
+    legacy compatibility shape, and `load_bool_values` reads it directly.
     """
 
-    def __init__(
-        self,
-        column: ConstraintColumnRef,
-        true_values: frozenset[str],
-        false_values: frozenset[str],
-    ) -> None:
-        super().__init__(column)
-        self.true_values = true_values
-        self.false_values = false_values
+    true_values: frozenset[str]
+    false_values: frozenset[str]
 
-    @classmethod
-    def _extra_init_args(cls, raw: dict) -> dict[str, Any]:
-        true_v, false_v = load_bool_values(raw, name=cls.name)
-        return {"true_values": true_v, "false_values": false_v}
+    def _configure(self) -> None:
+        true_v, false_v = load_bool_values(self.raw_config, name=self.name)
+        self.true_values = true_v
+        self.false_values = false_v
 
     def _parse_non_empty(self, raw_str, raw_original, ctx):
         token = raw_str.lower()

@@ -3,7 +3,7 @@ from shutil import copy2
 
 from openpyxl import Workbook
 
-from data_quality.cli import main
+from data_contract.cli import main
 
 from .conftest import add_keys_sheet, minimal_defaults_yaml
 
@@ -64,7 +64,7 @@ def test_generate_after_lint_produces_artifacts(tmp_path: Path, repo_root: Path,
     assert main(["lint", "--epic", "E"]) == 0
     assert main(["generate", "--epic", "E"]) == 0
     assert (edir / "contracts" / "T.yaml").exists()
-    assert (edir / "contracts" / "history" / "T" / "v1.0.yaml").exists()
+    assert (edir / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
 def test_lint_prefix_in_output(tmp_path: Path, repo_root: Path, monkeypatch, capsys):

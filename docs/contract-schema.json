@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataContract",
+  "type": "object",
+  "required": [
+    "version",
+    "epic",
+    "table",
+    "fields"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "epic": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "spec_file": {
+          "type": "string"
+        },
+        "spec_sheet": {
+          "type": "string"
+        }
+      }
+    },
+    "table": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Field"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Field": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "timestamp",
+            "unknown"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "primary_key": {
+          "type": "boolean"
+        },
+        "foreign_key": {
+          "type": "object",
+          "properties": {
+            "table": {
+              "type": "string"
+            },
+            "column": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "table",
+            "column"
+          ],
+          "additionalProperties": false
+        },
+        "unique": {
+          "type": "boolean",
+          "const": true
+        },
+        "allowed_values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "min_value": {
+          "type": "object",
+          "properties": {
+            "value": {},
+            "strict": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "strict"
+          ],
+          "additionalProperties": false
+        },
+        "max_value": {
+          "type": "object",
+          "properties": {
+            "value": {},
+            "strict": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "strict"
+          ],
+          "additionalProperties": false
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "email",
+            "iban",
+            "phone",
+            "uuid"
+          ]
+        },
+        "default": {}
+      },
+      "additionalProperties": false
+    }
+  }
+}

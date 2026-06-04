@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from data_quality.type_mapping import Type
+from data_contract.type_mapping import Type
 
 
 def parse_typed_value(raw: object, field_type: Type) -> tuple[Any | None, str | None]:

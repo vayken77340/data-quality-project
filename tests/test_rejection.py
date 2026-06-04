@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from data_quality.config import ColumnMapping, KeysSpec, MergedConfig, TableSelector
-from data_quality.contract import Contract, Rejection, build_contract
-from data_quality.spec_reader import RawField, SheetSpec
-from data_quality.type_mapping import load_type_registry
+from data_contract.config import ColumnMapping, KeysSpec, MergedConfig, TableSelector
+from data_contract.contract import Contract, Rejection, build_contract
+from data_contract.spec_reader import RawField, SheetSpec
+from data_contract.type_mapping import load_type_registry
 
 
 def _mapping():

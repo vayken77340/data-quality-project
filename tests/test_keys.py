@@ -18,21 +18,21 @@ import pytest
 import yaml
 from openpyxl import Workbook
 
-from data_quality.cli import main
-from data_quality.config import Defaults, KeysSpec
-from data_quality.contract import FieldContract
-from data_quality.errors import ConfigError
-from data_quality.keys import (
+from data_contract.cli import main
+from data_contract.config import Defaults, KeysSpec
+from data_contract.contract import FieldContract
+from data_contract.errors import ConfigError
+from data_contract.keys import (
     KeysRow,
     build_pk_index,
     enrich_field_contract_list,
     read_keys_sheet,
     split_separated,
 )
-from data_quality.spec_reader import open_workbook
-from data_quality.type_mapping import Type
+from data_contract.spec_reader import open_workbook
+from data_contract.type_mapping import Type
 
-from .conftest import add_keys_sheet, minimal_keys_block_yaml
+from .conftest import add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml
 
 
 # ---------------------------------------------------------------------------
@@ -465,16 +465,17 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
 
 
 _VALID_COLUMN_MAPPING_YAML = """
-column_mapping:
-  name:        { spec_name: N, value_required: true }
-  type:        { spec_name: T, value_required: true }
-  description: { spec_name: D, value_required: false }
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non"]
-      "false": ["oui"]
+fields:
+  column_mapping:
+    name:        { spec_name: N, value_required: true }
+    type:        { spec_name: T, value_required: true }
+    description: { spec_name: D, value_required: false }
+    nullable:
+      spec_name: Obligatoire
+      value_required: true
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
 """
 
 
@@ -585,16 +586,17 @@ def _bootstrap_keys_epic(
     # Defaults: declares the standard column_mapping plus a Keys block.
     (edir / "configs" / "defaults.yaml").write_text(
         """
-column_mapping:
-  name:        { spec_name: Champ dans extract, value_required: true }
-  type:        { spec_name: Type, value_required: true }
-  description: { spec_name: Description, value_required: false }
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non"]
-      "false": ["oui"]
+fields:
+  column_mapping:
+    name:        { spec_name: Champ dans extract, value_required: true }
+    type:        { spec_name: Type, value_required: true }
+    description: { spec_name: Description, value_required: false }
+    nullable:
+      spec_name: Obligatoire
+      value_required: true
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
 """ + minimal_keys_block_yaml(),
         encoding="utf-8",
     )
@@ -685,9 +687,10 @@ def test_cli_keys_missing_table_rejects_that_table_only(tmp_path, repo_root, mon
 
 
 def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
-    """defaults.yaml sets `foreign_key.allow_violations: true`. The spec has an
-    FK row pointing at a column that doesn't exist anywhere. Expect: the
-    contract still builds (exit 0); the offending field has no foreign_key."""
+    """With `allow_foreign_key_violation=true` from the project `.env` (the
+    in-code default when `.env` is absent), an FK row pointing at a column
+    that doesn't exist anywhere is demoted to a warning. The contract still
+    builds (exit 0) and the offending field has no foreign_key."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
     (tmp_path / "configs" / "types.yaml").write_text(
@@ -699,27 +702,7 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
-    # Custom defaults: include allow_violations: true on the FK entry.
-    (edir / "configs" / "defaults.yaml").write_text("""
-column_mapping:
-  name:        { spec_name: Champ dans extract, value_required: true }
-  type:        { spec_name: Type, value_required: true }
-  description: { spec_name: Description, value_required: false }
-  nullable:
-    spec_name: Obligatoire
-    value_required: true
-    values:
-      "true":  ["non"]
-      "false": ["oui"]
-
-keys:
-  sheet_name: Keys
-  column_mapping:
-    table_name:  { spec_name: Table, value_required: true }
-    primary_key: { spec_name: PK, value_required: true, separator: "|" }
-    foreign_key: { spec_name: FK, value_required: false, separator: "|", allow_violations: true }
-    comments:    { spec_name: Comments, value_required: false }
-""", encoding="utf-8")
+    (edir / "configs" / "defaults.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T\n",
@@ -732,7 +715,7 @@ keys:
     ws.append(["Champ dans extract", "Type", "Description", "Obligatoire ?"])
     ws.append(["x", "Double", "d", "OUI"])
     # Keys sheet declares `ghost` as an FK on table T — ghost doesn't exist as
-    # a field. With allow_violations=true, that's a warning not a rejection.
+    # a field. With allow_foreign_key_violation=true, that's a warning not a rejection.
     add_keys_sheet(wb, [("T", "x", "ghost")])
     wb.save(edir / "specs" / "spec.xlsx")
 
@@ -743,7 +726,7 @@ keys:
     data = yaml.safe_load(canonical.read_text(encoding="utf-8"))
     by_name = {f["name"]: f for f in data["fields"]}
     # `x` got its PK flag; no `foreign_key` because the FK target was unresolved
-    # and allow_violations downgraded it to a warning.
+    # and allow_foreign_key_violation downgraded it to a warning.
     assert by_name["x"].get("primary_key") is True
     assert "foreign_key" not in by_name["x"]
 

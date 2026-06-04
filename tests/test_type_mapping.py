@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from data_quality.type_mapping import Type, load_type_registry, parse_type, unknown_parsed_type
+from data_contract.type_mapping import Type, load_type_registry, parse_type, unknown_parsed_type
 
 
 @pytest.fixture(scope="module")

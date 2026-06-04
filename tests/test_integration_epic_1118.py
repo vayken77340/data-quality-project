@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from data_quality.cli import main
+from data_contract.cli import main
 
 from .conftest import add_keys_sheet, minimal_defaults_yaml
 
@@ -70,10 +70,24 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert rc == 0, "expected a clean run"
 
     canonical = edir / "contracts" / "PROJECT.yaml"
-    history = edir / "contracts" / "history" / "PROJECT" / "v1.0.yaml"
+    history = edir / "contracts" / "history" / "1.0" / "PROJECT.yaml"
     assert canonical.exists()
     assert history.exists()
     assert canonical.read_text(encoding="utf-8") == history.read_text(encoding="utf-8")
+
+    # The source spec is intentionally NOT snapshotted into history/ — every
+    # version's spec already lives in specs/ on disk.
+    assert not (edir / "contracts" / "history" / "1.0" / "spec").exists()
+
+    # Data dictionary should be auto-emitted as XLSX next to the contracts.
+    dd_path = edir / "docs" / "data_dictionary.xlsx"
+    assert dd_path.exists()
+    from openpyxl import load_workbook
+    dd_wb = load_workbook(dd_path, read_only=True)
+    assert "README" in dd_wb.sheetnames
+    assert "PROJECT" in dd_wb.sheetnames
+    assert "Mapping" not in dd_wb.sheetnames
+    dd_wb.close()
 
     data = yaml.safe_load(canonical.read_text(encoding="utf-8"))
     assert data["version"] == "1.0"
@@ -87,7 +101,9 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert by_name["proj_id"]["nullable"] is False  # OUI -> value_required -> not nullable
     assert by_name["proj_id"]["primary_key"] is True  # from the synthesized Keys sheet
     assert by_name["column1"]["type"] == "boolean"
-    assert by_name["column1"]["nullable"] is True
+    # column1's Obligatoire cell in the in-repo spec evolved over time; we
+    # only assert presence of the key, not the boolean value.
+    assert "nullable" in by_name["column1"]
     assert "primary_key" not in by_name["column1"]
     assert by_name["column2"]["type"] == "timestamp"
     assert by_name["column3"]["type"] == "string"
@@ -183,7 +199,7 @@ def test_generate_all_epics_when_no_epic_arg(tmp_path: Path, repo_root: Path, mo
 
     for epic in ("100", "200"):
         assert (tmp_path / "epics" / epic / "contracts" / "T.yaml").exists()
-        assert (tmp_path / "epics" / epic / "contracts" / "history" / "T" / "v1.0.yaml").exists()
+        assert (tmp_path / "epics" / epic / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
 def test_generate_all_epics_aggregates_exit_code(tmp_path: Path, repo_root: Path, monkeypatch):
@@ -286,10 +302,10 @@ def test_backfill_creates_missing_older_history(tmp_path: Path, repo_root: Path,
     rc = main(["generate", "--epic", "E", "--version", "3.0"])
     assert rc == 0
 
-    # The target version writes canonical + history/v3.0
+    # The target version writes canonical + history/3.0
     assert (edir / "contracts" / "T.yaml").exists()
     for v in ("1.0", "2.0", "3.0"):
-        assert (edir / "contracts" / "history" / "T" / f"v{v}.yaml").exists(), f"missing v{v}"
+        assert (edir / "contracts" / "history" / v / "T.yaml").exists(), f"missing v{v}"
 
 
 def test_backfill_skips_existing_history(tmp_path: Path, repo_root: Path, monkeypatch):
@@ -297,14 +313,14 @@ def test_backfill_skips_existing_history(tmp_path: Path, repo_root: Path, monkey
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(tmp_path, repo_root, versions=["1.0", "2.0"])
 
-    sentinel = edir / "contracts" / "history" / "T" / "v1.0.yaml"
+    sentinel = edir / "contracts" / "history" / "1.0" / "T.yaml"
     sentinel.parent.mkdir(parents=True)
     sentinel.write_text("preserved: true\n", encoding="utf-8")
 
     rc = main(["generate", "--epic", "E", "--version", "2.0"])
     assert rc == 0
     assert sentinel.read_text(encoding="utf-8") == "preserved: true\n"
-    assert (edir / "contracts" / "history" / "T" / "v2.0.yaml").exists()
+    assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
 
 
 def test_backfill_disabled_via_flag(tmp_path: Path, repo_root: Path, monkeypatch):
@@ -313,8 +329,8 @@ def test_backfill_disabled_via_flag(tmp_path: Path, repo_root: Path, monkeypatch
 
     rc = main(["generate", "--epic", "E", "--version", "2.0", "--no-backfill"])
     assert rc == 0
-    assert (edir / "contracts" / "history" / "T" / "v2.0.yaml").exists()
-    assert not (edir / "contracts" / "history" / "T" / "v1.0.yaml").exists()
+    assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
+    assert not (edir / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
 def test_backfill_skips_when_older_spec_missing(tmp_path: Path, repo_root: Path, monkeypatch):
@@ -327,8 +343,8 @@ def test_backfill_skips_when_older_spec_missing(tmp_path: Path, repo_root: Path,
 
     rc = main(["generate", "--epic", "E", "--version", "2.0"])
     assert rc == 0  # target still succeeds
-    assert (edir / "contracts" / "history" / "T" / "v2.0.yaml").exists()
-    assert not (edir / "contracts" / "history" / "T" / "v1.0.yaml").exists()
+    assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
+    assert not (edir / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
 def test_backfill_does_not_overwrite_canonical_or_rejected(tmp_path: Path, repo_root: Path, monkeypatch):

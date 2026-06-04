@@ -2,15 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Union
+from typing import Any, Iterable, Iterator, Mapping, Union
 
-from data_quality._util import dump_yaml, load_yaml, now_iso_z
-from data_quality.config import ColumnSpec, MergedConfig
-from data_quality.errors import ErrorCollector, RejectionError
-from data_quality.field_constraints.base import ConstraintContext
-from data_quality.nullable import parse_nullable
-from data_quality.spec_reader import RawField, SheetSpec
-from data_quality.type_mapping import ParsedType, Type, TypeRegistry, parse_type, unknown_parsed_type
+from data_contract._util import dump_yaml, load_yaml, now_iso_z
+from data_contract.config import ColumnSpec, MergedConfig
+from data_contract.errors import ErrorCollector, RejectionError
+from data_contract.field_constraints import constraint_for_contract_key
+from data_contract.field_constraints.base import (
+    ConstraintContext,
+    FieldConstraint,
+    unwrap_structured_value,
+)
+from data_contract.nullable import parse_nullable
+from data_contract.spec_reader import RawField, SheetSpec
+from data_contract.type_mapping import ParsedType, Type, TypeRegistry, parse_type, unknown_parsed_type
 
 
 CORE_FIELD_KEYS = frozenset({
@@ -18,6 +23,27 @@ CORE_FIELD_KEYS = frozenset({
     "max_length", "precision", "scale",
     "primary_key", "foreign_key",
 })
+
+
+@dataclass(frozen=True)
+class FieldCheck:
+    """A single dispatchable constraint occurrence on a field.
+
+    Yielded by `FieldContract.iter_checks()` and `Contract.iter_field_checks()`.
+    The downstream data validator iterates these and dispatches per
+    `constraint_cls`; it does NOT need to know per-constraint wire formats.
+
+    - `constraint_name`: REGISTRY key (e.g. "min_value", "default_value").
+    - `contract_key`: how the constraint surfaces in the YAML (usually the same
+      as constraint_name, sometimes different — e.g. `default_value` -> `default`).
+    - `value`: per-field payload, already unwrapped from the structured shape.
+    - `params`: contract_params slice; empty for flat constraints.
+    """
+    constraint_name: str
+    contract_key: str
+    constraint_cls: type[FieldConstraint]
+    value: Any
+    params: Mapping[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +101,27 @@ class FieldContract:
             constraints=constraints,
         )
 
+    def iter_checks(self) -> Iterator[FieldCheck]:
+        """Yield one FieldCheck per registered constraint declared on this field.
+
+        Unregistered contract_keys (e.g. a constraint deregistered after the
+        contract was written) are silently skipped — the validator's input
+        contract may legitimately carry legacy state.
+        """
+        for contract_key in sorted(self.constraints):
+            cls = constraint_for_contract_key(contract_key)
+            if cls is None:
+                continue
+            raw = self.constraints[contract_key]
+            value, params = unwrap_structured_value(raw)
+            yield FieldCheck(
+                constraint_name=cls.name,
+                contract_key=cls.contract_key,
+                constraint_cls=cls,
+                value=value,
+                params=params,
+            )
+
 
 @dataclass
 class _Provenance:
@@ -121,6 +168,29 @@ class Contract(_Provenance):
     @classmethod
     def load(cls, path: Path) -> "Contract":
         return cls.from_dict(load_yaml(path))
+
+    def iter_field_checks(self) -> Iterator[tuple["FieldContract", FieldCheck]]:
+        """Walk every (field, check) pair across the contract.
+
+        The downstream data validator iterates this once per contract and
+        dispatches `check.constraint_cls` against the actual data per row.
+        """
+        for f in self.fields:
+            for check in f.iter_checks():
+                yield f, check
+
+    def primary_key_fields(self) -> list["FieldContract"]:
+        """Fields flagged as part of the primary key. Order matches `self.fields`."""
+        return [f for f in self.fields if f.primary_key]
+
+    def foreign_key_fields(self) -> list["FieldContract"]:
+        """Fields carrying a foreign-key reference. Order matches `self.fields`."""
+        return [f for f in self.fields if f.foreign_key is not None]
+
+    def field_name_set(self) -> set[str]:
+        """Quick lookup helper: just the set of field names on this contract.
+        Used by cross-table FK / joins validation."""
+        return {f.name for f in self.fields}
 
 
 @dataclass
@@ -249,7 +319,7 @@ def build_contract(
                     collector.add(err)
                     continue
                 if value is not None:
-                    constraint_values[constraint.contract_key] = value
+                    constraint_values[constraint.contract_key] = constraint.to_contract_value(value)
 
         if name_value is not None and parsed_type is not None:
             prev_row = seen_field_names.get(name_value)
@@ -313,18 +383,30 @@ def build_contract(
 # ---------------------------------------------------------------------------
 
 
-def write_outputs(result: BuildResult, contracts_dir: Path) -> list[Path]:
-    """Materialize a Contract or Rejection, cleaning up the opposite side."""
+def write_outputs(
+    result: BuildResult,
+    contracts_dir: Path,
+    *,
+    write_history: bool = True,
+) -> list[Path]:
+    """Materialize a Contract or Rejection, cleaning up the opposite side.
+
+    `write_history=False` skips the versioned snapshot, leaving the canonical
+    contract as the sole on-disk output for a successful build.
+    """
     canonical = contracts_dir / f"{result.table}.yaml"
     rejected = contracts_dir / "rejected" / f"{result.table}.yaml"
-    history = history_path_for(result, contracts_dir)
 
     if isinstance(result, Contract):
         dump_yaml(canonical, result.to_dict())
-        dump_yaml(history, result.to_dict())
+        paths = [canonical]
+        if write_history:
+            history = history_path_for(result, contracts_dir)
+            dump_yaml(history, result.to_dict())
+            paths.append(history)
         if rejected.exists():
             rejected.unlink()
-        return [canonical, history]
+        return paths
 
     dump_yaml(rejected, result.to_dict())
     if canonical.exists():
@@ -333,7 +415,12 @@ def write_outputs(result: BuildResult, contracts_dir: Path) -> list[Path]:
 
 
 def history_path_for(contract_or_rejection: BuildResult, contracts_dir: Path) -> Path:
-    return contracts_dir / "history" / contract_or_rejection.table / f"v{contract_or_rejection.version}.yaml"
+    return contracts_dir / "history" / contract_or_rejection.version / f"{contract_or_rejection.table}.yaml"
+
+
+def history_path_for_table(contracts_dir: Path, version: str, table: str) -> Path:
+    """Path-only variant for callers that don't have a BuildResult handy (e.g. backfill existence checks)."""
+    return contracts_dir / "history" / version / f"{table}.yaml"
 
 
 def drift_path_for(contracts_dir: Path, table: str, from_version: str, to_version: str) -> Path:

@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from data_quality.config import ColumnMapping, KeysSpec, MergedConfig, TableSelector
-from data_quality.contract import Contract, Rejection, build_contract, write_outputs
-from data_quality.spec_reader import RawField, SheetSpec
-from data_quality.type_mapping import load_type_registry
+from data_contract.config import ColumnMapping, KeysSpec, MergedConfig, TableSelector
+from data_contract.contract import Contract, Rejection, build_contract, write_outputs
+from data_contract.spec_reader import RawField, SheetSpec
+from data_contract.type_mapping import load_type_registry
 
 
 def _mapping():
@@ -171,7 +171,7 @@ def test_write_outputs_success_creates_history_and_deletes_rejected(tmp_path: Pa
     )
     paths = write_outputs(result, contracts_dir)
     canonical = contracts_dir / "PROJECT.yaml"
-    history = contracts_dir / "history" / "PROJECT" / "v1.0.yaml"
+    history = contracts_dir / "history" / "1.0" / "PROJECT.yaml"
     assert canonical in paths
     assert history in paths
     assert canonical.exists()
@@ -185,9 +185,9 @@ def test_write_outputs_rejection_deletes_canonical_and_keeps_history(tmp_path: P
     contracts_dir.mkdir(parents=True)
     canonical = contracts_dir / "PROJECT.yaml"
     canonical.write_text("stale-good\n", encoding="utf-8")
-    history_dir = contracts_dir / "history" / "PROJECT"
+    history_dir = contracts_dir / "history" / "0.9"
     history_dir.mkdir(parents=True)
-    history_old = history_dir / "v0.9.yaml"
+    history_old = history_dir / "PROJECT.yaml"
     history_old.write_text("dont-touch\n", encoding="utf-8")
 
     rows = [_row(2, "dup", "Double", "d", "OUI"), _row(3, "dup", "Double", "d", "OUI")]

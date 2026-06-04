@@ -3,17 +3,18 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "data-quality"
+name = "data-contract"
 version = "0.1.0"
 description = "Spec-driven data contract generator for data quality checks"
 requires-python = ">=3.11"
 dependencies = [
     "openpyxl>=3.1",
     "PyYAML>=6.0",
+    "jsonschema>=4.0",
 ]
 
 [project.scripts]
-data-quality = "data_quality.cli:main"
+data-contract = "data_contract.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

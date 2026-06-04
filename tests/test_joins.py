@@ -17,11 +17,11 @@ import pytest
 import yaml
 from openpyxl import Workbook
 
-from data_quality.cli import main
-from data_quality.config import JoinsSpec
-from data_quality.contract import Contract, FieldContract
-from data_quality.errors import RejectionError
-from data_quality.joins import (
+from data_contract.cli import main
+from data_contract.config import JoinsSpec
+from data_contract.contract import Contract, FieldContract
+from data_contract.errors import RejectionError
+from data_contract.joins import (
     JOIN_TYPE_ALIASES,
     JoinRow,
     JoinsContract,
@@ -31,7 +31,7 @@ from data_quality.joins import (
     read_joins_sheet,
     validate_joins,
 )
-from data_quality.type_mapping import Type
+from data_contract.type_mapping import Type
 
 from .conftest import add_keys_sheet, minimal_defaults_yaml
 
@@ -307,7 +307,7 @@ def test_build_joins_result_success():
         "PROJECT": _contract("PROJECT", ["proj_id"]),
         "PROJWBS": _contract("PROJWBS", ["proj_id"]),
     }
-    from data_quality.joins import JoinsData
+    from data_contract.joins import JoinsData
     result = build_joins_result(
         version="1.0",
         epic="E",
@@ -327,7 +327,7 @@ def test_build_joins_result_success():
 
 def test_build_joins_result_rejection_from_validation():
     rows = [JoinRow(2, "PROJECT", "GHOST", "x", "x", "LEFT", None, None, None)]
-    from data_quality.joins import JoinsData
+    from data_contract.joins import JoinsData
     result = build_joins_result(
         version="1.0",
         epic="E",
@@ -342,7 +342,7 @@ def test_build_joins_result_rejection_from_validation():
 
 
 def test_build_joins_result_propagates_sheet_errors():
-    from data_quality.joins import JoinsData
+    from data_contract.joins import JoinsData
     sheet_err = RejectionError(kind="joins_sheet_not_found", message="...")
     result = build_joins_result(
         version="1.0",
@@ -363,20 +363,20 @@ def test_build_joins_result_propagates_sheet_errors():
 
 
 def test_write_outputs_success_creates_canonical_and_history(tmp_path):
-    from data_quality.joins import write_joins_outputs
+    from data_contract.joins import write_joins_outputs
     contract = JoinsContract(
         version="1.0", epic="E", generated_at="t", spec_file="x.xlsx", spec_sheet="Joins",
         joins=[JoinRow(2, "A", "B", "x", "x", "LEFT", None, None, None)],
     )
     paths = write_joins_outputs(contract, tmp_path)
     canonical = tmp_path / "joins.yaml"
-    history = tmp_path / "history" / "joins" / "v1.0.yaml"
+    history = tmp_path / "history" / "1.0" / "joins.yaml"
     assert canonical in paths and history in paths
     assert canonical.exists() and history.exists()
 
 
 def test_write_outputs_success_deletes_stale_rejection(tmp_path):
-    from data_quality.joins import write_joins_outputs
+    from data_contract.joins import write_joins_outputs
     rejected = tmp_path / "rejected" / "joins.yaml"
     rejected.parent.mkdir(parents=True)
     rejected.write_text("stale\n", encoding="utf-8")
@@ -388,12 +388,12 @@ def test_write_outputs_success_deletes_stale_rejection(tmp_path):
 
 
 def test_write_outputs_rejection_deletes_canonical_keeps_history(tmp_path):
-    from data_quality.joins import write_joins_outputs
+    from data_contract.joins import write_joins_outputs
     canonical = tmp_path / "joins.yaml"
     canonical.write_text("stale\n", encoding="utf-8")
-    history_dir = tmp_path / "history" / "joins"
+    history_dir = tmp_path / "history" / "0.9"
     history_dir.mkdir(parents=True)
-    history_file = history_dir / "v0.9.yaml"
+    history_file = history_dir / "joins.yaml"
     history_file.write_text("untouched\n", encoding="utf-8")
 
     rejection = JoinsRejection(
@@ -484,7 +484,7 @@ def test_cli_emits_joins_yaml_alongside_table_contracts(tmp_path, repo_root, mon
     assert payload["joins"][0]["source_table"] == "T1"
     assert payload["joins"][0]["type"] == "LEFT"
     assert payload["joins"][0]["cardinality"] == "1:n"
-    history = edir / "contracts" / "history" / "joins" / "v1.0.yaml"
+    history = edir / "contracts" / "history" / "1.0" / "joins.yaml"
     assert history.exists()
 
 

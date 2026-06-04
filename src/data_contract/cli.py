@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
-from data_quality import __version__
-from data_quality._util import dump_yaml, now_iso_z
-from data_quality.config import (
+from data_contract import __version__
+from data_contract._util import dump_yaml, now_iso_z
+from data_contract.config import (
     ALL_TABLES,
     DEFAULTS_FILENAME,
     Defaults,
@@ -21,36 +20,45 @@ from data_quality.config import (
     select_version_config,
     version_sort_key,
 )
-from data_quality.contract import (
+from data_contract.contract import (
     Contract,
     Rejection,
     build_contract,
     drift_path_for,
+    history_path_for_table,
     write_history_only,
     write_outputs,
 )
-from data_quality.drift import DriftReport, diff_contracts
-from data_quality.errors import ConfigError, SpecReaderError
-from data_quality.joins import (
+from data_contract.catalog import (
+    DEFAULT_CONSTRAINTS_DOC,
+    regen_constraint_doc,
+    would_regen_change,
+)
+from data_contract.docs import load_drift_entries, write_data_dictionary
+from data_contract.schema_export import DEFAULT_SCHEMA_OUT, write_contract_json_schema
+from data_contract.drift import DriftReport, diff_contracts
+from data_contract.errors import ConfigError, SpecReaderError
+from data_contract.joins import (
     JoinsContract,
     JoinsRejection,
     build_joins_result,
     read_joins_sheet,
     write_joins_outputs,
 )
-from data_quality.keys import (
+from data_contract.keys import (
     KeysData,
     build_pk_index,
     enrich_field_contract_list,
     read_keys_sheet,
 )
-from data_quality.spec_reader import (
+from data_contract.settings import Settings, load_settings
+from data_contract.spec_reader import (
     iter_field_rows,
     list_table_spec_sheets,
     open_workbook,
     read_sheet,
 )
-from data_quality.type_mapping import TypeRegistry, load_type_registry
+from data_contract.type_mapping import TypeRegistry, load_type_registry
 
 
 DEFAULT_TYPES_PATH = Path("configs/types.yaml")
@@ -66,13 +74,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_generate_or_lint(args, write=False)
     if args.command == "drift":
         return _cmd_drift(args)
+    if args.command == "export-schema":
+        return _cmd_export_schema(args)
+    if args.command == "validate-contract":
+        return _cmd_validate_contract(args)
+    if args.command == "regen-docs":
+        return _cmd_regen_docs(args)
     parser.print_help()
     return 1
 
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="data-quality",
+        prog="data-contract",
         description="Spec-driven data contract generator.",
     )
     p.add_argument("--version-info", action="version", version=f"%(prog)s {__version__}")
@@ -88,6 +102,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-backfill",
         action="store_true",
         help="Skip auto-generating history snapshots for sibling configs with versions older than the target.",
+    )
+    gen.add_argument(
+        "--skip-self-check",
+        action="store_true",
+        help="Skip the post-build invariant pass (PK not nullable, FK targets exist, etc.). Use only in emergencies.",
     )
 
     lint = sub.add_parser(
@@ -107,6 +126,41 @@ def _build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
     drift.add_argument("--write", action="store_true", help="Also write the drift YAML to contracts/drift/.")
 
+    export = sub.add_parser(
+        "export-schema",
+        help="Render the contract JSON Schema (derived from the constraint registry).",
+    )
+    export.add_argument(
+        "--out",
+        default=str(DEFAULT_SCHEMA_OUT),
+        help=f"Output path (default: {DEFAULT_SCHEMA_OUT}).",
+    )
+
+    validate_c = sub.add_parser(
+        "validate-contract",
+        help="Validate a contract YAML on disk: JSON Schema + semantic invariants.",
+    )
+    validate_c.add_argument("--epic", default=None, help="Validate every <epic>/contracts/*.yaml.")
+    validate_c.add_argument("--file", default=None, help="Validate a single YAML file. Mutually exclusive with --epic.")
+    validate_c.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
+    validate_c.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
+    validate_c.add_argument(
+        "--allow-unknown-constraints",
+        action="store_true",
+        help="Don't fail on contract constraint keys missing from the registry.",
+    )
+    validate_c.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a structured JSON report to stdout instead of human-readable text.",
+    )
+
+    regen = sub.add_parser(
+        "regen-docs",
+        help="Rewrite the auto-generated catalog/format sections of docs/constraints.md.",
+    )
+    regen.add_argument("--path", default=None, help="Path to constraints.md (defaults to docs/constraints.md).")
+
     return p
 
 
@@ -118,6 +172,48 @@ def _add_generate_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
     p.add_argument("--allow-unknown-types", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _self_check_post_build(
+    contracts_by_table: dict[str, Contract],
+    joins_contract: "JoinsContract | None",
+    type_registry: TypeRegistry,
+    outcome: "_Outcome",
+) -> None:
+    """Post-build invariant pass over every freshly emitted contract + joins.
+
+    Mirrors what `validate-contract` would catch on the on-disk YAMLs, but
+    runs against the in-memory dataclasses so emission bugs are caught at the
+    source. Errors are surfaced to stderr; the affected table is bumped onto
+    `outcome.rejected` so the exit code reflects the failure. Canonical YAMLs
+    are NOT deleted — left in place for the human to inspect.
+    """
+    from data_contract.validate_contract import (
+        check_invariants,
+        check_joins_invariants,
+    )
+
+    peer_field_names = {t: c.field_name_set() for t, c in contracts_by_table.items()}
+
+    for table, contract in contracts_by_table.items():
+        peer_subset = {t: names for t, names in peer_field_names.items() if t != table}
+        errors = check_invariants(
+            contract, type_registry, peer_subset, allow_unknown_constraints=False,
+        )
+        if errors:
+            outcome.rejected += 1
+            print(f"[SELF-CHECK-FAIL] {table} - {len(errors)} invariant errors", file=sys.stderr)
+            for err in errors:
+                print(f"  - {err.render()}", file=sys.stderr)
+
+    if joins_contract is not None:
+        joins_dict = joins_contract.to_dict()
+        errors = check_joins_invariants(joins_dict, peer_field_names)
+        if errors:
+            outcome.rejected += 1
+            print(f"[SELF-CHECK-FAIL] joins - {len(errors)} invariant errors", file=sys.stderr)
+            for err in errors:
+                print(f"  - {err.render()}", file=sys.stderr)
 
 
 @dataclass
@@ -156,6 +252,12 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     # `lint` never backfills (nothing to write). `generate` honors --no-backfill.
     backfill = write and not getattr(args, "no_backfill", False)
 
+    # Self-check is on by default for `generate`; lint mode runs schema/invariant
+    # checks already, so duplicating there isn't useful.
+    skip_self_check = (not write) or getattr(args, "skip_self_check", False)
+
+    settings = load_settings()
+
     total = _Outcome()
     for epic in epics:
         outcome = _process_epic(
@@ -167,6 +269,8 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
             allow_unknown_types=args.allow_unknown_types,
             backfill=backfill,
             write=write,
+            skip_self_check=skip_self_check,
+            settings=settings,
         )
         total.add(outcome)
 
@@ -176,9 +280,21 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
             + (f", {len(total.epic_failures)} epic failure(s)" if total.epic_failures else "")
         )
 
+    catalog_stale = False
+    if not write:
+        # Lint-only: fail if the catalog doc is out of date. Generate mode
+        # doesn't gate because the developer is iterating; lint is the CI gate.
+        if DEFAULT_CONSTRAINTS_DOC.is_file() and would_regen_change(DEFAULT_CONSTRAINTS_DOC):
+            catalog_stale = True
+            print(
+                f"[LINT-FAIL] {DEFAULT_CONSTRAINTS_DOC} is out of date; "
+                f"run `python -m data_contract regen-docs` to refresh",
+                file=sys.stderr,
+            )
+
     if total.epic_failures:
         return 1
-    if total.rejected > 0:
+    if total.rejected > 0 or catalog_stale:
         return 2
     return 0
 
@@ -203,6 +319,8 @@ def _process_epic(
     allow_unknown_types: bool,
     backfill: bool,
     write: bool,
+    skip_self_check: bool = True,
+    settings: Settings,
 ) -> _Outcome:
     outcome = _Outcome()
     epic_dir = epic_root / epic
@@ -225,7 +343,7 @@ def _process_epic(
 
     print(f"using {merged.epic_config_path} ({reason})")
 
-    if backfill:
+    if backfill and settings.generate_history:
         _backfill_missing_history(
             epic_dir=epic_dir,
             epic_configs_dir=epic_configs_dir,
@@ -234,6 +352,7 @@ def _process_epic(
             target_config_path=epic_config.path,
             registry=registry,
             allow_unknown_types=allow_unknown_types,
+            settings=settings,
         )
 
     spec_path = epic_dir / "specs" / merged.spec_file_name
@@ -293,17 +412,38 @@ def _process_epic(
             )
             result = _enrich_with_keys(
                 result, keys_data, pk_index,
-                fk_allow_violations=_fk_allow_violations(merged),
+                fk_allow_violations=settings.allow_foreign_key_violation,
             )
             result = _check_duplicate_table(result, sheet_name, seen_tables)
             if isinstance(result, Contract):
                 contracts_by_table[result.table] = result
-            _emit_result(result, contracts_dir, outcome, write=write)
+            _emit_result(result, contracts_dir, outcome, write=write, settings=settings)
 
-        if merged.joins is not None:
-            _emit_joins(merged, wb, contracts_by_table, contracts_dir, spec_file_rel, outcome, write=write)
+        joins_contract: JoinsContract | None = None
+        if merged.joins is not None and settings.generate_join_contract:
+            joins_contract = _emit_joins(
+                merged, wb, contracts_by_table, contracts_dir, spec_file_rel, outcome,
+                write=write, settings=settings,
+            )
     finally:
         wb.close()
+
+    if write and not skip_self_check and contracts_by_table:
+        _self_check_post_build(contracts_by_table, joins_contract, registry, outcome)
+
+    if write:
+        if contracts_by_table:
+            drift_aggregate = load_drift_entries(contracts_dir)
+            docs_path = write_data_dictionary(
+                epic_dir=epic_dir,
+                epic=merged.epic,
+                version=merged.version,
+                spec_file=spec_file_rel,
+                contracts=list(contracts_by_table.values()),
+                joins=joins_contract,
+                drift=drift_aggregate,
+            )
+            print(f"[DOCS] {_rel(docs_path, epic_dir)}")
 
     print(f"epic {epic}: {outcome.built} built, {outcome.rejected} rejected")
     return outcome
@@ -318,7 +458,7 @@ def _check_duplicate_table(
     convert it into a duplicate-table rejection and route it to a unique
     filename so the earlier sheet's canonical/history output isn't overwritten.
     """
-    from data_quality.errors import RejectionError
+    from data_contract.errors import RejectionError
 
     prior_sheet = seen_tables.get(result.table)
     if prior_sheet is None:
@@ -384,7 +524,7 @@ def _enrich_with_keys(
 
     rows_for_table = keys_data.rows_for_table(contract.table)
     if not rows_for_table:
-        from data_quality.errors import RejectionError
+        from data_contract.errors import RejectionError
         return Rejection(
             version=contract.version,
             epic=contract.epic,
@@ -413,7 +553,7 @@ def _enrich_with_keys(
     for w in fk_warnings:
         print(
             f"[WARN] {contract.table}: skipped FK enrichment ({w.kind}) on field {w.field!r} "
-            f"because allow_violations=true",
+            f"because allow_foreign_key_violation=true (.env)",
             file=sys.stderr,
         )
     if errors:
@@ -438,6 +578,7 @@ def _backfill_missing_history(
     target_config_path: Path,
     registry: TypeRegistry,
     allow_unknown_types: bool,
+    settings: Settings,
 ) -> None:
     contracts_dir = epic_dir / "contracts"
     target_key = version_sort_key(target_version)
@@ -475,7 +616,7 @@ def _backfill_missing_history(
             pk_index = build_pk_index(keys_data.rows)
             seen_tables: dict[str, str] = {}
             for selector in tables:
-                history_file = contracts_dir / "history" / selector.table_name / f"v{sibling.version}.yaml"
+                history_file = history_path_for_table(contracts_dir, sibling.version, selector.table_name)
                 if history_file.exists():
                     continue
                 read = read_sheet(wb, selector.table_name, merged.column_mapping)
@@ -497,7 +638,7 @@ def _backfill_missing_history(
                 )
                 result = _enrich_with_keys(
                     result, keys_data, pk_index,
-                    fk_allow_violations=_fk_allow_violations(merged),
+                    fk_allow_violations=settings.allow_foreign_key_violation,
                 )
                 result = _check_duplicate_table(result, selector.table_name, seen_tables)
                 if isinstance(result, Rejection):
@@ -509,15 +650,10 @@ def _backfill_missing_history(
                     continue
                 written = write_history_only(result, contracts_dir)
                 print(f"  backfilled v{sibling.version} {selector.table_name} -> {_rel(written, contracts_dir)}")
-                _emit_drift_for_new_history(result, contracts_dir)
+                if settings.generate_drift:
+                    _emit_drift_for_new_history(result, contracts_dir)
         finally:
             wb.close()
-
-
-def _fk_allow_violations(merged: MergedConfig) -> bool:
-    """True when the keys.column_mapping.foreign_key block declares `allow_violations: true`."""
-    fk = merged.keys.column_mapping.foreign_key
-    return fk is not None and fk.allow_violations
 
 
 def _emit_joins(
@@ -529,9 +665,13 @@ def _emit_joins(
     outcome: "_Outcome",
     *,
     write: bool,
-) -> None:
+    settings: Settings,
+) -> JoinsContract | None:
     """Read the joins sheet, validate against generated contracts, and emit the
     joins artifact. Skipped if `merged.joins` is None (caller already checked).
+
+    Returns the JoinsContract on success, or None on rejection — the caller uses
+    this to thread joins data into the per-epic data dictionary.
     """
     assert merged.joins is not None
     joins_data = read_joins_sheet(wb, merged.joins)
@@ -545,7 +685,7 @@ def _emit_joins(
     )
 
     if write:
-        paths = write_joins_outputs(result, contracts_dir)
+        paths = write_joins_outputs(result, contracts_dir, write_history=settings.generate_history)
     else:
         paths = []
 
@@ -560,13 +700,14 @@ def _emit_joins(
             print(f"{prefix} joins - {n} entries -> contracts/{_rel(canonical, contracts_dir)}{suffix}")
         else:
             print(f"{prefix} joins - {n} entries")
+        return result
+    outcome.rejected += 1
+    prefix = "[LINT-REJECTED]" if not write else "[REJECTED]"
+    if paths:
+        print(f"{prefix} joins - {len(result.errors)} errors -> contracts/{_rel(paths[0], contracts_dir)}", file=sys.stderr)
     else:
-        outcome.rejected += 1
-        prefix = "[LINT-REJECTED]" if not write else "[REJECTED]"
-        if paths:
-            print(f"{prefix} joins - {len(result.errors)} errors -> contracts/{_rel(paths[0], contracts_dir)}", file=sys.stderr)
-        else:
-            print(f"{prefix} joins - {len(result.errors)} errors", file=sys.stderr)
+        print(f"{prefix} joins - {len(result.errors)} errors", file=sys.stderr)
+    return None
 
 
 def _emit_result(
@@ -575,15 +716,19 @@ def _emit_result(
     outcome: "_Outcome",
     *,
     write: bool,
+    settings: Settings,
 ) -> None:
     """Apply outcome accounting + stdout reporting + (optionally) file writes
     for one build result. Unifies the four-way Contract/Rejection × write/lint branching.
     """
-    paths = write_outputs(result, contracts_dir) if write else []
+    if write:
+        paths = write_outputs(result, contracts_dir, write_history=settings.generate_history)
+    else:
+        paths = []
     if isinstance(result, Contract):
         outcome.built += 1
         _print_success(result, paths, contracts_dir, lint=not write)
-        if write:
+        if write and settings.generate_history and settings.generate_drift:
             _emit_drift_for_new_history(result, contracts_dir)
     else:
         outcome.rejected += 1
@@ -620,39 +765,77 @@ def _print_drift_summary(table: str, from_version: str, to_version: str, report:
     )
 
 
-_HISTORY_VERSION_RE = re.compile(r"^v(?P<version>.+)\.yaml$")
-
-
 def _find_prior_history(contracts_dir: Path, table: str, current_version: str) -> tuple[Path, str] | None:
-    table_dir = contracts_dir / "history" / table
-    if not table_dir.is_dir():
+    history_root = contracts_dir / "history"
+    if not history_root.is_dir():
         return None
     current_key = version_sort_key(current_version)
     best: tuple[tuple, Path, str] | None = None
-    for p in table_dir.iterdir():
-        if not p.is_file():
+    for version_dir in history_root.iterdir():
+        if not version_dir.is_dir():
             continue
-        m = _HISTORY_VERSION_RE.match(p.name)
-        if not m:
-            continue
-        v = m.group("version")
+        v = version_dir.name
         if v == current_version:
             continue
         key = version_sort_key(v)
         if key >= current_key:
             continue
+        candidate = version_dir / f"{table}.yaml"
+        if not candidate.is_file():
+            continue
         if best is None or key > best[0]:
-            best = (key, p, v)
+            best = (key, candidate, v)
     if best is None:
         return None
     return best[1], best[2]
 
 
+def _cmd_regen_docs(args: argparse.Namespace) -> int:
+    path = Path(args.path) if args.path else DEFAULT_CONSTRAINTS_DOC
+    try:
+        changed = regen_constraint_doc(path)
+    except FileNotFoundError:
+        print(f"regen-docs: {path} not found", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"regen-docs: {e}", file=sys.stderr)
+        return 1
+    print(f"[REGEN] {path}{' (updated)' if changed else ' (unchanged)'}")
+    return 0
+
+
+def _cmd_export_schema(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    try:
+        changed = write_contract_json_schema(out)
+    except OSError as e:
+        print(f"schema export error: {e}", file=sys.stderr)
+        return 1
+    if changed:
+        print(f"[SCHEMA] wrote {out}")
+    else:
+        print(f"[SCHEMA] {out} unchanged")
+    return 0
+
+
+def _cmd_validate_contract(args: argparse.Namespace) -> int:
+    # Imported lazily — keeps the validate-contract path off the generate import surface.
+    from data_contract.validate_contract import run_validate_contract
+    return run_validate_contract(
+        epic=args.epic,
+        file=args.file,
+        epic_root=Path(args.epic_root),
+        types_path=Path(args.types),
+        allow_unknown_constraints=args.allow_unknown_constraints,
+        output_format="json" if args.json else "text",
+    )
+
+
 def _cmd_drift(args: argparse.Namespace) -> int:
     epic_root = Path(args.epic_root)
     contracts_dir = epic_root / args.epic / "contracts"
-    from_file = contracts_dir / "history" / args.table / f"v{args.from_version}.yaml"
-    to_file = contracts_dir / "history" / args.table / f"v{args.to_version}.yaml"
+    from_file = history_path_for_table(contracts_dir, args.from_version, args.table)
+    to_file = history_path_for_table(contracts_dir, args.to_version, args.table)
     for p in (from_file, to_file):
         if not p.is_file():
             print(f"history file not found: {p}", file=sys.stderr)

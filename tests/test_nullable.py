@@ -1,6 +1,6 @@
 import pytest
 
-from data_quality.nullable import NullableMapping, parse_nullable
+from data_contract.nullable import NullableMapping, parse_nullable
 
 
 @pytest.fixture

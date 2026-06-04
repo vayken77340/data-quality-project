@@ -8,9 +8,9 @@ from openpyxl import load_workbook
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from data_quality.config import ColumnMapping
-from data_quality.errors import RejectionError, SpecReaderError
-from data_quality.header_matcher import find_column, normalize
+from data_contract.config import ColumnMapping
+from data_contract.errors import RejectionError, SpecReaderError
+from data_contract.header_matcher import find_column, normalize
 
 
 HEADER_SEARCH_DEPTH = 5  # scan first N rows of a sheet looking for the header
@@ -85,7 +85,7 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
         idx = find_column(headers, col_spec.spec_name)
         if idx is not None:
             col_idx[logical] = idx
-        elif col_spec.required:
+        elif col_spec.column_required:
             missing.append(f"{logical} ({col_spec.spec_name!r})")
         # else: column is `required: false` and absent → skip silently
     if missing:
@@ -99,7 +99,7 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
         if idx is not None:
             col_idx["table"] = idx
             has_table_column = True
-        elif mapping.table.required:
+        elif mapping.table.column_required:
             return _header_not_found(
                 f"sheet {sheet_name!r}: missing required column: table ({mapping.table.spec_name!r})"
             )
@@ -112,7 +112,7 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
         idx = find_column(headers, constraint.column.spec_name)
         if idx is not None:
             constraint_cols[c_name] = idx
-        elif constraint.column.required:
+        elif constraint.column.column_required:
             constraint_missing.append(f"{c_name} ({constraint.column.spec_name!r})")
     if constraint_missing:
         return _header_not_found(
@@ -212,10 +212,10 @@ def _row_is_empty(row: tuple, indices: set[int]) -> bool:
 
 def _locate_header_row(ws: Worksheet, mapping: ColumnMapping) -> tuple[int, list[str | None]] | None:
     # Only columns flagged `required: true` (the default) contribute to header
-    # detection. If a spec author marks e.g. `name.required: false`, header
+    # detection. If a spec author marks e.g. `name.column_required: false`, header
     # discovery falls back to whichever required-true columns remain.
     candidates = [mapping.name, mapping.type, mapping.nullable]
-    required_norm = {normalize(c.spec_name) for c in candidates if c.required}
+    required_norm = {normalize(c.spec_name) for c in candidates if c.column_required}
     if not required_norm:
         # Pathological config: nothing is required. Treat the first row as the header.
         first = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)

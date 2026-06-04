@@ -1,6 +1,6 @@
-from data_quality.contract import Contract, FieldContract
-from data_quality.drift import diff_contracts
-from data_quality.type_mapping import Type
+from data_contract.contract import Contract, FieldContract
+from data_contract.drift import diff_contracts
+from data_contract.type_mapping import Type
 
 
 def _c(version, fields):

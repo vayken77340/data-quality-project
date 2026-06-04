@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from data_quality.config import ColumnMapping
-from data_quality.spec_reader import (
+from data_contract.config import ColumnMapping
+from data_contract.spec_reader import (
     iter_field_rows,
     list_table_spec_sheets,
     open_workbook,

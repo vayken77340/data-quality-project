@@ -1,4 +1,4 @@
-from data_quality.header_matcher import find_column, normalize
+from data_contract.header_matcher import find_column, normalize
 
 
 def test_normalize_trims_trailing_question_mark():

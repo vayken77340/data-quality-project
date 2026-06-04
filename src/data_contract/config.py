@@ -6,10 +6,10 @@ from typing import Any
 
 import yaml
 
-from data_quality.errors import ConfigError
-from data_quality.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
-from data_quality.field_constraints.base import FieldConstraint
-from data_quality.nullable import NullableMapping
+from data_contract.errors import ConfigError
+from data_contract.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
+from data_contract.field_constraints.base import FieldConstraint
+from data_contract.nullable import NullableMapping
 
 
 ALL_TABLES = "__ALL__"
@@ -20,7 +20,7 @@ DEFAULTS_FILENAME = "defaults.yaml"
 class ColumnSpec:
     """A spec-column lookup.
 
-    `required` controls whether the column header must exist in the workbook
+    `column_required` controls whether the column header must exist in the workbook
     sheet (default True). When False, a missing header is tolerated and the
     column is simply skipped — values won't be read for it.
 
@@ -28,33 +28,33 @@ class ColumnSpec:
     non-empty value in the column (default False). When True, a blank cell
     in a non-empty row produces a `missing_mandatory` rejection.
 
-    Logical rule enforced at YAML parse time: `required=False + value_required=True`
+    Logical rule enforced at YAML parse time: `column_required=False + value_required=True`
     is contradictory and raises ConfigError.
     """
     spec_name: str
-    required: bool = True
+    column_required: bool = True
     value_required: bool = False
 
 
-def _check_required_value_required(key: str, required: bool, value_required: bool) -> None:
-    if not required and value_required:
+def _check_required_value_required(key: str, column_required: bool, value_required: bool) -> None:
+    if not column_required and value_required:
         raise ConfigError(
-            f"{key}: column has `required: false` but `value_required: true`. "
+            f"{key}: column has `column_required: false` but `value_required: true`. "
             f"A column whose existence is optional cannot also require values per row."
         )
 
 
 def _parse_column_block(prefix: str, key: str, block: dict) -> ColumnSpec:
-    """Shared parsing for a `{spec_name, required, value_required}` block."""
+    """Shared parsing for a `{spec_name, column_required, value_required}` block."""
     if not isinstance(block, dict):
         raise ConfigError(f"{prefix}.{key} must be a mapping with 'spec_name', 'required', 'value_required'")
     spec_name = block.get("spec_name")
     if not isinstance(spec_name, str) or not spec_name:
         raise ConfigError(f"{prefix}.{key}.spec_name must be a non-empty string")
-    required = bool(block.get("required", True))
+    column_required=bool(block.get("column_required", True))
     value_required = bool(block.get("value_required", False))
-    _check_required_value_required(f"{prefix}.{key}", required, value_required)
-    return ColumnSpec(spec_name=spec_name, required=required, value_required=value_required)
+    _check_required_value_required(f"{prefix}.{key}", column_required, value_required)
+    return ColumnSpec(spec_name=spec_name, column_required=column_required, value_required=value_required)
 
 
 _CORE_KEYS = frozenset({"name", "type", "description", "nullable", "table"})
@@ -117,19 +117,15 @@ class ColumnMapping:
 class SplitColumnSpec:
     """A column whose cell contains a list of items joined by a separator.
 
-    `required` / `value_required` mirror ColumnSpec semantics.
+    `column_required` / `value_required` mirror ColumnSpec semantics.
 
-    `allow_violations` is only meaningful for the `foreign_key` use case: when
-    True, FK resolution errors (`unknown_foreign_key_target`,
-    `ambiguous_foreign_key_target`) are demoted from rejections to warnings —
-    the contract still builds, but affected fields don't get the
-    `foreign_key` annotation. Default False keeps the strict behavior.
+    FK violation tolerance is no longer carried here — it's read from the
+    project-root `.env` (`allow_foreign_key_violation`) at CLI time.
     """
     spec_name: str
     separator: str
-    required: bool = True
+    column_required: bool = True
     value_required: bool = False
-    allow_violations: bool = False
 
 
 @dataclass(frozen=True)
@@ -159,15 +155,13 @@ class KeysColumnMapping:
             separator = block.get("separator", "|")
             if not isinstance(separator, str) or not separator:
                 raise ConfigError(f"keys.column_mapping.{key}.separator must be a non-empty string")
-            required = bool(block.get("required", True))
+            column_required=bool(block.get("column_required", True))
             value_required = bool(block.get("value_required", False))
-            _check_required_value_required(f"keys.column_mapping.{key}", required, value_required)
+            _check_required_value_required(f"keys.column_mapping.{key}", column_required, value_required)
             return SplitColumnSpec(
                 spec_name=spec_name,
-                required=required,
-                value_required=value_required,
+                column_required=column_required, value_required=value_required,
                 separator=separator,
-                allow_violations=bool(block.get("allow_violations", False)),
             )
 
         return cls(
@@ -203,11 +197,11 @@ class CardinalityColumnSpec:
     `1 -> n` with separator `->`). When None, the parser falls back to its
     default permissive set (`:`, `->`, ` to `).
 
-    `required` / `value_required` mirror ColumnSpec semantics.
+    `column_required` / `value_required` mirror ColumnSpec semantics.
     """
     spec_name: str
     separator: str | None = None
-    required: bool = True
+    column_required: bool = True
     value_required: bool = False
 
 
@@ -239,14 +233,13 @@ class JoinsColumnMapping:
             separator = block.get("separator")
             if separator is not None and (not isinstance(separator, str) or not separator):
                 raise ConfigError("joins.column_mapping.cardinality.separator, if set, must be a non-empty string")
-            required = bool(block.get("required", True))
+            column_required=bool(block.get("column_required", True))
             value_required = bool(block.get("value_required", False))
-            _check_required_value_required("joins.column_mapping.cardinality", required, value_required)
+            _check_required_value_required("joins.column_mapping.cardinality", column_required, value_required)
             return CardinalityColumnSpec(
                 spec_name=spec_name,
                 separator=separator,
-                required=required,
-                value_required=value_required,
+                column_required=column_required, value_required=value_required,
             )
 
         cardinality_block = raw.get("cardinality")
@@ -297,12 +290,16 @@ class Defaults:
         if not path.exists():
             return cls()
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        cm_raw = raw.get("column_mapping")
+        fields_raw = raw.get("fields")
         column_mapping = None
-        if cm_raw is not None:
-            if not isinstance(cm_raw, dict):
-                raise ConfigError(f"{path}: column_mapping must be a mapping")
-            column_mapping = ColumnMapping.from_dict(cm_raw)
+        if fields_raw is not None:
+            if not isinstance(fields_raw, dict):
+                raise ConfigError(f"{path}: 'fields' must be a mapping")
+            cm_raw = fields_raw.get("column_mapping")
+            if cm_raw is not None:
+                if not isinstance(cm_raw, dict):
+                    raise ConfigError(f"{path}: fields.column_mapping must be a mapping")
+                column_mapping = ColumnMapping.from_dict(cm_raw)
 
         keys_raw = raw.get("keys")
         if keys_raw is None:
@@ -366,9 +363,14 @@ class EpicConfig:
         else:
             raise ConfigError(f"{path}: 'tables' must be a list or the string 'all'")
 
-        override = raw.get("column_mapping")
-        if override is not None and not isinstance(override, dict):
-            raise ConfigError(f"{path}: 'column_mapping' override must be a mapping")
+        override = None
+        fields_block = raw.get("fields")
+        if fields_block is not None:
+            if not isinstance(fields_block, dict):
+                raise ConfigError(f"{path}: 'fields' override must be a mapping")
+            override = fields_block.get("column_mapping")
+            if override is not None and not isinstance(override, dict):
+                raise ConfigError(f"{path}: 'fields.column_mapping' override must be a mapping")
 
         return cls(
             path=path,
@@ -492,7 +494,7 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
 def _column_spec_to_raw(c: ColumnSpec) -> dict[str, Any]:
     return {
         "spec_name": c.spec_name,
-        "required": c.required,
+        "column_required": c.column_required,
         "value_required": c.value_required,
     }
 
@@ -505,7 +507,7 @@ def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
         "description": _column_spec_to_raw(cm.description),
         "nullable": {
             "spec_name": cm.nullable.spec_name,
-            "required": cm.nullable.required,
+            "required": cm.nullable.column_required,
             "value_required": cm.nullable.value_required,
             "values": {
                 "true": sorted(cm.nullable.true_values),
