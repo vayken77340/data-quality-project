@@ -16,6 +16,27 @@ class UniqueConstraint(_BoolConstraint):
 
     CONTRACT_VALUE_SCHEMA = {"type": "boolean", "const": True}
 
+    VIOLATION_KIND = "unique_violation"
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Flag every row that shares its value with another row.
+
+        Nulls are NOT flagged here — uniqueness is about non-null collisions;
+        nullability is handled separately.
+        """
+        import polars as pl
+
+        col = pl.col(field.name)
+        dup_keys = (
+            frame.filter(col.is_not_null())
+            .group_by(field.name)
+            .agg(pl.len().alias("__count__"))
+            .filter(pl.col("__count__") > 1)
+            .select(field.name)
+        )
+        return frame.join(dup_keys, on=field.name, how="inner")
+
     @classmethod
     def diff(cls, field_name, old, new) -> DriftChange | None:
         old_b = bool(old)

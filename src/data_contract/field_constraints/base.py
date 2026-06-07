@@ -247,6 +247,13 @@ class FieldConstraint(ABC):
     SPEC_PARSING_FIELDS: ClassVar[tuple[str, ...]] = ()
     CONTRACT_FIELDS: ClassVar[tuple[str, ...]] = ()
 
+    # Data-validation metadata. Subclasses that override `check_data` MUST set
+    # VIOLATION_KIND to a non-empty string; `register()` enforces this.
+    # VIOLATION_SEVERITY defaults to "error"; override to "warning" or "info"
+    # if the data-side check should be informational.
+    VIOLATION_KIND: ClassVar[str] = ""
+    VIOLATION_SEVERITY: ClassVar[str] = "error"
+
     # JSON Schema fragment describing the shape of this constraint's value in
     # the contract YAML. Used by `schema_export` to build the published
     # contract schema. Constraints with dynamic content (e.g. enum sourced from
@@ -340,6 +347,19 @@ class FieldConstraint(ABC):
     @classmethod
     @abstractmethod
     def diff(cls, field_name: str, old: Any | None, new: Any | None) -> DriftChange | None: ...
+
+    # -- data validation ----------------------------------------------------
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Return a Polars LazyFrame of rows that VIOLATE this constraint,
+        or None if the constraint has no data-side check.
+
+        Default: returns None. Subclasses override to implement.
+        Implementations MUST lazy-import polars inside the method body so the
+        base data_contract package stays Polars-free at import time.
+        """
+        return None
 
     # -- shared rejection builders -----------------------------------------
 

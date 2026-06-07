@@ -96,10 +96,30 @@ class FormatConstraint(FieldConstraint):
     SPEC_PARSING_FIELDS = ()
     CONTRACT_FIELDS = ()
 
+    VIOLATION_KIND = "format_violation"
+
     @classmethod
     def contract_value_schema(cls):
         # Dynamic: the enum reflects whatever's registered at export time.
         return {"type": "string", "enum": sorted(FORMAT_REGISTRY)}
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Flag rows whose value is non-null and doesn't match the format's regex.
+
+        The token in `check.value` is looked up in FORMAT_REGISTRY; if the
+        registered token has no `pattern` (informational-only token), this
+        check is a no-op (returns None).
+        """
+        import polars as pl
+
+        token = str(check.value)
+        token_info = FORMAT_REGISTRY.get(token)
+        if token_info is None or token_info.pattern is None:
+            return None
+        regex = token_info.pattern
+        col = pl.col(field.name).cast(pl.String, strict=False)
+        return frame.filter(col.is_not_null() & ~col.str.contains(regex))
 
     def _parse_non_empty(self, raw_str, raw_original, ctx):
         token = raw_str.strip().lower()

@@ -79,6 +79,15 @@ def register(cls: type[FieldConstraint]) -> type[FieldConstraint]:
             f"FieldConstraint {cls.__qualname__} docstring must include the headers "
             f"{list(_REQUIRED_DOCSTRING_HEADERS)}; missing: {missing_headers}"
         )
+    # Data-side check sanity: if the class overrides check_data, it must declare VIOLATION_KIND.
+    base_check = FieldConstraint.check_data
+    own_check = cls.__dict__.get("check_data")
+    if own_check is not None and own_check is not base_check:
+        if not isinstance(cls.VIOLATION_KIND, str) or not cls.VIOLATION_KIND:
+            raise ConfigError(
+                f"FieldConstraint {cls.__qualname__} overrides `check_data` but does not "
+                f"declare a non-empty `VIOLATION_KIND` class attribute"
+            )
     REGISTRY[cls.name] = cls
     _CONTRACT_KEY_INDEX[cls.contract_key] = cls
     return cls

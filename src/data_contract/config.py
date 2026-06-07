@@ -14,6 +14,8 @@ from data_contract.nullable import NullableMapping
 
 ALL_TABLES = "__ALL__"
 DEFAULTS_FILENAME = "defaults.yaml"
+VALIDATION_FILENAME = "validation.yaml"
+_NON_VERSION_FILENAMES = frozenset({DEFAULTS_FILENAME, VALIDATION_FILENAME})
 
 
 @dataclass(frozen=True)
@@ -416,7 +418,7 @@ def discover_version_configs(epic_configs_dir: Path) -> list[Path]:
         raise ConfigError(f"epic configs directory not found: {epic_configs_dir}")
     out: list[Path] = []
     for p in sorted(epic_configs_dir.iterdir()):
-        if p.is_file() and p.suffix in (".yaml", ".yml") and p.name != DEFAULTS_FILENAME:
+        if p.is_file() and p.suffix in (".yaml", ".yml") and p.name not in _NON_VERSION_FILENAMES:
             out.append(p)
     return out
 

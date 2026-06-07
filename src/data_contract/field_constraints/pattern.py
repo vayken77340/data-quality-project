@@ -22,6 +22,8 @@ class PatternConstraint(FieldConstraint):
 
     CONTRACT_VALUE_SCHEMA = {"type": "string", "minLength": 1}
 
+    VIOLATION_KIND = "pattern_violation"
+
     def _parse_non_empty(self, raw_str, raw_original, ctx):
         try:
             re.compile(raw_str)
@@ -33,6 +35,15 @@ class PatternConstraint(FieldConstraint):
                 message=f"pattern {raw_str!r} does not compile: {e}",
             )
         return raw_str, None
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Flag rows whose value is non-null AND does not match the regex."""
+        import polars as pl
+
+        regex = str(check.value)
+        col = pl.col(field.name).cast(pl.String, strict=False)
+        return frame.filter(col.is_not_null() & ~col.str.contains(regex))
 
     @classmethod
     def diff(cls, field_name, old, new) -> DriftChange | None:

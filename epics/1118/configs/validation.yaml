@@ -1,0 +1,8 @@
+tables:
+  PROJECT:
+    format: excel
+    file_pattern: "PROJECT*.xlsx"
+
+  CALENDAR:
+    format: excel
+    file_pattern: "CALENDAR*.xlsx"

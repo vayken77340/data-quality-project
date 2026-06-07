@@ -29,6 +29,8 @@ class AllowedValuesConstraint(FieldConstraint):
         "uniqueItems": True,
     }
 
+    VIOLATION_KIND = "allowed_values_violation"
+
     separator: str
 
     def _configure(self) -> None:
@@ -52,6 +54,19 @@ class AllowedValuesConstraint(FieldConstraint):
                 ),
             )
         return values, None
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Flag rows whose value is non-null AND not in the allowed set.
+
+        Nulls are NOT flagged here — nullability is enforced separately by the
+        core-fields nullable check.
+        """
+        import polars as pl
+
+        allowed = list(check.value or [])
+        col = pl.col(field.name).cast(pl.String, strict=False)
+        return frame.filter(col.is_not_null() & ~col.is_in(allowed))
 
     @classmethod
     def diff(cls, field_name, old, new) -> DriftChange | None:

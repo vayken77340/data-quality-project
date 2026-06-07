@@ -13,6 +13,13 @@ dependencies = [
     "jsonschema>=4.0",
 ]
 
+[project.optional-dependencies]
+validate-data = [
+    "polars>=1.0",
+    "pyarrow>=15.0",
+    "fastexcel>=0.10",
+]
+
 [project.scripts]
 data-contract = "data_contract.cli:main"
 

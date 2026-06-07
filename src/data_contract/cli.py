@@ -80,6 +80,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_validate_contract(args)
     if args.command == "regen-docs":
         return _cmd_regen_docs(args)
+    if args.command == "validate-data":
+        return _cmd_validate_data(args)
     parser.print_help()
     return 1
 
@@ -160,6 +162,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Rewrite the auto-generated catalog/format sections of docs/constraints.md.",
     )
     regen.add_argument("--path", default=None, help="Path to constraints.md (defaults to docs/constraints.md).")
+
+    validate_d = sub.add_parser(
+        "validate-data",
+        help="Validate sample data against an epic's contracts.",
+    )
+    validate_d.add_argument("--epic", required=True)
+    validate_d.add_argument("--table", default=None, help="Restrict to one table.")
+    validate_d.add_argument("--input-dir", required=True, help="Directory containing the sample data files.")
+    validate_d.add_argument("--output-dir", default=None, help="Override default epics/<epic>/validations/ location.")
+    validate_d.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
+    validate_d.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
+    validate_d.add_argument("--strict-columns", action="store_true", help="Extra columns -> error (default: warning).")
+    validate_d.add_argument("--json", action="store_true", help="Also emit the structured JSON report to stdout.")
 
     return p
 
@@ -816,6 +831,28 @@ def _cmd_export_schema(args: argparse.Namespace) -> int:
     else:
         print(f"[SCHEMA] {out} unchanged")
     return 0
+
+
+def _cmd_validate_data(args: argparse.Namespace) -> int:
+    try:
+        from data_contract.validate_data.runner import run_validate_data
+    except ImportError as e:
+        print(
+            f"validate-data requires the [validate-data] extras. Install with:\n"
+            f"  pip install data-contract[validate-data]\nDetails: {e}",
+            file=sys.stderr,
+        )
+        return 1
+    return run_validate_data(
+        epic=args.epic,
+        table_filter=args.table,
+        input_dir=Path(args.input_dir),
+        output_dir=Path(args.output_dir) if args.output_dir else None,
+        epic_root=Path(args.epic_root),
+        types_path=Path(args.types),
+        strict_columns=args.strict_columns,
+        json_to_stdout=args.json,
+    )
 
 
 def _cmd_validate_contract(args: argparse.Namespace) -> int:

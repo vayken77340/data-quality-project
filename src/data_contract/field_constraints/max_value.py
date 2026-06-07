@@ -36,6 +36,8 @@ class MaxValueConstraint(FieldConstraint):
         "additionalProperties": False,
     }
 
+    VIOLATION_KIND = "max_value_violation"
+
     strict: bool
 
     def _configure(self) -> None:
@@ -70,6 +72,22 @@ class MaxValueConstraint(FieldConstraint):
                 ),
             )
         return value, None
+
+    @classmethod
+    def check_data(cls, frame, field, check):
+        """Flag rows whose value violates the upper bound.
+
+        strict=False (default): violation when value > threshold.
+        strict=True:            violation when value >= threshold.
+        Nulls are NOT flagged here.
+        """
+        import polars as pl
+
+        threshold = check.value
+        strict = bool(check.params.get("strict", False))
+        col = pl.col(field.name)
+        condition = (col >= threshold) if strict else (col > threshold)
+        return frame.filter(col.is_not_null() & condition)
 
     @classmethod
     def diff(cls, field_name, old, new) -> DriftChange | None:
