@@ -84,23 +84,34 @@ class ValidationReport:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_INPUT_SUBDIR = "sample"
+DEFAULT_OUTPUT_SUBDIR = "validations"
+
+
 def run_validate_data(
     *,
     epic: str,
     table_filter: str | None,
-    input_dir: Path,
+    input_dir: Path | None,
     output_dir: Path | None,
     epic_root: Path,
     types_path: Path,
     strict_columns: bool = False,
     json_to_stdout: bool = False,
 ) -> int:
-    """CLI entry point. Returns exit code (0 / 1 / 2)."""
+    """CLI entry point. Returns exit code (0 / 1 / 2).
+
+    `input_dir` and `output_dir` resolution:
+      - None  -> epic_dir / "sample" (input) or "validations" (output)
+      - relative path -> resolved as epic_dir / <relative>
+      - absolute path -> used as-is
+    """
     epic_dir = epic_root / epic
     configs_dir = epic_dir / "configs"
     validation_yaml = configs_dir / "validation.yaml"
     parser_yaml_dir = configs_dir / "parsers"
-    out_dir = output_dir or (epic_dir / "validations")
+    input_dir = _resolve_epic_path(input_dir, epic_dir, DEFAULT_INPUT_SUBDIR)
+    out_dir = _resolve_epic_path(output_dir, epic_dir, DEFAULT_OUTPUT_SUBDIR)
 
     try:
         config = ValidationConfig.from_yaml(validation_yaml, parser_yaml_dir)
@@ -200,6 +211,20 @@ def run_validate_data(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_epic_path(supplied: Path | None, epic_dir: Path, default_subdir: str) -> Path:
+    """Resolve `--input-dir` / `--output-dir`:
+
+    - None         -> epic_dir / default_subdir
+    - relative     -> epic_dir / supplied
+    - absolute     -> supplied (use as-is)
+    """
+    if supplied is None:
+        return epic_dir / default_subdir
+    if supplied.is_absolute():
+        return supplied
+    return epic_dir / supplied
 
 
 def _load_contracts(contracts_dir: Path) -> dict[str, Contract]:

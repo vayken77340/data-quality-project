@@ -169,8 +169,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     validate_d.add_argument("--epic", required=True)
     validate_d.add_argument("--table", default=None, help="Restrict to one table.")
-    validate_d.add_argument("--input-dir", required=True, help="Directory containing the sample data files.")
-    validate_d.add_argument("--output-dir", default=None, help="Override default epics/<epic>/validations/ location.")
+    validate_d.add_argument(
+        "--input-dir",
+        default=None,
+        help=(
+            "Directory holding the sample files. Default: epics/<epic>/sample/. "
+            "Relative paths resolve under the epic dir; absolute paths are used as-is."
+        ),
+    )
+    validate_d.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Where to write the reports. Default: epics/<epic>/validations/. "
+            "Relative paths resolve under the epic dir; absolute paths are used as-is."
+        ),
+    )
     validate_d.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
     validate_d.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
     validate_d.add_argument("--strict-columns", action="store_true", help="Extra columns -> error (default: warning).")
@@ -846,7 +860,7 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
     return run_validate_data(
         epic=args.epic,
         table_filter=args.table,
-        input_dir=Path(args.input_dir),
+        input_dir=Path(args.input_dir) if args.input_dir else None,
         output_dir=Path(args.output_dir) if args.output_dir else None,
         epic_root=Path(args.epic_root),
         types_path=Path(args.types),

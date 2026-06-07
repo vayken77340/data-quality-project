@@ -155,7 +155,7 @@ def test_no_tables_block_discovers_all_contracts(repo_root: Path, tmp_path: Path
     rc = main([
         "validate-data",
         "--epic", "1118",
-        "--input-dir", str(repo_root / "epics" / "1118" / "samples" / "clean"),
+        "--input-dir", str(repo_root / "epics" / "1118" / "sample"),
         "--output-dir", str(out),
     ])
     assert rc == 0
@@ -173,7 +173,7 @@ def test_table_placeholder_in_file_pattern_resolves_per_table(repo_root: Path, t
     rc = main([
         "validate-data",
         "--epic", "1118",
-        "--input-dir", str(repo_root / "epics" / "1118" / "samples" / "clean"),
+        "--input-dir", str(repo_root / "epics" / "1118" / "sample"),
         "--output-dir", str(out),
     ])
     assert rc == 0
@@ -183,6 +183,42 @@ def test_table_placeholder_in_file_pattern_resolves_per_table(repo_root: Path, t
     # Each table sees only the file matching its name placeholder.
     assert {f["path"] for f in project["input"]["files"]} == {"PROJECT.xlsx"}
     assert {f["path"] for f in calendar["input"]["files"]} == {"CALENDAR.xlsx"}
+
+
+def test_default_input_dir_is_epic_sample(repo_root: Path, tmp_path: Path, monkeypatch):
+    """Omit --input-dir entirely; runner falls back to epics/<epic>/sample/."""
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--output-dir", str(out),
+    ])
+    assert rc == 0
+    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    assert payload["summary"]["pass"] is True
+
+
+def test_relative_input_dir_resolves_under_epic(repo_root: Path, tmp_path: Path, monkeypatch):
+    """--input-dir sample_dirty resolves to epics/1118/sample_dirty/."""
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--input-dir", "sample_dirty",
+        "--output-dir", str(out),
+    ])
+    assert rc == 2  # the sample_dirty/ data has seeded violations
+
+
+def test_default_output_dir_lands_under_epic_validations(repo_root: Path, monkeypatch):
+    """Omit --output-dir entirely; reports land in epics/<epic>/validations/."""
+    monkeypatch.chdir(repo_root)
+    rc = main(["validate-data", "--epic", "1118"])
+    assert rc == 0
+    expected = repo_root / "epics" / "1118" / "validations" / "quality_report.json"
+    assert expected.is_file()
 
 
 def test_missing_input_dir_returns_1(repo_root: Path, tmp_path: Path, monkeypatch):
