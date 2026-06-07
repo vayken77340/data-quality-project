@@ -2,6 +2,10 @@ tables:
   PROJECT:
     format: excel
     file_pattern: "PROJECT*.xlsx"
+    # sheet_name omitted - resolution order is:
+    #   1. explicit sheet_name (none here)
+    #   2. sheet matching the table key "PROJECT" if it exists
+    #   3. first sheet of the workbook
 
   CALENDAR:
     format: excel

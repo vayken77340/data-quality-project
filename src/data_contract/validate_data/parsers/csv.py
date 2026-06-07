@@ -28,7 +28,8 @@ class CsvParser(FileParser):
         "quote_char": '"',
     }
 
-    def read(self, paths: list[Path]) -> Any:
+    def read(self, paths: list[Path], *, table_name_hint: str | None = None) -> Any:
+        # CSV files have no concept of named sections — the hint is ignored.
         # Lazy import — Polars is only loaded when validate-data actually runs.
         import polars as pl
 

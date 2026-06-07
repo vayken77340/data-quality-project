@@ -246,7 +246,7 @@ def _validate_one_table(
     parser_params = config.effective_parser_params(table_cfg)
     parser = parser_cls(parser_params)
     try:
-        frame = parser.read(paths)
+        frame = parser.read(paths, table_name_hint=contract.table)
     except Exception as e:
         report.violations.append(Violation(
             kind="parser_failure",

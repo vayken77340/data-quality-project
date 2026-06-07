@@ -137,6 +137,72 @@ tables:
     assert params == {}
 
 
+def test_sheet_name_flows_into_effective_params(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+tables:
+  PROJECT:
+    format: excel
+    file_pattern: "data.xlsx"
+    sheet_name: "Project"
+  CALENDAR:
+    format: excel
+    file_pattern: "data.xlsx"
+    sheet_name: "Calendar"
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.tables["PROJECT"].sheet_name == "Project"
+    assert cfg.effective_parser_params(cfg.tables["PROJECT"])["sheet_name"] == "Project"
+    assert cfg.effective_parser_params(cfg.tables["CALENDAR"])["sheet_name"] == "Calendar"
+
+
+def test_sheet_name_omitted_returns_empty_or_default(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+tables:
+  PROJECT:
+    format: excel
+    file_pattern: "data.xlsx"
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.tables["PROJECT"].sheet_name is None
+    params = cfg.effective_parser_params(cfg.tables["PROJECT"])
+    assert "sheet_name" not in params  # not injected when None
+
+
+def test_sheet_name_on_csv_raises_via_parser_allowlist(tmp_path):
+    from data_contract.validate_data.parsers.csv import CsvParser
+
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+tables:
+  X:
+    format: csv
+    file_pattern: "x.csv"
+    sheet_name: "Sheet1"
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    # The CsvParser allowlist doesn't include sheet_name; instantiating raises.
+    params = cfg.effective_parser_params(cfg.tables["X"])
+    import pytest
+    with pytest.raises(ConfigError, match="unknown config keys"):
+        CsvParser(params)
+
+
+def test_sheet_name_empty_string_rejected(tmp_path):
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+tables:
+  X:
+    format: excel
+    file_pattern: "x.xlsx"
+    sheet_name: ""
+""")
+    with pytest.raises(ConfigError, match="sheet_name"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
 def test_violation_to_dict_round_trip():
     from data_contract.validate_data.violations import Violation
 

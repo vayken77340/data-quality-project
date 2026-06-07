@@ -42,10 +42,15 @@ class FileParser(ABC):
         self.params = {**self.DEFAULTS, **raw}
 
     @abstractmethod
-    def read(self, paths: list[Path]) -> Any:
+    def read(self, paths: list[Path], *, table_name_hint: str | None = None) -> Any:
         """Return a Polars LazyFrame uniting all `paths`.
 
         Implementations MUST add two columns at load time:
           - `__source_file__`: the file each row came from (just the filename).
           - `__row_index__`:   1-based row number within that source file.
+
+        `table_name_hint` is a runtime context supplied by the runner (the
+        contract's table key). Parsers that have a notion of "section within
+        the file" (e.g. Excel sheets) may use it as a fallback target when no
+        explicit selector is configured. Parsers without that notion ignore it.
         """

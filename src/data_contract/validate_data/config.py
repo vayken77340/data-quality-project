@@ -28,6 +28,7 @@ class TableValidationConfig:
     table: str
     format: str
     file_pattern: str
+    sheet_name: str | None = None        # Excel only; if unset, the parser picks the first sheet.
     parser_overrides: dict[str, Any] = field(default_factory=dict)
     field_mapping: dict[str, str] = field(default_factory=dict)
 
@@ -102,10 +103,17 @@ class ValidationConfig:
                         f"values must be strings; got {k!r}: {v!r}"
                     )
 
+            sheet_name_raw = table_raw.get("sheet_name")
+            if sheet_name_raw is not None and (not isinstance(sheet_name_raw, str) or not sheet_name_raw):
+                raise ConfigError(
+                    f"{validation_yaml}: tables.{table_name}.sheet_name, if set, must be a non-empty string"
+                )
+
             tables[table_name] = TableValidationConfig(
                 table=table_name,
                 format=fmt,
                 file_pattern=file_pattern,
+                sheet_name=sheet_name_raw,
                 parser_overrides=dict(overrides_raw),
                 field_mapping=dict(mapping_raw),
             )
@@ -132,8 +140,11 @@ class ValidationConfig:
     def effective_parser_params(self, table_cfg: TableValidationConfig) -> dict[str, Any]:
         """Merge `parsers/<format>.yaml` (when present) with `parser_overrides`.
 
-        Override keys win. Unknown keys in either layer raise ConfigError via
-        the parser's __init__ validation.
+        The table-level `sheet_name` (if set) is layered on top — declaring it
+        on a parser that doesn't accept `sheet_name` (e.g. CSV) bubbles up as a
+        ConfigError via the parser's PARSER_PARAMS allowlist.
+
+        Override keys win. Unknown keys at any layer raise ConfigError.
         """
         parser_yaml = self.parser_yaml_dir / f"{table_cfg.format}.yaml"
         defaults: dict[str, Any] = {}
@@ -142,4 +153,7 @@ class ValidationConfig:
             if not isinstance(loaded, dict):
                 raise ConfigError(f"{parser_yaml}: top-level YAML must be a mapping")
             defaults = loaded
-        return {**defaults, **table_cfg.parser_overrides}
+        merged = {**defaults, **table_cfg.parser_overrides}
+        if table_cfg.sheet_name is not None:
+            merged["sheet_name"] = table_cfg.sheet_name
+        return merged
