@@ -43,7 +43,7 @@ from data_contract.validate_data.config import (
     TableValidationConfig,
     ValidationConfig,
     ValidationSettings,
-)
+)  # TableValidationConfig is re-used by _resolve_table_configs.
 from data_contract.validate_data.parsers import get_by_name
 from data_contract.validate_data.violations import Violation
 
@@ -97,7 +97,6 @@ def run_validate_data(
 ) -> int:
     """CLI entry point. Returns exit code (0 / 1 / 2)."""
     epic_dir = epic_root / epic
-    contracts_dir = epic_dir / "contracts"
     configs_dir = epic_dir / "configs"
     validation_yaml = configs_dir / "validation.yaml"
     parser_yaml_dir = configs_dir / "parsers"
@@ -109,6 +108,9 @@ def run_validate_data(
         print(f"validate-data: {e}", file=sys.stderr)
         return 1
 
+    # contracts_folder precedence: YAML's contracts_folder -> <epic_dir>/contracts.
+    contracts_dir = config.contracts_folder if config.contracts_folder else (epic_dir / "contracts")
+
     try:
         contracts_by_table = _load_contracts(contracts_dir)
     except (ConfigError, OSError) as e:
@@ -119,20 +121,25 @@ def run_validate_data(
         print(f"validate-data: input directory not found: {input_dir}", file=sys.stderr)
         return 1
 
-    selected_tables = _select_tables(config, contracts_by_table, table_filter)
-    if not selected_tables:
+    try:
+        table_configs = _resolve_table_configs(config, contracts_by_table, table_filter)
+    except ConfigError as e:
+        print(f"validate-data: {e}", file=sys.stderr)
+        return 1
+    if not table_configs:
         print(
-            f"validate-data: no tables to validate (filter={table_filter!r}, "
-            f"configured={sorted(config.tables)}, contracts={sorted(contracts_by_table)})",
+            f"validate-data: no tables to validate (CLI --table={table_filter!r}, "
+            f"contracts found={sorted(contracts_by_table)})",
             file=sys.stderr,
         )
         return 1
+    selected_tables = list(table_configs)
 
     # Phase A: load every table's frame + per-table checks except cross-table FK.
     table_frames: dict[str, Any] = {}
     table_reports: list[TableReport] = []
     for table_name in selected_tables:
-        table_cfg = config.tables[table_name]
+        table_cfg = table_configs[table_name]
         contract = contracts_by_table[table_name]
         report = TableReport(
             table=table_name,
@@ -208,16 +215,37 @@ def _load_contracts(contracts_dir: Path) -> dict[str, Contract]:
     return out
 
 
-def _select_tables(
+def _resolve_table_configs(
     config: ValidationConfig,
     contracts_by_table: dict[str, Contract],
     table_filter: str | None,
-) -> list[str]:
+) -> dict[str, TableValidationConfig]:
+    """Determine which tables to validate and produce a TableValidationConfig for each.
+
+    Rules:
+    - If validation.yaml's `tables:` block is omitted, every contract found
+      under contracts_folder is validated using the defaults block.
+    - If `tables:` is set, only those entries are validated; each must have
+      a matching contract YAML or this raises ConfigError.
+    - `--table <name>` on the CLI restricts further to that single table.
+    """
+    if config.is_filtered():
+        # Tables listed but missing contracts -> hard error so silent mismatches don't pass.
+        missing = [t for t in config.tables if t not in contracts_by_table]
+        if missing:
+            raise ConfigError(
+                f"tables block lists {missing} but no matching contract YAMLs found"
+            )
+        resolved = dict(config.tables)
+    else:
+        # No filter -> auto-build a TableValidationConfig from defaults for every discovered contract.
+        resolved = {t: config.build_table_entry(t) for t in contracts_by_table}
+
     if table_filter is not None:
-        if table_filter in config.tables and table_filter in contracts_by_table:
-            return [table_filter]
-        return []
-    return [t for t in config.tables if t in contracts_by_table]
+        if table_filter not in resolved:
+            return {}
+        return {table_filter: resolved[table_filter]}
+    return resolved
 
 
 def _validate_one_table(
@@ -232,7 +260,10 @@ def _validate_one_table(
     """Load + per-table checks. Returns the unified LazyFrame on success, or
     None when the table couldn't even be loaded (no files / bad parser params).
     """
-    paths = sorted(input_dir.glob(table_cfg.file_pattern))
+    # Substitute the `{table}` placeholder so a single `defaults.file_pattern`
+    # like "{table}*.xlsx" works for the per-table-file layout.
+    resolved_pattern = table_cfg.file_pattern.replace("{table}", contract.table)
+    paths = sorted(input_dir.glob(resolved_pattern))
     if not paths:
         report.violations.append(Violation(
             kind="no_input_files",

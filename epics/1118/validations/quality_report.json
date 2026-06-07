@@ -1,13 +1,96 @@
 {
   "epic": "1118",
-  "generated_at": "2026-06-07T19:39:17Z",
+  "generated_at": "2026-06-07T20:21:20Z",
   "summary": {
-    "pass": true,
-    "errors": 0,
+    "pass": false,
+    "errors": 10,
     "warnings": 0,
     "info": 0
   },
   "tables": [
+    {
+      "table": "CALENDAR",
+      "contract_version": "1.0",
+      "pk_fields": [
+        "test_id"
+      ],
+      "input": {
+        "files": [
+          {
+            "path": "CALENDAR.xlsx",
+            "rows": 5
+          }
+        ],
+        "total_rows": 5
+      },
+      "violations": [
+        {
+          "kind": "pk_not_unique",
+          "severity": "error",
+          "field": "test_id",
+          "row_count": 2,
+          "distinct_values": 1,
+          "spans_files": 1,
+          "duplicates": [
+            {
+              "value": 10,
+              "occurrences": [
+                {
+                  "source_file": "CALENDAR.xlsx",
+                  "source_row": 1
+                },
+                {
+                  "source_file": "CALENDAR.xlsx",
+                  "source_row": 2
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "nullable_violation",
+          "severity": "error",
+          "field": "test_id",
+          "row_count": 1,
+          "expected": "value is required",
+          "sample_offending_values": [
+            {
+              "value": null,
+              "source_file": "CALENDAR.xlsx",
+              "source_row": 4
+            }
+          ]
+        },
+        {
+          "kind": "nullable_violation",
+          "severity": "error",
+          "field": "proj_id",
+          "row_count": 1,
+          "expected": "value is required",
+          "sample_offending_values": [
+            {
+              "value": null,
+              "source_file": "CALENDAR.xlsx",
+              "source_row": 5
+            }
+          ]
+        },
+        {
+          "kind": "fk_not_found",
+          "severity": "error",
+          "field": "proj_id",
+          "row_count": 1,
+          "expected": "value must exist in PROJECT.proj_id",
+          "sample_offending_values": [
+            {
+              "value": "999",
+              "source_file": "CALENDAR.xlsx",
+              "source_row": 3
+            }
+          ]
+        }
+      ]
+    },
     {
       "table": "PROJECT",
       "contract_version": "1.0",
@@ -18,30 +101,82 @@
       "input": {
         "files": [
           {
-            "path": "PROJECT_data.xlsx",
-            "rows": 2
+            "path": "PROJECT.xlsx",
+            "rows": 5
           }
         ],
-        "total_rows": 2
+        "total_rows": 5
       },
-      "violations": []
-    },
-    {
-      "table": "CALENDAR",
-      "contract_version": "1.0",
-      "pk_fields": [
-        "test_id"
-      ],
-      "input": {
-        "files": [
-          {
-            "path": "CALENDAR_data.xlsx",
-            "rows": 2
-          }
-        ],
-        "total_rows": 2
-      },
-      "violations": []
+      "violations": [
+        {
+          "kind": "pk_not_unique",
+          "severity": "error",
+          "field": "proj_id, column1",
+          "row_count": 2,
+          "distinct_values": 1,
+          "spans_files": 1,
+          "duplicates": [
+            {
+              "value": [
+                1,
+                true
+              ],
+              "occurrences": [
+                {
+                  "source_file": "PROJECT.xlsx",
+                  "source_row": 1
+                },
+                {
+                  "source_file": "PROJECT.xlsx",
+                  "source_row": 2
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "nullable_violation",
+          "severity": "error",
+          "field": "proj_id",
+          "row_count": 1,
+          "expected": "value is required",
+          "sample_offending_values": [
+            {
+              "value": null,
+              "source_file": "PROJECT.xlsx",
+              "source_row": 3
+            }
+          ]
+        },
+        {
+          "kind": "nullable_violation",
+          "severity": "error",
+          "field": "column1",
+          "row_count": 1,
+          "expected": "value is required",
+          "sample_offending_values": [
+            {
+              "value": null,
+              "source_file": "PROJECT.xlsx",
+              "source_row": 4
+            }
+          ]
+        },
+        {
+          "kind": "max_length_violation",
+          "severity": "error",
+          "field": "column3",
+          "row_count": 1,
+          "expected": "length <= 384",
+          "sample_offending_values": [
+            {
+              "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "source_file": "PROJECT.xlsx",
+              "source_row": 5
+            }
+          ]
+        }
+      ]
     }
   ]
 }

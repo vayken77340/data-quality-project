@@ -137,26 +137,206 @@ tables:
     assert params == {}
 
 
-def test_sheet_name_flows_into_effective_params(tmp_path):
+def test_defaults_file_pattern_inherited_by_tables(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+tables:
+  PROJECT:
+  CALENDAR:
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.defaults.file_pattern == "data.xlsx"
+    assert cfg.defaults.format == "excel"
+    assert cfg.tables["PROJECT"].file_pattern == "data.xlsx"
+    assert cfg.tables["PROJECT"].format == "excel"
+    assert cfg.tables["CALENDAR"].file_pattern == "data.xlsx"
+
+
+def test_per_table_format_and_pattern_override_defaults(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "fallback.xlsx"
+tables:
+  PROJECT:
+    file_pattern: "project_special.xlsx"
+  CALENDAR:
+  ORDERS:
+    format: csv
+    file_pattern: "orders.csv"
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.tables["PROJECT"].format == "excel"
+    assert cfg.tables["PROJECT"].file_pattern == "project_special.xlsx"
+    assert cfg.tables["CALENDAR"].file_pattern == "fallback.xlsx"
+    assert cfg.tables["ORDERS"].format == "csv"
+    assert cfg.tables["ORDERS"].file_pattern == "orders.csv"
+
+
+def test_missing_pattern_and_no_default_is_config_error(tmp_path):
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+tables:
+  PROJECT:
+  CALENDAR:
+    file_pattern: "calendar.xlsx"
+""")
+    with pytest.raises(ConfigError, match="no file_pattern"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
+def test_missing_format_and_no_default_is_config_error(tmp_path):
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  file_pattern: "data.xlsx"
+tables:
+  PROJECT:
+""")
+    with pytest.raises(ConfigError, match="no format"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
+def test_empty_defaults_file_pattern_rejected(tmp_path):
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  file_pattern: ""
+tables:
+  PROJECT:
+    format: excel
+""")
+    with pytest.raises(ConfigError, match="defaults.file_pattern"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
+def test_unknown_defaults_key_rejected(tmp_path):
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+  bogus_key: nope
+tables:
+  PROJECT:
+""")
+    with pytest.raises(ConfigError, match="unknown keys"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
+def test_tables_omitted_validates_all_discovered_contracts(tmp_path):
+    """When `tables:` is absent, the discovered contracts are validated via defaults.
+
+    Config-level only: this exercises is_filtered() + build_table_entry(); the runner
+    integration is exercised in test_integration_1118.
+    """
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.is_filtered() is False
+    entry = cfg.build_table_entry("AUTO_TABLE")
+    assert entry.table == "AUTO_TABLE"
+    assert entry.format == "excel"
+    assert entry.file_pattern == "data.xlsx"
+
+
+def test_tables_listed_is_filtered(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+tables:
+  PROJECT:
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.is_filtered() is True
+    assert list(cfg.tables) == ["PROJECT"]
+
+
+def test_contracts_folder_parsed(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+contracts_folder: "somewhere/else/contracts"
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+tables:
+  PROJECT:
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.contracts_folder == Path("somewhere/else/contracts")
+
+
+def test_contracts_folder_omitted_defaults_to_none(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: excel
+  file_pattern: "data.xlsx"
+tables:
+  PROJECT:
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    assert cfg.contracts_folder is None
+
+
+def test_defaults_parser_overrides_merge_with_table_overrides(tmp_path):
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+defaults:
+  format: csv
+  file_pattern: "data.csv"
+  parser_overrides:
+    delimiter: ";"
+    encoding: utf-8
+tables:
+  PROJECT:
+    parser_overrides:
+      delimiter: "|"      # override defaults
+""")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    params = cfg.effective_parser_params(cfg.tables["PROJECT"])
+    # delimiter from table wins, encoding from defaults survives
+    assert params["delimiter"] == "|"
+    assert params["encoding"] == "utf-8"
+
+
+def test_sheet_name_under_parser_overrides_flows_into_effective_params(tmp_path):
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
   PROJECT:
     format: excel
     file_pattern: "data.xlsx"
-    sheet_name: "Project"
+    parser_overrides:
+      sheet_name: "Project"
   CALENDAR:
     format: excel
     file_pattern: "data.xlsx"
-    sheet_name: "Calendar"
+    parser_overrides:
+      sheet_name: "Calendar"
 """)
     cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
-    assert cfg.tables["PROJECT"].sheet_name == "Project"
     assert cfg.effective_parser_params(cfg.tables["PROJECT"])["sheet_name"] == "Project"
     assert cfg.effective_parser_params(cfg.tables["CALENDAR"])["sheet_name"] == "Calendar"
 
 
-def test_sheet_name_omitted_returns_empty_or_default(tmp_path):
+def test_sheet_name_omitted_not_in_effective_params(tmp_path):
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
@@ -165,31 +345,30 @@ tables:
     file_pattern: "data.xlsx"
 """)
     cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
-    assert cfg.tables["PROJECT"].sheet_name is None
     params = cfg.effective_parser_params(cfg.tables["PROJECT"])
-    assert "sheet_name" not in params  # not injected when None
+    assert "sheet_name" not in params
 
 
-def test_sheet_name_on_csv_raises_via_parser_allowlist(tmp_path):
-    from data_contract.validate_data.parsers.csv import CsvParser
-
+def test_sheet_name_under_parser_overrides_on_csv_rejected_at_load(tmp_path):
+    """The PARSER_PARAMS allowlist gates `sheet_name` — declaring it on a CSV
+    table raises ConfigError at YAML load (not later at parser instantiation)."""
+    import pytest
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
   X:
     format: csv
     file_pattern: "x.csv"
-    sheet_name: "Sheet1"
+    parser_overrides:
+      sheet_name: "Sheet1"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
-    # The CsvParser allowlist doesn't include sheet_name; instantiating raises.
-    params = cfg.effective_parser_params(cfg.tables["X"])
-    import pytest
-    with pytest.raises(ConfigError, match="unknown config keys"):
-        CsvParser(params)
+    with pytest.raises(ConfigError, match="unknown keys"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
 
 
-def test_sheet_name_empty_string_rejected(tmp_path):
+def test_misplaced_top_level_sheet_name_rejected_at_load(tmp_path):
+    """If a user puts `sheet_name` at the table top level (the old wrong spot),
+    fail loud with a message that points them at parser_overrides."""
     import pytest
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
@@ -197,9 +376,24 @@ tables:
   X:
     format: excel
     file_pattern: "x.xlsx"
-    sheet_name: ""
+    sheet_name: "Sheet1"
 """)
-    with pytest.raises(ConfigError, match="sheet_name"):
+    with pytest.raises(ConfigError, match="parser_overrides"):
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+
+
+def test_misplaced_top_level_encoding_rejected_at_load(tmp_path):
+    """Same guard for other format-specific keys."""
+    import pytest
+    cfg_dir = tmp_path / "configs"
+    _write(cfg_dir / "validation.yaml", """
+tables:
+  X:
+    format: csv
+    file_pattern: "x.csv"
+    encoding: utf-8
+""")
+    with pytest.raises(ConfigError, match="parser_overrides"):
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
 
 

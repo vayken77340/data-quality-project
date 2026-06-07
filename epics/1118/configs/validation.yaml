@@ -1,12 +1,26 @@
-tables:
-  PROJECT:
-    format: excel
-    file_pattern: "PROJECT*.xlsx"
-    # sheet_name omitted - resolution order is:
-    #   1. explicit sheet_name (none here)
-    #   2. sheet matching the table key "PROJECT" if it exists
-    #   3. first sheet of the workbook
+# Shared defaults across tables. Only the format-agnostic fields belong here:
+# format, file_pattern, parser_overrides. Per-table-specific stuff like
+# field_mapping goes under each table; format-specific stuff like sheet_name
+# (Excel), delimiter (CSV), etc. goes under parser_overrides.
+defaults:
+  format: excel
+  # `{table}` is substituted with the table name at glob time. So:
+  #   PROJECT*.xlsx  for the PROJECT table
+  #   CALENDAR*.xlsx for the CALENDAR table
+  # For a single multi-sheet workbook layout, set this to the literal filename
+  # (e.g. "data.xlsx") - the parser picks the right sheet via table-name match.
+  file_pattern: "{table}*.xlsx"
 
-  CALENDAR:
-    format: excel
-    file_pattern: "CALENDAR*.xlsx"
+# `contracts_folder` is optional; omitted = <epic_dir>/contracts.
+# contracts_folder: "epics/1118/contracts"
+
+# `tables:` is optional. Omitted = every <table>.yaml under contracts_folder is validated.
+# Listing scopes validation to a subset and lets you override defaults per table.
+#
+# tables:
+#   PROJECT:
+#   CALENDAR:
+#     parser_overrides:
+#       sheet_name: "Calendar Sheet"   # format-specific config goes here
+#     field_mapping:
+#       "Data Header": contract_field  # per-table column rename

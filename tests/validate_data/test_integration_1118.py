@@ -143,6 +143,48 @@ def test_dup_pk_xlsx_has_rejected_sheet_with_pk_named_columns(repo_root: Path, t
     wb.close()
 
 
+def test_no_tables_block_discovers_all_contracts(repo_root: Path, tmp_path: Path, monkeypatch):
+    """The shipped epic 1118 validation.yaml has no `tables:` block — every
+    contract under epics/1118/contracts/ should be picked up automatically.
+
+    `samples/clean` has per-table xlsx files (PROJECT.xlsx, CALENDAR.xlsx)
+    matched by the shipped `{table}*.xlsx` default pattern.
+    """
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--input-dir", str(repo_root / "epics" / "1118" / "samples" / "clean"),
+        "--output-dir", str(out),
+    ])
+    assert rc == 0
+    payload = __import__("json").loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    tables_validated = {t["table"] for t in payload["tables"]}
+    assert tables_validated == {"PROJECT", "CALENDAR"}
+
+
+def test_table_placeholder_in_file_pattern_resolves_per_table(repo_root: Path, tmp_path: Path, monkeypatch):
+    """`file_pattern: "{table}*.xlsx"` becomes "PROJECT*.xlsx" / "CALENDAR*.xlsx"
+    at glob time. Each table sees only its own files even when the input dir
+    contains files for multiple tables."""
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--input-dir", str(repo_root / "epics" / "1118" / "samples" / "clean"),
+        "--output-dir", str(out),
+    ])
+    assert rc == 0
+    payload = __import__("json").loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    project = next(t for t in payload["tables"] if t["table"] == "PROJECT")
+    calendar = next(t for t in payload["tables"] if t["table"] == "CALENDAR")
+    # Each table sees only the file matching its name placeholder.
+    assert {f["path"] for f in project["input"]["files"]} == {"PROJECT.xlsx"}
+    assert {f["path"] for f in calendar["input"]["files"]} == {"CALENDAR.xlsx"}
+
+
 def test_missing_input_dir_returns_1(repo_root: Path, tmp_path: Path, monkeypatch):
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
