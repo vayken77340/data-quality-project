@@ -26,7 +26,7 @@ def _check(cls, value, params=None) -> FieldCheck:
     )
 
 
-def _field(name: str, t: Type = Type.STRING) -> FieldContract:
+def _field(name: str, t: Type = Type.VARCHAR) -> FieldContract:
     return FieldContract(name=name, type=t, nullable=True, description=None)
 
 

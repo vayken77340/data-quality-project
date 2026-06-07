@@ -56,9 +56,10 @@
         "type": {
           "type": "string",
           "enum": [
-            "string",
+            "varchar",
             "integer",
-            "number",
+            "double",
+            "float",
             "boolean",
             "date",
             "timestamp",

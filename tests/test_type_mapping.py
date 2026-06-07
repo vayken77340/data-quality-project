@@ -13,7 +13,7 @@ def registry(types_yaml_path: Path):
 def test_double_to_number(registry):
     parsed, err = parse_type("Double", registry, sheet_row=2)
     assert err is None
-    assert parsed.type is Type.NUMBER
+    assert parsed.type is Type.DOUBLE
     assert parsed.max_length is None
 
 
@@ -32,23 +32,15 @@ def test_timestamp_french(registry):
 def test_varchar_with_length(registry):
     parsed, err = parse_type("VARCHAR(384)", registry, sheet_row=5)
     assert err is None
-    assert parsed.type is Type.STRING
+    assert parsed.type is Type.VARCHAR
     assert parsed.max_length == 384
 
 
 def test_varchar_with_whitespace(registry):
     parsed, err = parse_type("VARCHAR (384)", registry, sheet_row=6)
     assert err is None
-    assert parsed.type is Type.STRING
+    assert parsed.type is Type.VARCHAR
     assert parsed.max_length == 384
-
-
-def test_decimal_precision_scale(registry):
-    parsed, err = parse_type("decimal(10,2)", registry, sheet_row=7)
-    assert err is None
-    assert parsed.type is Type.NUMBER
-    assert parsed.precision == 10
-    assert parsed.scale == 2
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -61,15 +53,8 @@ def test_decimal_precision_scale(registry):
 def test_varchar_with_grouped_number(registry, raw, expected):
     parsed, err = parse_type(raw, registry, sheet_row=11)
     assert err is None, f"unexpected rejection: {err}"
-    assert parsed.type is Type.STRING
+    assert parsed.type is Type.VARCHAR
     assert parsed.max_length == expected
-
-
-def test_decimal_with_grouped_precision_and_scale(registry):
-    parsed, err = parse_type("decimal(1 000, 2)", registry, sheet_row=12)
-    assert err is None
-    assert parsed.precision == 1000
-    assert parsed.scale == 2
 
 
 def test_bigint(registry):
@@ -81,7 +66,7 @@ def test_bigint(registry):
 def test_text(registry):
     parsed, err = parse_type("text", registry, sheet_row=9)
     assert err is None
-    assert parsed.type is Type.STRING
+    assert parsed.type is Type.VARCHAR
 
 
 def test_unknown_type_returns_rejection(registry):

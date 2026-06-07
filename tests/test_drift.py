@@ -15,7 +15,7 @@ def _c(version, fields):
     )
 
 
-def _f(name, t=Type.STRING, nullable=True, description=None, max_length=None,
+def _f(name, t=Type.VARCHAR, nullable=True, description=None, max_length=None,
        primary_key=None, foreign_key=None, constraints=None):
     return FieldContract(
         name=name,
@@ -61,7 +61,7 @@ def test_field_removed_is_breaking():
 
 
 def test_field_type_changed_is_breaking():
-    a = _c("1.0", [_f("x", t=Type.STRING)])
+    a = _c("1.0", [_f("x", t=Type.VARCHAR)])
     b = _c("2.0", [_f("x", t=Type.INTEGER)])
     report = diff_contracts(a, b, now="2026-06-02T14:00:00Z")
     assert any(c.kind == "field_type_changed" and c.severity == "breaking" for c in report.changes)

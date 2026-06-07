@@ -53,7 +53,7 @@ def test_schema_allowed_values_is_array():
     schema = build_contract_json_schema()
     fragment = schema["$defs"]["Field"]["properties"]["allowed_values"]
     assert fragment["type"] == "array"
-    assert fragment["items"] == {"type": "string"}
+    assert fragment["items"] == {"type": "string"}   # JSON Schema's string, not contract's varchar
 
 
 def test_schema_field_disallows_extra_properties():
@@ -118,7 +118,7 @@ def test_validate_against_schema_accepts_structured_min_value():
         "table": "T",
         "fields": [
             {
-                "name": "amount", "type": "number",
+                "name": "amount", "type": "double",
                 "min_value": {"value": 0, "strict": False},
             }
         ],
@@ -132,7 +132,7 @@ def test_validate_against_schema_rejects_flat_min_value():
         "version": "1.0", "epic": "X", "generated_at": "t",
         "source": {"spec_file": "s", "spec_sheet": "S"},
         "table": "T",
-        "fields": [{"name": "amount", "type": "number", "min_value": 5}],
+        "fields": [{"name": "amount", "type": "double", "min_value": 5}],
     }
     errors = validate_against_schema(contract)
     assert errors, "flat min_value should be rejected"

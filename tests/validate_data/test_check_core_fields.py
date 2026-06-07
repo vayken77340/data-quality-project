@@ -15,7 +15,7 @@ def _frame(rows):
     return pl.LazyFrame(rows)
 
 
-def _field(name, *, nullable=True, t=Type.STRING, max_length=None):
+def _field(name, *, nullable=True, t=Type.VARCHAR, max_length=None):
     return FieldContract(name=name, type=t, nullable=nullable, description=None, max_length=max_length)
 
 
@@ -36,7 +36,7 @@ def test_check_nullable_returns_none_when_nullable_unset():
 
 def test_check_max_length_flags_too_long():
     frame = _frame([{"x": "abc"}, {"x": "abcdef"}, {"x": None}])
-    violating = check_max_length(frame, _field("x", t=Type.STRING, max_length=4))
+    violating = check_max_length(frame, _field("x", t=Type.VARCHAR, max_length=4))
     rows = violating.collect().to_dicts()
     assert [r["x"] for r in rows] == ["abcdef"]
 
@@ -46,7 +46,7 @@ def test_check_max_length_skipped_for_non_string():
 
 
 def test_check_max_length_skipped_when_no_cap():
-    assert check_max_length(_frame([]), _field("x", t=Type.STRING)) is None
+    assert check_max_length(_frame([]), _field("x", t=Type.VARCHAR)) is None
 
 
 def test_check_type_coercion_flags_bad_integer():
@@ -57,4 +57,4 @@ def test_check_type_coercion_flags_bad_integer():
 
 
 def test_check_type_coercion_skipped_for_string():
-    assert check_type_coercion(_frame([]), _field("x", t=Type.STRING)) is None
+    assert check_type_coercion(_frame([]), _field("x", t=Type.VARCHAR)) is None

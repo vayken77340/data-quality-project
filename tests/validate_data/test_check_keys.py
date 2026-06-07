@@ -53,7 +53,7 @@ def test_pk_uniqueness_composite():
     contract = _contract("T", [
         _f("order_id", primary_key=True),
         _f("line_id", primary_key=True),
-        _f("note", t=Type.STRING, nullable=True),
+        _f("note", t=Type.VARCHAR, nullable=True),
     ])
     frame = pl.LazyFrame([
         {"order_id": 1, "line_id": 1, "note": "a"},

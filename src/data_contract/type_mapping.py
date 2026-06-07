@@ -10,9 +10,14 @@ from data_contract.errors import ConfigError, RejectionError
 
 
 class Type(str, Enum):
-    STRING = "string"
+    """Canonical types carried in generated contract YAMLs. Oracle-flavored
+    because the source specs target Oracle. Aliases (`string`, `numeric`,
+    `Date horodatée`, etc.) resolve to these canonicals via configs/types.yaml.
+    """
+    VARCHAR = "varchar"
     INTEGER = "integer"
-    NUMBER = "number"
+    DOUBLE = "double"
+    FLOAT = "float"
     BOOLEAN = "boolean"
     DATE = "date"
     TIMESTAMP = "timestamp"

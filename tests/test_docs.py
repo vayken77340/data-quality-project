@@ -32,7 +32,7 @@ def _contract(table: str, *fields: FieldContract) -> Contract:
     )
 
 
-def _f(name: str, t: Type = Type.STRING, **kw) -> FieldContract:
+def _f(name: str, t: Type = Type.VARCHAR, **kw) -> FieldContract:
     return FieldContract(
         name=name,
         type=t,

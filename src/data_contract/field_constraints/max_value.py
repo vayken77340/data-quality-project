@@ -59,7 +59,7 @@ class MaxValueConstraint(FieldConstraint):
         # For string fields, max_value is a length cap; reject if it exceeds
         # the type-derived max_length, which would be a contradiction.
         if (
-            ctx.field_type is Type.STRING
+            ctx.field_type is Type.VARCHAR
             and ctx.field_max_length is not None
             and isinstance(value, int)
             and value > ctx.field_max_length

@@ -21,18 +21,18 @@ def parse_typed_value(raw: object, field_type: Type) -> tuple[Any | None, str | 
             return int(s), None
         except ValueError:
             return None, f"value {raw!r} is not a valid integer"
-    if field_type is Type.NUMBER:
+    if field_type in (Type.DOUBLE, Type.FLOAT):
         try:
             return float(s), None
         except ValueError:
-            return None, f"value {raw!r} is not a valid number"
-    if field_type is Type.STRING:
+            return None, f"value {raw!r} is not a valid {field_type.value}"
+    if field_type is Type.VARCHAR:
         try:
             n = int(s)
         except ValueError:
-            return None, f"value {raw!r} is not a valid string length (expected an integer)"
+            return None, f"value {raw!r} is not a valid varchar length (expected an integer)"
         if n < 0:
-            return None, f"string length bound {n} must be non-negative"
+            return None, f"varchar length bound {n} must be non-negative"
         return n, None
     if field_type is Type.DATE:
         try:

@@ -65,7 +65,7 @@ def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_
     return wb
 
 
-def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> FieldContract:
+def _field(name: str, type_: Type = Type.VARCHAR, *, nullable: bool = False) -> FieldContract:
     """Default `nullable=False` so PK-enriched fields don't trip the
     `nullable_primary_key` rule unless a test explicitly sets it."""
     return FieldContract(name=name, type=type_, nullable=nullable, description=None)

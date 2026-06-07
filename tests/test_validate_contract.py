@@ -61,7 +61,7 @@ def test_validate_contract_detects_max_length_on_integer(tmp_path, repo_root, mo
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
     out = capsys.readouterr()
-    assert "max_length_only_on_strings" in out.err
+    assert "max_length_only_on_varchar" in out.err
 
 
 def test_validate_contract_detects_precision_on_integer(tmp_path, repo_root, monkeypatch, capsys):
@@ -71,14 +71,14 @@ def test_validate_contract_detects_precision_on_integer(tmp_path, repo_root, mon
     _write_contract(p, _minimal_payload(precision=10))
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
-    assert "precision_scale_only_on_numbers" in capsys.readouterr().err
+    assert "precision_scale_only_on_numerics" in capsys.readouterr().err
 
 
 def test_validate_contract_detects_scale_gt_precision(tmp_path, repo_root, monkeypatch, capsys):
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="number")
+    payload = _minimal_payload(type="double")
     payload["fields"][0]["precision"] = 5
     payload["fields"][0]["scale"] = 10
     _write_contract(p, payload)
@@ -92,7 +92,7 @@ def test_validate_contract_detects_duplicate_field_names(tmp_path, repo_root, mo
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
     payload = _minimal_payload()
-    payload["fields"].append({"name": "x", "type": "string", "nullable": True})
+    payload["fields"].append({"name": "x", "type": "varchar", "nullable": True})
     _write_contract(p, payload)
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
@@ -115,7 +115,7 @@ def test_validate_contract_legacy_flat_min_value_rejected(tmp_path, repo_root, m
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="number")
+    payload = _minimal_payload(type="double")
     payload["fields"][0]["min_value"] = 5  # flat — should fail the structured-shape requirement
     _write_contract(p, payload)
     rc = main(["validate-contract", "--file", str(p)])
@@ -463,7 +463,7 @@ def test_validate_contract_min_max_consistency(tmp_path, repo_root, monkeypatch,
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="number")
+    payload = _minimal_payload(type="double")
     payload["fields"][0]["min_value"] = {"value": 100, "strict": False}
     payload["fields"][0]["max_value"] = {"value": 50, "strict": False}
     _write_contract(p, payload)
