@@ -1,9 +1,9 @@
 {
   "epic": "1118",
-  "generated_at": "2026-06-07T22:18:21Z",
+  "generated_at": "2026-06-07T22:58:58Z",
   "summary": {
-    "pass": false,
-    "errors": 2,
+    "pass": true,
+    "errors": 0,
     "warnings": 0,
     "info": 0
   },
@@ -15,46 +15,15 @@
         "test_id"
       ],
       "input": {
-        "files": [],
-        "total_rows": 0
+        "files": [
+          {
+            "path": "CALENDAR.xlsx",
+            "rows": 5
+          }
+        ],
+        "total_rows": 5
       },
-      "violations": [
-        {
-          "kind": "no_input_files",
-          "severity": "error",
-          "field": null,
-          "row_count": 1,
-          "expected": "at least one file matching glob 'sample/PROJEKT*.xlsx' (resolved to 'sample/PROJEKT*.xlsx') under base \"C:\\Users\\viber\\Desktop\\Data Projects\\data-quality-project\\epics\\1118\"",
-          "sample_offending_values": [
-            {
-              "value": {
-                "searched_base": "C:\\Users\\viber\\Desktop\\Data Projects\\data-quality-project\\epics\\1118",
-                "file_pattern": "sample/PROJEKT*.xlsx",
-                "resolved_pattern": "sample/PROJEKT*.xlsx",
-                "existing_top_level": [
-                  "configs/",
-                  "contracts/",
-                  "docs/",
-                  "sample/",
-                  "sample_dirty/",
-                  "sample_multi_sheet/",
-                  "specs/",
-                  "validations/"
-                ],
-                "existing_top_level_count": 8,
-                "subdir_searched": "sample",
-                "existing_in_subdir": [
-                  "CALENDAR.xlsx",
-                  "PROJECT.xlsx"
-                ],
-                "existing_in_subdir_count": 2
-              },
-              "source_file": null,
-              "source_row": null
-            }
-          ]
-        }
-      ]
+      "violations": []
     },
     {
       "table": "PROJECT",
@@ -64,46 +33,15 @@
         "column1"
       ],
       "input": {
-        "files": [],
-        "total_rows": 0
+        "files": [
+          {
+            "path": "PROJECT.xlsx",
+            "rows": 5
+          }
+        ],
+        "total_rows": 5
       },
-      "violations": [
-        {
-          "kind": "no_input_files",
-          "severity": "error",
-          "field": null,
-          "row_count": 1,
-          "expected": "at least one file matching glob 'sample/PROJEKT*.xlsx' (resolved to 'sample/PROJEKT*.xlsx') under base \"C:\\Users\\viber\\Desktop\\Data Projects\\data-quality-project\\epics\\1118\"",
-          "sample_offending_values": [
-            {
-              "value": {
-                "searched_base": "C:\\Users\\viber\\Desktop\\Data Projects\\data-quality-project\\epics\\1118",
-                "file_pattern": "sample/PROJEKT*.xlsx",
-                "resolved_pattern": "sample/PROJEKT*.xlsx",
-                "existing_top_level": [
-                  "configs/",
-                  "contracts/",
-                  "docs/",
-                  "sample/",
-                  "sample_dirty/",
-                  "sample_multi_sheet/",
-                  "specs/",
-                  "validations/"
-                ],
-                "existing_top_level_count": 8,
-                "subdir_searched": "sample",
-                "existing_in_subdir": [
-                  "CALENDAR.xlsx",
-                  "PROJECT.xlsx"
-                ],
-                "existing_in_subdir_count": 2
-              },
-              "source_file": null,
-              "source_row": null
-            }
-          ]
-        }
-      ]
+      "violations": []
     }
   ]
 }

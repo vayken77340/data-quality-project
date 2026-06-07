@@ -11,6 +11,9 @@ mappings:
     parameter: precision
   - canonical: boolean
     aliases: ["booléen", boolean, bool]
+    data_values:
+      "true":  [true, "true", "vrai", "oui", "1", "y", "yes"]
+      "false": [false, "false", "faux", "non", "0", "n", "no"]
   - canonical: date
     aliases: [date]
   - canonical: timestamp

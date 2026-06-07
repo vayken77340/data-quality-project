@@ -321,3 +321,105 @@ def test_missing_input_dir_returns_1(repo_root: Path, tmp_path: Path, monkeypatc
         "--output-dir", str(out),
     ])
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# French boolean tokens (VRAI/FAUX/OUI/NON) through the full pipeline
+# ---------------------------------------------------------------------------
+
+
+def _build_french_boolean_epic(
+    repo_root: Path,
+    epic_root_parent: Path,
+    column1_values: list[object],
+) -> Path:
+    """Create a tmp epics/1118/ tree with the real PROJECT/CALENDAR contracts
+    and a fresh sample/PROJECT.xlsx whose `column1` boolean is filled with
+    arbitrary tokens — typically French (VRAI/FAUX/OUI/NON), or a mix that
+    seeds a coercion violation. Returns the epic-root path to pass to --epic-root.
+    """
+    import shutil
+    from openpyxl import Workbook
+
+    epic_root = epic_root_parent / "epics"
+    fake_epic = epic_root / "1118"
+    (fake_epic / "configs" / "parsers").mkdir(parents=True)
+    (fake_epic / "configs" / "validation.yaml").write_text(
+        "defaults:\n"
+        "  format: excel\n"
+        '  file_pattern: "sample/{table}*.xlsx"\n',
+        encoding="utf-8",
+    )
+    contracts_src = repo_root / "epics" / "1118" / "contracts"
+    contracts_dst = fake_epic / "contracts"
+    contracts_dst.mkdir(parents=True)
+    for f in contracts_src.glob("*.yaml"):
+        shutil.copy2(f, contracts_dst / f.name)
+
+    (fake_epic / "sample").mkdir()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "PROJECT"
+    ws.append(["proj_id", "column1", "column2", "column3", "column4"])
+    for i, raw in enumerate(column1_values, start=1):
+        ws.append([i, raw, "2024-01-15T10:00:00", f"a{i}", f"b{i}"])
+    wb.save(fake_epic / "sample" / "PROJECT.xlsx")
+    return epic_root
+
+
+def test_french_boolean_tokens_accepted_end_to_end(repo_root: Path, tmp_path: Path, monkeypatch):
+    """VRAI/FAUX/OUI/NON in a boolean column should pass cleanly thanks to the
+    `data_values` block in configs/types.yaml — no coercion violation, no
+    nullable violation, no PK violation (each row gets a distinct proj_id)."""
+    monkeypatch.chdir(repo_root)
+    epic_root = _build_french_boolean_epic(
+        repo_root, tmp_path, ["VRAI", "faux", "OUI", " Non "],
+    )
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--table", "PROJECT",
+        "--epic-root", str(epic_root),
+        "--output-dir", str(out),
+    ])
+    assert rc == 0, f"expected clean run, got rc={rc}"
+    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    project = next(t for t in payload["tables"] if t["table"] == "PROJECT")
+    kinds = {v["kind"] for v in project["violations"]}
+    assert "boolean_coercion_violation" not in kinds
+    assert "type_coercion_violation" not in kinds
+    assert "nullable_violation" not in kinds
+
+
+def test_unknown_boolean_token_flagged_as_coercion_violation(
+    repo_root: Path, tmp_path: Path, monkeypatch
+):
+    """A token outside the declared `data_values` list (e.g. 'maybe') should
+    surface as a `boolean_coercion_violation` with the accepted tokens spelled
+    out in the violation's `expected` message."""
+    monkeypatch.chdir(repo_root)
+    epic_root = _build_french_boolean_epic(
+        repo_root, tmp_path, ["VRAI", "maybe", "FAUX"],
+    )
+    out = _outdir(tmp_path)
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--table", "PROJECT",
+        "--epic-root", str(epic_root),
+        "--output-dir", str(out),
+    ])
+    assert rc == 2
+    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    project = next(t for t in payload["tables"] if t["table"] == "PROJECT")
+    bool_violations = [
+        v for v in project["violations"]
+        if v["kind"] == "boolean_coercion_violation" and v["field"] == "column1"
+    ]
+    assert len(bool_violations) == 1
+    block = bool_violations[0]
+    # The expected message should mention at least the canonical English + French tokens.
+    expected_msg = block["expected"]
+    for token in ("vrai", "faux", "true", "false"):
+        assert token in expected_msg, f"missing token {token!r} in expected={expected_msg!r}"

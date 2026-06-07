@@ -29,6 +29,11 @@ class _MappingEntry:
     canonical: Type
     aliases: tuple[str, ...]
     parameters: tuple[str, ...]  # () | ("max_length",) | ("precision","scale")
+    # Optional data-side token lists. Currently only `boolean` uses this:
+    # maps each canonical literal ("true" / "false") to the set of source tokens
+    # that should be coerced into it during data validation. Tokens are stored
+    # lower-cased and whitespace-stripped, matching the validator's comparison form.
+    data_values: dict[str, frozenset[str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,17 @@ class TypeRegistry:
 
     def lookup(self, base: str) -> _MappingEntry | None:
         return self._alias_index.get(_normalize_type_string(base))
+
+    def data_values_for(self, canonical: Type) -> dict[str, frozenset[str]] | None:
+        """Return the data_values token map for a canonical type, or None if absent.
+
+        Keys are the canonical literals (e.g. "true" / "false"); values are the
+        normalized source tokens that should coerce into that literal.
+        """
+        for entry in self.entries:
+            if entry.canonical is canonical and entry.data_values is not None:
+                return entry.data_values
+        return None
 
 
 _PAREN_RE = re.compile(r"^(?P<base>[^()]+)\s*\(\s*(?P<args>[^()]*)\s*\)\s*$")
@@ -97,14 +113,63 @@ def load_type_registry(path: Path) -> TypeRegistry:
         else:
             params = ()
 
+        data_values_raw = item.get("data_values")
+        data_values: dict[str, frozenset[str]] | None
+        if data_values_raw is None:
+            data_values = None
+        else:
+            data_values = _parse_data_values(data_values_raw, path=path, idx=i)
+
         entries.append(
             _MappingEntry(
                 canonical=Type(canonical),
                 aliases=tuple(str(a) for a in aliases),
                 parameters=params,
+                data_values=data_values,
             )
         )
     return TypeRegistry(entries=entries)
+
+
+def _parse_data_values(raw: object, *, path: Path, idx: int) -> dict[str, frozenset[str]]:
+    """Validate and normalize a mappings[i].data_values block."""
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: mappings[{idx}].data_values must be a mapping")
+    out: dict[str, frozenset[str]] = {}
+    seen_tokens: dict[str, str] = {}
+    for literal, tokens in raw.items():
+        literal_key = str(literal).strip().lower()
+        if not isinstance(tokens, list) or not tokens:
+            raise ConfigError(
+                f"{path}: mappings[{idx}].data_values[{literal!r}] must be a non-empty list"
+            )
+        normalized: set[str] = set()
+        for token in tokens:
+            if isinstance(token, bool):
+                norm = "true" if token else "false"
+            elif isinstance(token, (int, float)):
+                norm = _normalize_data_token(str(token))
+            elif isinstance(token, str):
+                norm = _normalize_data_token(token)
+            else:
+                raise ConfigError(
+                    f"{path}: mappings[{idx}].data_values[{literal!r}] tokens must be strings, "
+                    f"numbers, or booleans (got {type(token).__name__})"
+                )
+            if norm in seen_tokens and seen_tokens[norm] != literal_key:
+                raise ConfigError(
+                    f"{path}: mappings[{idx}].data_values: token {norm!r} appears under both "
+                    f"{seen_tokens[norm]!r} and {literal_key!r}"
+                )
+            seen_tokens[norm] = literal_key
+            normalized.add(norm)
+        out[literal_key] = frozenset(normalized)
+    return out
+
+
+def _normalize_data_token(s: str) -> str:
+    """Normalize a data-side token for comparison: strip + lowercase."""
+    return str(s).strip().lower()
 
 
 def parse_type(raw: str | None, registry: TypeRegistry, *, sheet_row: int) -> tuple[ParsedType | None, RejectionError | None]:

@@ -30,10 +30,13 @@ import yaml
 from data_contract._util import now_iso_z
 from data_contract.contract import Contract, FieldCheck, FieldContract
 from data_contract.errors import ConfigError
+from data_contract.type_mapping import Type, TypeRegistry, load_type_registry
 from data_contract.validate_data.checks.core_fields import (
+    check_boolean_coercion,
     check_max_length,
     check_nullable,
     check_type_coercion,
+    normalize_boolean_column,
 )
 from data_contract.validate_data.checks.keys import (
     check_fk_existence,
@@ -121,6 +124,12 @@ def run_validate_data(
         print(f"validate-data: {e}", file=sys.stderr)
         return 1
 
+    try:
+        type_registry = load_type_registry(types_path)
+    except (ConfigError, OSError) as e:
+        print(f"validate-data: failed to load type registry {types_path}: {e}", file=sys.stderr)
+        return 1
+
     # contracts_folder precedence: YAML's contracts_folder -> <epic_dir>/contracts.
     contracts_dir = config.contracts_folder if config.contracts_folder else (epic_dir / "contracts")
 
@@ -167,6 +176,7 @@ def run_validate_data(
             input_dir=input_dir,
             report=report,
             strict_columns=strict_columns,
+            type_registry=type_registry,
         )
         if frame is not None:
             table_frames[table_name] = frame
@@ -346,6 +356,7 @@ def _validate_one_table(
     input_dir: Path,
     report: TableReport,
     strict_columns: bool,
+    type_registry: TypeRegistry,
 ) -> Any:
     """Load + per-table checks. Returns the unified LazyFrame on success, or
     None when the table couldn't even be loaded (no files / bad parser params).
@@ -433,6 +444,25 @@ def _validate_one_table(
 
     # Per-field core checks + per-constraint check_data.
     pk_cols = [f.name for f in contract.primary_key_fields()]
+
+    # Boolean tokens first: emit any unmatched-token violations, then normalize
+    # the column in place so every downstream check sees canonical Booleans.
+    bool_tokens = type_registry.data_values_for(Type.BOOLEAN)
+    if bool_tokens is not None:
+        for fc in contract.fields:
+            if fc.type is not Type.BOOLEAN or fc.name not in data_columns:
+                continue
+            accepted_list = sorted({*bool_tokens.get("true", set()),
+                                    *bool_tokens.get("false", set())})
+            _emit_from_lazy(
+                check_boolean_coercion(df.lazy(), fc, type_registry),
+                kind="boolean_coercion_violation", severity="error",
+                table=contract.table, field=fc, pk_cols=pk_cols,
+                expected=f"value must be one of {accepted_list}",
+                report=report,
+            )
+            df = normalize_boolean_column(df, fc, type_registry)
+
     for fc in contract.fields:
         if fc.name not in data_columns:
             continue
@@ -444,7 +474,7 @@ def _validate_one_table(
                         kind="max_length_violation", severity="error",
                         table=contract.table, field=fc, pk_cols=pk_cols,
                         expected=f"length <= {fc.max_length}", report=report)
-        _emit_from_lazy(check_type_coercion(df.lazy(), fc),
+        _emit_from_lazy(check_type_coercion(df.lazy(), fc, type_registry),
                         kind="type_coercion_violation", severity="error",
                         table=contract.table, field=fc, pk_cols=pk_cols,
                         expected=f"value must be {fc.type.value!r}", report=report)
