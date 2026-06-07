@@ -1,15 +1,13 @@
-# Shared defaults across tables. Only the format-agnostic fields belong here:
-# format, file_pattern, parser_overrides. Per-table-specific stuff like
-# field_mapping goes under each table; format-specific stuff like sheet_name
-# (Excel), delimiter (CSV), etc. goes under parser_overrides.
+# Defaults shared across tables.
+#
+# `file_pattern` is a glob applied relative to the epic's directory
+# (epics/<epic>/). So "sample/{table}*.xlsx" walks epic_dir/sample/, looking
+# for files like PROJECT.xlsx, CALENDAR.xlsx, etc.
+#
+# `{table}` is substituted with the table name at glob time.
 defaults:
   format: excel
-  # `{table}` is substituted with the table name at glob time. So:
-  #   PROJECT*.xlsx  for the PROJECT table
-  #   CALENDAR*.xlsx for the CALENDAR table
-  # For a single multi-sheet workbook layout, set this to the literal filename
-  # (e.g. "data.xlsx") - the parser picks the right sheet via table-name match.
-  file_pattern: "{table}*.xlsx"
+  file_pattern: "sample/{table}*.xlsx"
 
 # `contracts_folder` is optional; omitted = <epic_dir>/contracts.
 # contracts_folder: "epics/1118/contracts"

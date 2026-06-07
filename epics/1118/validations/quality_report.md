@@ -1,9 +1,11 @@
-# Data quality report - epic 1118 - 2026-06-07T21:51:55Z
+# Data quality report - epic 1118 - 2026-06-07T22:18:21Z
 
-Overall: **PASS** (0 errors, 0 warnings)
+Overall: **FAIL** (2 errors, 0 warnings)
 
 ## Tables
 
-### CALENDAR - clean (5 rows, 1 files)
+### CALENDAR - 0.00% clean (1 violations / 0 rows)
+- 1 `no_input_files` errors
 
-### PROJECT - clean (5 rows, 1 files)
+### PROJECT - 0.00% clean (1 violations / 0 rows)
+- 1 `no_input_files` errors

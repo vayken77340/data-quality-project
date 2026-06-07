@@ -179,7 +179,7 @@ def _populate_rejected(ws, tr: TableReport, contract: Contract | None) -> None:
             v.field or "-",
             v.kind,
             v.severity,
-            v.offending_value if v.offending_value is not None else "",
+            _stringify_cell(v.offending_value),
             v.expected,
         ])
         ws.append(row)
@@ -221,6 +221,23 @@ def _autosize(ws, *, ncols: int, max_width: int = 50) -> None:
             if length > widest:
                 widest = length
         ws.column_dimensions[letter].width = min(max(widest + 2, 10), max_width)
+
+
+def _stringify_cell(value: Any) -> str:
+    """Render a Violation's offending_value into a single XLSX cell.
+
+    Scalar values pass through unchanged. Complex values (dict / list) are
+    rendered as a compact key=value summary so the cell stays readable.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        return "; ".join(f"{k}={v!r}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return ", ".join(repr(x) for x in value)
+    return repr(value)
 
 
 _INVALID = set('[]:*?/\\')

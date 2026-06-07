@@ -84,7 +84,6 @@ class ValidationReport:
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_INPUT_SUBDIR = "sample"
 DEFAULT_OUTPUT_SUBDIR = "validations"
 
 
@@ -101,17 +100,20 @@ def run_validate_data(
 ) -> int:
     """CLI entry point. Returns exit code (0 / 1 / 2).
 
-    `input_dir` and `output_dir` resolution:
-      - None  -> epic_dir / "sample" (input) or "validations" (output)
-      - relative path -> resolved as epic_dir / <relative>
-      - absolute path -> used as-is
+    Path resolution:
+      - input_dir: None -> epic_dir; relative -> epic_dir/<relative>; absolute -> as-is.
+        The actual file location is determined by the `file_pattern` in
+        validation.yaml, which is a glob applied relative to input_dir. So
+        `file_pattern: "sample/{table}*.xlsx"` searches `epic_dir/sample/`.
+      - output_dir: None -> epic_dir/"validations"; relative -> epic_dir/<relative>;
+        absolute -> as-is.
     """
     epic_dir = epic_root / epic
     configs_dir = epic_dir / "configs"
     validation_yaml = configs_dir / "validation.yaml"
     parser_yaml_dir = configs_dir / "parsers"
-    input_dir = _resolve_epic_path(input_dir, epic_dir, DEFAULT_INPUT_SUBDIR)
-    out_dir = _resolve_epic_path(output_dir, epic_dir, DEFAULT_OUTPUT_SUBDIR)
+    input_dir = _resolve_epic_path(input_dir, epic_dir, default_subdir=None)
+    out_dir = _resolve_epic_path(output_dir, epic_dir, default_subdir=DEFAULT_OUTPUT_SUBDIR)
 
     try:
         config = ValidationConfig.from_yaml(validation_yaml, parser_yaml_dir)
@@ -213,15 +215,78 @@ def run_validate_data(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_epic_path(supplied: Path | None, epic_dir: Path, default_subdir: str) -> Path:
+_MAX_SAMPLE_FILES_LISTED = 10
+
+
+def _diagnose_missing_inputs(
+    *,
+    input_dir: Path,
+    file_pattern: str,
+    resolved_pattern: str,
+) -> dict[str, Any]:
+    """Build a friendly explanation for a `no_input_files` violation.
+
+    Reports the absolute base dir that was searched, the pattern as-declared,
+    the pattern after `{table}` substitution, and a sample of files that DO
+    live in the search dir (to help spot typos in the file_pattern).
+    """
+    abs_base = input_dir.resolve()
+    if input_dir.is_dir():
+        existing = sorted(
+            (p.name + ("/" if p.is_dir() else ""))
+            for p in input_dir.iterdir()
+        )
+        # If the pattern points at a subdirectory, also surface what's inside it.
+        sub_listing: list[str] | None = None
+        slash_idx = resolved_pattern.find("/")
+        if slash_idx > 0:
+            subdir = input_dir / resolved_pattern[:slash_idx]
+            if subdir.is_dir():
+                sub_listing = sorted(
+                    (p.name + ("/" if p.is_dir() else ""))
+                    for p in subdir.iterdir()
+                )
+
+        expected = (
+            f"at least one file matching glob {file_pattern!r} "
+            f"(resolved to {resolved_pattern!r}) under base \"{abs_base}\""
+        )
+        offending: dict[str, Any] = {
+            "searched_base": str(abs_base),
+            "file_pattern": file_pattern,
+            "resolved_pattern": resolved_pattern,
+            "existing_top_level": existing[:_MAX_SAMPLE_FILES_LISTED],
+            "existing_top_level_count": len(existing),
+        }
+        if sub_listing is not None:
+            offending["subdir_searched"] = resolved_pattern[:slash_idx]
+            offending["existing_in_subdir"] = sub_listing[:_MAX_SAMPLE_FILES_LISTED]
+            offending["existing_in_subdir_count"] = len(sub_listing)
+    else:
+        expected = (
+            f"at least one file matching glob {file_pattern!r} "
+            f"(resolved to {resolved_pattern!r}) under base \"{abs_base}\", "
+            f"but the base directory does not exist"
+        )
+        offending = {
+            "searched_base": str(abs_base),
+            "file_pattern": file_pattern,
+            "resolved_pattern": resolved_pattern,
+            "base_exists": False,
+        }
+    return {"expected": expected, "offending_value": offending}
+
+
+def _resolve_epic_path(supplied: Path | None, epic_dir: Path, *, default_subdir: str | None) -> Path:
     """Resolve `--input-dir` / `--output-dir`:
 
-    - None         -> epic_dir / default_subdir
-    - relative     -> epic_dir / supplied
-    - absolute     -> supplied (use as-is)
+    - None + default_subdir set    -> epic_dir / default_subdir
+    - None + no default_subdir     -> epic_dir
+    - relative path                -> epic_dir / supplied
+    - absolute path                -> supplied (use as-is)
     """
     if supplied is None:
-        return epic_dir / default_subdir
+        return epic_dir / default_subdir if default_subdir else epic_dir
     if supplied.is_absolute():
         return supplied
     return epic_dir / supplied
@@ -290,11 +355,17 @@ def _validate_one_table(
     resolved_pattern = table_cfg.file_pattern.replace("{table}", contract.table)
     paths = sorted(input_dir.glob(resolved_pattern))
     if not paths:
+        diagnostic = _diagnose_missing_inputs(
+            input_dir=input_dir,
+            file_pattern=table_cfg.file_pattern,
+            resolved_pattern=resolved_pattern,
+        )
         report.violations.append(Violation(
             kind="no_input_files",
             severity="error",
             table=contract.table,
-            expected=f"at least one file matching glob {table_cfg.file_pattern!r}",
+            expected=diagnostic["expected"],
+            offending_value=diagnostic["offending_value"],
         ))
         return None
 

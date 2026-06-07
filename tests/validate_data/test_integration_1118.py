@@ -155,7 +155,7 @@ def test_no_tables_block_discovers_all_contracts(repo_root: Path, tmp_path: Path
     rc = main([
         "validate-data",
         "--epic", "1118",
-        "--input-dir", str(repo_root / "epics" / "1118" / "sample"),
+        "--input-dir", str(repo_root / "epics" / "1118"),
         "--output-dir", str(out),
     ])
     assert rc == 0
@@ -173,7 +173,7 @@ def test_table_placeholder_in_file_pattern_resolves_per_table(repo_root: Path, t
     rc = main([
         "validate-data",
         "--epic", "1118",
-        "--input-dir", str(repo_root / "epics" / "1118" / "sample"),
+        "--input-dir", str(repo_root / "epics" / "1118"),
         "--output-dir", str(out),
     ])
     assert rc == 0
@@ -185,31 +185,36 @@ def test_table_placeholder_in_file_pattern_resolves_per_table(repo_root: Path, t
     assert {f["path"] for f in calendar["input"]["files"]} == {"CALENDAR.xlsx"}
 
 
-def test_default_input_dir_is_epic_sample(repo_root: Path, tmp_path: Path, monkeypatch):
-    """Omit --input-dir entirely; runner falls back to epics/<epic>/sample/."""
+def test_no_flags_uses_file_pattern_to_locate_data(repo_root: Path, monkeypatch):
+    """Zero flags: `file_pattern` in validation.yaml (currently `sample/{table}*.xlsx`)
+    resolves under epics/1118/ and finds the data automatically."""
     monkeypatch.chdir(repo_root)
-    out = _outdir(tmp_path)
-    rc = main([
-        "validate-data",
-        "--epic", "1118",
-        "--output-dir", str(out),
-    ])
+    rc = main(["validate-data", "--epic", "1118"])
     assert rc == 0
-    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
-    assert payload["summary"]["pass"] is True
+    expected = repo_root / "epics" / "1118" / "validations" / "quality_report.json"
+    assert expected.is_file()
 
 
-def test_relative_input_dir_resolves_under_epic(repo_root: Path, tmp_path: Path, monkeypatch):
-    """--input-dir sample_dirty resolves to epics/1118/sample_dirty/."""
+def test_input_dir_override_against_external_fixture(repo_root: Path, tmp_path: Path, monkeypatch):
+    """--input-dir overrides the epic_dir base. With the shipped file_pattern
+    `sample/{table}*.xlsx`, pointing --input-dir at a dir that has a sample/
+    subdir lets you validate an arbitrary external dataset.
+    """
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
+    # Build an external dir with a sample/ subdir holding the dirty fixtures.
+    ext = tmp_path / "external"
+    (ext / "sample").mkdir(parents=True)
+    import shutil
+    for f in (repo_root / "epics" / "1118" / "sample_dirty").iterdir():
+        shutil.copy2(f, ext / "sample" / f.name)
     rc = main([
         "validate-data",
         "--epic", "1118",
-        "--input-dir", "sample_dirty",
+        "--input-dir", str(ext),  # absolute path
         "--output-dir", str(out),
     ])
-    assert rc == 2  # the sample_dirty/ data has seeded violations
+    assert rc == 2  # dirty fixtures have seeded violations
 
 
 def test_default_output_dir_lands_under_epic_validations(repo_root: Path, monkeypatch):
@@ -219,6 +224,90 @@ def test_default_output_dir_lands_under_epic_validations(repo_root: Path, monkey
     assert rc == 0
     expected = repo_root / "epics" / "1118" / "validations" / "quality_report.json"
     assert expected.is_file()
+
+
+def test_no_input_files_violation_includes_diagnostic(repo_root: Path, tmp_path: Path, monkeypatch):
+    """The no_input_files violation should include the absolute search base,
+    the file_pattern, the resolved pattern, and a sample listing of what's
+    actually in the search dir."""
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    # Point file_pattern at a subdir that exists but has no matching files (typo case).
+    fake_epic = tmp_path / "epics" / "1118"
+    (fake_epic / "configs" / "parsers").mkdir(parents=True)
+    (fake_epic / "configs" / "validation.yaml").write_text("""
+defaults:
+  format: excel
+  file_pattern: "sample/PROJEKT*.xlsx"
+""", encoding="utf-8")
+    # Copy contracts so the runner has something to validate against.
+    contracts_src = repo_root / "epics" / "1118" / "contracts"
+    contracts_dst = fake_epic / "contracts"
+    contracts_dst.mkdir(parents=True)
+    for f in contracts_src.glob("*.yaml"):
+        import shutil
+        shutil.copy2(f, contracts_dst / f.name)
+    # Put one decoy file in the searched subdir.
+    (fake_epic / "sample").mkdir()
+    (fake_epic / "sample" / "PROJECT.xlsx").write_text("decoy")
+
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--epic-root", str(tmp_path / "epics"),
+        "--output-dir", str(out),
+    ])
+    assert rc == 2
+    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    project_table = next(t for t in payload["tables"] if t["table"] == "PROJECT")
+    v = next(v for v in project_table["violations"] if v["kind"] == "no_input_files")
+
+    # `expected` includes the resolved pattern + the absolute base.
+    assert "sample/PROJEKT*.xlsx" in v["expected"]
+    assert str(fake_epic.resolve()) in v["expected"]
+
+    # The diagnostic payload carries listings of what's actually there.
+    diag = v["sample_offending_values"][0]["value"]
+    assert diag["file_pattern"] == "sample/PROJEKT*.xlsx"
+    assert diag["resolved_pattern"] == "sample/PROJEKT*.xlsx"
+    assert "sample/" in diag["existing_top_level"]
+    # The "did you mean PROJECT.xlsx?" hint shows up in the subdir listing.
+    assert diag["subdir_searched"] == "sample"
+    assert "PROJECT.xlsx" in diag["existing_in_subdir"]
+
+
+def test_no_input_files_diagnostic_when_base_missing(repo_root: Path, tmp_path: Path, monkeypatch):
+    """When the search base itself doesn't exist, the diagnostic flags it."""
+    monkeypatch.chdir(repo_root)
+    out = _outdir(tmp_path)
+    fake_epic = tmp_path / "epics" / "1118"
+    (fake_epic / "configs" / "parsers").mkdir(parents=True)
+    (fake_epic / "configs" / "validation.yaml").write_text("""
+defaults:
+  format: excel
+  file_pattern: "nope/{table}*.xlsx"
+""", encoding="utf-8")
+    contracts_dst = fake_epic / "contracts"
+    contracts_dst.mkdir(parents=True)
+    for f in (repo_root / "epics" / "1118" / "contracts").glob("*.yaml"):
+        import shutil
+        shutil.copy2(f, contracts_dst / f.name)
+
+    rc = main([
+        "validate-data",
+        "--epic", "1118",
+        "--epic-root", str(tmp_path / "epics"),
+        "--output-dir", str(out),
+    ])
+    assert rc == 2
+    payload = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    v = next(
+        v for t in payload["tables"]
+        for v in t["violations"] if v["kind"] == "no_input_files"
+    )
+    diag = v["sample_offending_values"][0]["value"]
+    # The base does exist (fake_epic), but the diagnostic still listed it.
+    assert "existing_top_level" in diag
 
 
 def test_missing_input_dir_returns_1(repo_root: Path, tmp_path: Path, monkeypatch):

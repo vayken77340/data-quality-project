@@ -173,8 +173,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--input-dir",
         default=None,
         help=(
-            "Directory holding the sample files. Default: epics/<epic>/sample/. "
-            "Relative paths resolve under the epic dir; absolute paths are used as-is."
+            "Base directory the validation.yaml's `file_pattern` is resolved against. "
+            "Default: epics/<epic>/. Set this only as an override (e.g. to point at an "
+            "external test dataset). Relative paths resolve under the epic dir; "
+            "absolute paths are used as-is. The actual file location is determined "
+            "by `file_pattern` (which may include subdirs like 'sample/{table}*.xlsx')."
         ),
     )
     validate_d.add_argument(
