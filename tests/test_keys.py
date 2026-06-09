@@ -65,7 +65,7 @@ def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_
     return wb
 
 
-def _field(name: str, type_: Type = Type.VARCHAR, *, nullable: bool = False) -> FieldContract:
+def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> FieldContract:
     """Default `nullable=False` so PK-enriched fields don't trip the
     `nullable_primary_key` rule unless a test explicitly sets it."""
     return FieldContract(name=name, type=type_, nullable=nullable, description=None)
@@ -374,7 +374,7 @@ def test_enrich_multiple_keys_rows_same_table_merge():
 def test_enrich_pk_with_nullable_true_rejects():
     """A field flagged as PK by the keys sheet must not be nullable.
     Otherwise: nullable_primary_key rejection."""
-    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=True, description=None)]
+    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=True, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -382,7 +382,7 @@ def test_enrich_pk_with_nullable_true_rejects():
 
 
 def test_enrich_pk_with_nullable_false_ok():
-    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=False, description=None)]
+    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=False, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -394,7 +394,7 @@ def test_enrich_pk_with_nullable_none_ok():
     """nullable=None means `value_required: false` on the source column with a blank
     cell — no explicit declaration. The PK+nullable rule only fires on
     nullable=True (explicit `is nullable`), not on absence."""
-    fields = [FieldContract(name="user_id", type=Type.INTEGER, nullable=None, description=None)]
+    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=None, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -527,7 +527,7 @@ column_mapping:
 def test_field_contract_round_trip_with_foreign_key():
     f = FieldContract(
         name="user_id",
-        type=Type.INTEGER,
+        type=Type.INT64,
         nullable=False,
         description="ref",
         primary_key=True,

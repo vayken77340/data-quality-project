@@ -97,7 +97,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert len(data["fields"]) == 5
 
     by_name = {f["name"]: f for f in data["fields"]}
-    assert by_name["proj_id"]["type"] == "double"
+    assert by_name["proj_id"]["type"] == "float64"
     assert by_name["proj_id"]["nullable"] is False  # OUI -> value_required -> not nullable
     assert by_name["proj_id"]["primary_key"] is True  # from the synthesized Keys sheet
     assert by_name["column1"]["type"] == "boolean"
@@ -106,7 +106,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert "nullable" in by_name["column1"]
     assert "primary_key" not in by_name["column1"]
     assert by_name["column2"]["type"] == "timestamp"
-    assert by_name["column3"]["type"] == "varchar"
+    assert by_name["column3"]["type"] == "string"
     assert by_name["column3"]["max_length"] == 384
     assert by_name["column4"]["max_length"] == 384
 

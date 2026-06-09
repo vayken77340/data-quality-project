@@ -371,20 +371,21 @@ def check_invariants(
                 message="primary key field has nullable=true",
             ))
 
-        if f.max_length is not None and f.type is not Type.VARCHAR:
+        if f.max_length is not None and f.type is not Type.STRING:
             out.append(InvariantError(
-                kind="max_length_only_on_varchar",
+                kind="max_length_only_on_string",
                 table=contract.table, field=f.name,
-                message=f"max_length is set on a {f.type.value!r} field (only varchar carries max_length)",
+                message=f"max_length is set on a {f.type.value!r} field (only string carries max_length)",
             ))
 
-        # precision/scale apply to numeric types (double, float).
+        # precision/scale apply to decimal only. IEEE float types do NOT carry
+        # application-level precision -- that's what `decimal(p, s)` is for.
         for attr in ("precision", "scale"):
-            if getattr(f, attr) is not None and f.type not in (Type.DOUBLE, Type.FLOAT):
+            if getattr(f, attr) is not None and f.type is not Type.DECIMAL:
                 out.append(InvariantError(
-                    kind="precision_scale_only_on_numerics",
+                    kind="precision_scale_only_on_decimal",
                     table=contract.table, field=f.name,
-                    message=f"{attr} is set on a {f.type.value!r} field (only double/float carry precision/scale)",
+                    message=f"{attr} is set on a {f.type.value!r} field (only decimal carries precision/scale)",
                 ))
 
         if f.precision is not None and f.scale is not None and f.scale > f.precision:

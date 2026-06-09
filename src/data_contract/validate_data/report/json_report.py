@@ -1,8 +1,21 @@
-"""JSON report — machine-readable detailed output for engineers / dashboards.
+"""JSON report -- structured machine-readable output for engineers / dashboards.
 
-Clusters PK-not-unique violations (one entry per duplicated value, with all
-participants in `occurrences`), caps sample offending values, and provides
-per-table summaries.
+Top-level shape (v1):
+
+    {
+      "schema_version": "1.0",
+      "run":     { ...run metadata block... },
+      "summary": { pass, score, by_severity, by_dimension },
+      "tables":  [ { table, score, by_dimension, input, violations, profile, rejected_rows } ],
+      "run_issues": [ ... ]
+    }
+
+Violations are aggregated per (kind, field) with up to `rejected_row_cap`
+sample offending values. PK-not-unique violations are clustered into a single
+entry per field listing every duplicate value + its occurrences. The
+rejected_rows array carries the row-centric view with FULL source-row context
+(every contract field's value on the offending row) so engineers can see the
+surrounding columns without grepping the source file.
 """
 
 from __future__ import annotations
@@ -13,25 +26,50 @@ from pathlib import Path
 from typing import Any
 
 from data_contract.contract import Contract
-from data_contract.validate_data.runner import TableReport, ValidationReport
+from data_contract.validate_data.report.dimensions import (
+    Dimension,
+    QUALITY_DIMENSIONS,
+    compute_overall_score,
+    dimension_for,
+    violation_kind_for_check,
+)
+from data_contract.validate_data.report.hints import hint_for
+from data_contract.validate_data.runner import (
+    RejectedRow,
+    TableReport,
+    ValidationReport,
+)
 from data_contract.validate_data.violations import Violation
 
 
-SAMPLE_CAP = 10
+SCHEMA_VERSION = "1.0"
 
 
 def render_json(report: ValidationReport, contracts_by_table: dict[str, Contract]) -> dict[str, Any]:
     counts = report.summary_counts
-    return {
-        "epic": report.epic,
-        "generated_at": report.generated_at,
-        "summary": {
-            "pass": not report.has_errors,
-            "errors": counts["error"],
-            "warnings": counts["warning"],
-            "info": counts["info"],
+    table_payloads = [_render_table(tr, report.settings.rejected_row_cap) for tr in report.table_reports]
+    overall = compute_overall_score([(tr.total_rows, tr.score) for tr in report.table_reports if tr.score])
+
+    summary = {
+        "pass": not report.has_errors,
+        "score": overall.score,
+        "by_severity": counts,
+        "by_dimension": {
+            d.value: {
+                "score": overall.by_dimension[d].score,
+                "violations": overall.by_dimension[d].violations,
+                "affected_rows": overall.by_dimension[d].affected_rows,
+            }
+            for d in QUALITY_DIMENSIONS
         },
-        "tables": [_render_table(tr, contracts_by_table[tr.table]) for tr in report.table_reports],
+    }
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "run": _render_run(report),
+        "summary": summary,
+        "tables": table_payloads,
+        "run_issues": _render_run_issues(report),
     }
 
 
@@ -47,95 +85,241 @@ def _json_default(o: Any) -> Any:
     return str(o)
 
 
-def _render_table(tr: TableReport, contract: Contract) -> dict[str, Any]:
-    table_violations = list(tr.violations)
-    pk_clusters = _cluster_pk_violations(table_violations, tr.pk_fields)
-    other = _condense_other_violations(table_violations)
+# ---------------------------------------------------------------------------
+# Run metadata block
+# ---------------------------------------------------------------------------
+
+
+def _render_run(report: ValidationReport) -> dict[str, Any]:
+    rm = report.run_metadata
+    if rm is None:
+        return {
+            "epic": report.epic, "generated_at": report.generated_at,
+            "duration_ms": 0, "status": "FAIL" if report.has_errors else "PASS",
+            "status_reason": "", "tool_version": "", "target": None,
+            "checks": {"enabled": [], "disabled": [], "active": []},
+            "contracts": {}, "types_yaml_path": "", "cli_args": [],
+        }
+    # `active` lists enabled checks with their YAML-supplied descriptions and
+    # the violation kind each emits. Drives the report's Checks section.
+    active = []
+    for name in rm.checks_enabled:
+        try:
+            vk = violation_kind_for_check(name)
+        except KeyError:
+            vk = ""
+        active.append({
+            "name": name,
+            "description": rm.checks_descriptions.get(name, ""),
+            "violation_kind": vk,
+        })
     return {
+        "epic": rm.epic,
+        "generated_at": rm.generated_at,
+        "duration_ms": rm.duration_ms,
+        "status": rm.status,
+        "status_reason": rm.status_reason,
+        "tool_version": rm.tool_version,
+        "target": rm.target,
+        "checks": {
+            "enabled": rm.checks_enabled,
+            "disabled": rm.checks_disabled,
+            "active": active,
+        },
+        "contracts": rm.contracts,
+        "types_yaml_path": rm.types_yaml_path,
+        "cli_args": rm.cli_args,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-table payload
+# ---------------------------------------------------------------------------
+
+
+def _render_table(tr: TableReport, sample_cap: int) -> dict[str, Any]:
+    score = tr.score
+    payload: dict[str, Any] = {
         "table": tr.table,
         "contract_version": tr.contract_version,
         "pk_fields": list(tr.pk_fields),
         "input": {
             "files": [{"path": str(p.name), "rows": rows} for p, rows in tr.input_files],
             "total_rows": tr.total_rows,
+            "clean_rows": score.clean_rows if score else tr.total_rows,
+            "affected_rows": score.affected_rows if score else 0,
         },
-        "violations": pk_clusters + other,
+        "score": score.score if score else 100.0,
+        "by_dimension": (
+            {
+                d.value: {
+                    "score": score.by_dimension[d].score,
+                    "violations": score.by_dimension[d].violations,
+                    "affected_rows": score.by_dimension[d].affected_rows,
+                }
+                for d in QUALITY_DIMENSIONS
+            }
+            if score else {}
+        ),
+        "violations": (
+            _cluster_pk_violations(tr.violations, tr.pk_fields, sample_cap)
+            + _condense_other_violations(tr.violations, tr.table, sample_cap)
+        ),
+        "profile": _render_profile(tr.profile),
+        "rejected_rows": [_render_rejected_row(r) for r in tr.rejected_rows],
+        "rejected_rows_truncated": tr.rejected_rows_truncated,
+    }
+    return payload
+
+
+def _render_profile(profile) -> dict[str, Any] | None:
+    if profile is None:
+        return None
+    return {
+        "fields": [
+            {
+                "name": f.name,
+                "type": f.type,
+                "type_format": f.type_format,
+                "is_primary_key": f.is_pk,
+                "is_foreign_key": f.is_fk,
+                "total": f.total,
+                "null_count": f.null_count,
+                "null_pct": f.null_pct,
+                "distinct_count": f.distinct_count,
+            }
+            for f in profile.fields
+        ]
     }
 
 
+def _render_rejected_row(r: RejectedRow) -> dict[str, Any]:
+    return {
+        "source_file": r.source_file,
+        "source_row": r.source_row,
+        "pk_values": dict(r.pk_values),
+        "source_row_data": dict(r.source_row_data),
+        "worst_severity": r.worst_severity,
+        "violations": list(r.violations),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Violation aggregation
+# ---------------------------------------------------------------------------
+
+
+def _check_id(table: str, field: str | None, kind: str) -> str:
+    return f"{table}.{field}.{kind}" if field else f"{table}.{kind}"
+
+
 def _cluster_pk_violations(
-    violations: list[Violation], pk_fields: list[str],
+    violations: list[Violation], pk_fields: list[str], sample_cap: int,
 ) -> list[dict[str, Any]]:
-    """Group `pk_not_unique` violations by their PK tuple."""
+    """Group `pk_not_unique` violations into one entry per (table, PK)."""
     if not pk_fields:
         return []
     clusters: dict[tuple, list[Violation]] = defaultdict(list)
     for v in violations:
-        if v.kind != "pk_not_unique":
-            continue
-        if v.pk_values is None:
+        if v.kind != "pk_not_unique" or v.pk_values is None:
             continue
         key = tuple(v.pk_values.get(c) for c in pk_fields)
         clusters[key].append(v)
-
     if not clusters:
         return []
 
-    out = []
+    duplicates = []
+    total_rows = 0
+    spans = set()
     for key, participants in clusters.items():
-        spans = {p.source_file for p in participants if p.source_file}
-        out.append({
-            "kind": "pk_not_unique",
-            "severity": "error",
-            "field": ", ".join(pk_fields) if len(pk_fields) > 1 else pk_fields[0],
-            "row_count": len(participants),
-            "distinct_values": 1,
-            "spans_files": len(spans),
-            "duplicates": [{
-                "value": list(key) if len(key) > 1 else key[0],
-                "occurrences": [
-                    {"source_file": p.source_file, "source_row": p.source_row}
-                    for p in participants
-                ],
-            }],
+        duplicates.append({
+            "value": list(key) if len(key) > 1 else key[0],
+            "occurrences": [
+                {"source_file": p.source_file, "source_row": p.source_row}
+                for p in participants
+            ],
         })
-    # Aggregate distinct_values + row_count across all clusters into one block
-    # since the JSON wants a single `pk_not_unique` entry per field.
-    aggregated = {
+        total_rows += len(participants)
+        for p in participants:
+            if p.source_file:
+                spans.add(p.source_file)
+
+    table = clusters[next(iter(clusters))][0].table
+    return [{
+        "check_id": _check_id(table, ", ".join(pk_fields), "pk_not_unique"),
         "kind": "pk_not_unique",
+        "dimension": dimension_for("pk_not_unique").value,
         "severity": "error",
         "field": ", ".join(pk_fields) if len(pk_fields) > 1 else pk_fields[0],
-        "row_count": sum(e["row_count"] for e in out),
-        "distinct_values": len(out),
-        "spans_files": max((e["spans_files"] for e in out), default=0),
-        "duplicates": [d for e in out for d in e["duplicates"]],
-    }
-    return [aggregated]
+        "row_count": total_rows,
+        "distinct_values": len(clusters),
+        "spans_files": len(spans),
+        "expected": "primary key must be unique",
+        "hint": hint_for("pk_not_unique"),
+        "duplicates": duplicates,
+    }]
 
 
-def _condense_other_violations(violations: list[Violation]) -> list[dict[str, Any]]:
+def _condense_other_violations(
+    violations: list[Violation], table: str, sample_cap: int,
+) -> list[dict[str, Any]]:
     by_kind_field: dict[tuple, list[Violation]] = defaultdict(list)
     for v in violations:
         if v.kind == "pk_not_unique":
             continue
-        key = (v.kind, v.field)
-        by_kind_field[key].append(v)
+        by_kind_field[(v.kind, v.field)].append(v)
 
-    out = []
+    out: list[dict[str, Any]] = []
     for (kind, field), bucket in by_kind_field.items():
+        try:
+            dim = dimension_for(kind).value
+        except KeyError:
+            dim = "unknown"
+        try:
+            hint = hint_for(kind)
+        except KeyError:
+            hint = ""
         out.append({
+            "check_id": _check_id(table, field, kind),
             "kind": kind,
+            "dimension": dim,
             "severity": bucket[0].severity,
             "field": field,
             "row_count": len(bucket),
             "expected": bucket[0].expected,
+            "hint": hint,
             "sample_offending_values": [
                 {
                     "value": v.offending_value,
                     "source_file": v.source_file,
                     "source_row": v.source_row,
                 }
-                for v in bucket[:SAMPLE_CAP]
+                for v in bucket[:sample_cap]
             ],
         })
     return out
+
+
+def _render_run_issues(report: ValidationReport) -> list[dict[str, Any]]:
+    """Operational failures (environment errors) reported separately so they
+    don't muddy the data-quality score."""
+    operational_kinds = {"no_input_files", "parser_failure", "fk_target_table_not_loaded"}
+    issues: list[dict[str, Any]] = []
+    for tr in report.table_reports:
+        for v in tr.violations:
+            if v.kind not in operational_kinds:
+                continue
+            try:
+                hint = hint_for(v.kind)
+            except KeyError:
+                hint = ""
+            issues.append({
+                "table": v.table,
+                "kind": v.kind,
+                "severity": v.severity,
+                "field": v.field,
+                "expected": v.expected,
+                "offending_value": v.offending_value,
+                "hint": hint,
+            })
+    return issues

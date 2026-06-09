@@ -93,7 +93,7 @@ def test_validate_against_schema_rejects_unknown_field_property():
         "source": {"spec_file": "s", "spec_sheet": "S"},
         "table": "T",
         "fields": [
-            {"name": "x", "type": "integer", "bogus_field": "nope"},
+            {"name": "x", "type": "int64", "bogus_field": "nope"},
         ],
     }
     errors = validate_against_schema(bad_contract)
@@ -118,7 +118,7 @@ def test_validate_against_schema_accepts_structured_min_value():
         "table": "T",
         "fields": [
             {
-                "name": "amount", "type": "double",
+                "name": "amount", "type": "float64",
                 "min_value": {"value": 0, "strict": False},
             }
         ],
@@ -132,7 +132,7 @@ def test_validate_against_schema_rejects_flat_min_value():
         "version": "1.0", "epic": "X", "generated_at": "t",
         "source": {"spec_file": "s", "spec_sheet": "S"},
         "table": "T",
-        "fields": [{"name": "amount", "type": "double", "min_value": 5}],
+        "fields": [{"name": "amount", "type": "float64", "min_value": 5}],
     }
     errors = validate_against_schema(contract)
     assert errors, "flat min_value should be rejected"

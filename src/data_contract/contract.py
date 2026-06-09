@@ -90,7 +90,7 @@ class FieldContract:
         fk = payload.get("foreign_key")
         return cls(
             name=payload["name"],
-            type=Type(payload["type"]),
+            type=Type.from_canonical_string(payload["type"]),
             nullable=payload.get("nullable"),
             description=payload.get("description"),
             max_length=payload.get("max_length"),

@@ -48,7 +48,9 @@ def test_csv_custom_delimiter(tmp_path):
     parser = CsvParser({"delimiter": ";"})
     df = parser.read([p]).collect()
     assert df.height == 2
-    assert df["id"].to_list() == [1, 2]
+    # Every data column reads as String. Type validation happens via the
+    # contract layer, not Polars's inferer.
+    assert df["id"].to_list() == ["1", "2"]
     assert df["name"].to_list() == ["a", "b"]
 
 
@@ -69,5 +71,34 @@ def test_csv_header_row_offset(tmp_path):
     df = parser.read([p]).collect()
     assert df.height == 2
     assert {"id", "name"}.issubset(df.columns)
-    assert df["id"].to_list() == [1, 2]
+    assert df["id"].to_list() == ["1", "2"]
     assert df["name"].to_list() == ["a", "b"]
+
+
+def test_csv_all_data_columns_are_string_dtype(tmp_path):
+    """The contract-enforced pipeline depends on every data column being
+    String at parser-read time. This is the contract between Step 4a/4b and
+    everything downstream."""
+    p = _write_csv(tmp_path / "mixed.csv", "i,f,d,b,s\n1,1.5,2024-01-15,true,abc\n2,3.14,15/01/2024,false,xyz\n")
+    df = CsvParser().read([p]).collect()
+    for col in ("i", "f", "d", "b", "s"):
+        assert df.schema[col] == pl.String, f"column {col!r} dtype is {df.schema[col]!r}"
+
+
+def test_csv_leading_zero_preserved(tmp_path):
+    """A CSV cell with `00042` reads back as `'00042'` -- no integer
+    coercion, leading zeros intact. This is the regression guard for the
+    previous Polars-inference behaviour that would have produced `42`."""
+    p = _write_csv(tmp_path / "zeros.csv", "code\n00042\n00007\n")
+    df = CsvParser().read([p]).collect()
+    assert df["code"].dtype == pl.String
+    assert df["code"].to_list() == ["00042", "00007"]
+
+
+def test_csv_french_comma_preserved_for_contract_layer(tmp_path):
+    """A CSV cell with `12,34` reads back verbatim. The contract layer
+    (check_type_coercion against DOUBLE) is responsible for rejecting it."""
+    p = _write_csv(tmp_path / "fr.csv", "val\n12,34\n1.5\n", )
+    df = CsvParser({"delimiter": ";"}).read([p]).collect()
+    # Delimiter is ; so the cell `12,34` survives as a single cell.
+    assert df["val"].to_list() == ["12,34", "1.5"]

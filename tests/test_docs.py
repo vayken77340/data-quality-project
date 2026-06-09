@@ -32,7 +32,7 @@ def _contract(table: str, *fields: FieldContract) -> Contract:
     )
 
 
-def _f(name: str, t: Type = Type.VARCHAR, **kw) -> FieldContract:
+def _f(name: str, t: Type = Type.STRING, **kw) -> FieldContract:
     return FieldContract(
         name=name,
         type=t,
@@ -64,12 +64,12 @@ def test_constraint_formatter_handles_structured_and_flat():
 def test_workbook_has_readme_table_and_joins_sheets():
     proj = _contract(
         "PROJECT",
-        _f("proj_id", t=Type.INTEGER, nullable=False, primary_key=True, description="ID"),
+        _f("proj_id", t=Type.INT64, nullable=False, primary_key=True, description="ID"),
         _f("status", constraints={"allowed_values": ["a", "b"]}),
     )
     cal = _contract(
         "CALENDAR",
-        _f("test_id", t=Type.INTEGER, nullable=False, primary_key=True),
+        _f("test_id", t=Type.INT64, nullable=False, primary_key=True),
         _f("proj_id", foreign_key={"table": "PROJECT", "column": "proj_id"}, nullable=False),
     )
     joins = JoinsContract(
@@ -134,7 +134,7 @@ def test_workbook_has_readme_table_and_joins_sheets():
 def test_write_data_dictionary_creates_file(tmp_path: Path):
     contract = _contract(
         "T",
-        _f("x", t=Type.INTEGER, nullable=False, primary_key=True),
+        _f("x", t=Type.INT64, nullable=False, primary_key=True),
     )
     out = write_data_dictionary(
         epic_dir=tmp_path / "epics" / "E",

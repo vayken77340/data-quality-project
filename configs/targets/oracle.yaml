@@ -1,0 +1,50 @@
+name: oracle
+description: Oracle 19c+ (NUMBER(38), VARCHAR2 byte-counted, no native boolean)
+
+overrides:
+  string:
+    physical_type: "VARCHAR2({max_length} BYTE)"
+    length_unit: bytes              # VARCHAR2(n BYTE) is the Oracle default
+
+  int32:
+    physical_type: "NUMBER(10, 0)"
+    bounds: { min: -2147483648, max: 2147483647 }
+
+  int64:
+    physical_type: "NUMBER(19, 0)"
+    # NUMBER(19) actually holds up to 10^19 - 1, slightly wider than IEEE
+    # int64. Capped at the IEEE range so values fit Polars's pl.Int64 storage
+    # used by the validator's frame; spec authors wanting wider use decimal.
+    bounds: { min: -9223372036854775808, max: 9223372036854775807 }
+
+  float32:
+    physical_type: "BINARY_FLOAT"
+    bounds: { min: -3.4028234663852886e38, max: 3.4028234663852886e38 }   # IEEE 754
+
+  float64:
+    physical_type: "BINARY_DOUBLE"
+    bounds: { min: -1.7976931348623157e308, max: 1.7976931348623157e308 }  # IEEE 754
+
+  decimal:
+    physical_type: "NUMBER({precision}, {scale})"
+    max_precision: 38
+
+  boolean:
+    physical_type: "CHAR(1)"        # Oracle has no native BOOLEAN; CHAR(1) Y/N convention
+    data_values:
+      "true":  ["Y", "1"]
+      "false": ["N", "0"]
+
+  date:
+    physical_type: "DATE"
+    parse_formats: ["%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y"]
+
+  timestamp:
+    physical_type: "TIMESTAMP"
+    parse_formats: ["%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S"]
+
+  timestamp_tz:
+    physical_type: "TIMESTAMP WITH TIME ZONE"
+
+  binary:
+    physical_type: "BLOB"

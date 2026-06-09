@@ -1,3 +1,9 @@
+# REQUIRED: target database. Universal logical types in the contract acquire
+# concrete validation rules (bounds, length_unit, boolean tokens, physical_type)
+# only when mapped to a target's physical types. Switch to `oracle` or
+# `iceberg` to validate against those databases' rules.
+target: oracle
+
 # Defaults shared across tables.
 #
 # `file_pattern` is a glob applied relative to the epic's directory
@@ -8,6 +14,27 @@
 defaults:
   format: excel
   file_pattern: "sample/{table}*.xlsx"
+
+# Required: every check has an explicit on/off flag. Descriptions live
+# globally in configs/report_strings.yaml under `checks_sheet.descriptions`
+# (they describe the check itself, not the epic, so they don't belong here).
+checks:
+  # Structural / per-field core
+  type_coercion: true
+  boolean_coercion: true
+  nullable: true
+  max_length: true
+  column_missing: true
+  # Keys
+  pk_uniqueness: true
+  fk_existence: false
+  # Per-constraint (FieldConstraint registry names)
+  allowed_values: false
+  pattern: false
+  min_value: false
+  max_value: false
+  format: false
+  unique: false
 
 # `contracts_folder` is optional; omitted = <epic_dir>/contracts.
 # contracts_folder: "epics/1118/contracts"

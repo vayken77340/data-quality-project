@@ -1,20 +1,42 @@
 mappings:
-  - canonical: varchar
-    aliases: [varchar, char, string, texte, text]
+  string:
+    aliases: [string, varchar, char, texte, text, str]
     parameter: max_length
-  - canonical: integer
-    aliases: [int, integer, bigint, smallint, entier]
-  - canonical: double
-    aliases: [double, numeric, "réel", real, decimal, number]
-  - canonical: float
-    aliases: [float]
-    parameter: precision
-  - canonical: boolean
-    aliases: ["booléen", boolean, bool]
+
+  int32:
+    aliases: [int32, smallint, int4]
+
+  int64:
+    aliases: [int64, integer, int, bigint, long, int8, entier]
+    # Legacy `integer` and bare `int` go to int64 (safer than int32; matches Oracle's NUMBER(38)).
+
+  float32:
+    aliases: [float32, float, real, "réel"]
+
+  float64:
+    aliases: [float64, double, "double precision"]
+
+  decimal:
+    aliases: [decimal, numeric, number]
+    parameters: [precision, scale]
+
+  boolean:
+    aliases: [boolean, bool, "booléen"]
     data_values:
-      "true":  [true, "true", "vrai", "oui", "1", "y", "yes"]
-      "false": [false, "false", "faux", "non", "0", "n", "no"]
-  - canonical: date
+      "true":  [true,  "true",  "vrai", "oui", "1", "y", "yes", "t"]
+      "false": [false, "false", "faux", "non", "0", "n", "no", "f"]
+
+  date:
     aliases: [date]
-  - canonical: timestamp
-    aliases: ["date horodatée", timestamp, datetime]
+    parse_formats: ["%Y-%m-%d", "%d/%m/%Y"]
+
+  timestamp:
+    aliases: [timestamp, datetime, "date horodatée"]
+    parse_formats: ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M"]
+
+  timestamp_tz:
+    aliases: [timestamp_tz, timestamptz, "timestamp with time zone"]
+    parse_formats: ["%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S%z"]
+
+  binary:
+    aliases: [binary, blob, bytea, varbinary]

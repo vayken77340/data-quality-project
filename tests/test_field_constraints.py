@@ -28,7 +28,7 @@ from data_contract.spec_reader import RawField, SheetSpec
 from data_contract.type_mapping import Type, load_type_registry
 
 
-def _ctx(field_type=Type.INTEGER, max_length=None, sheet_row=2):
+def _ctx(field_type=Type.INT64, max_length=None, sheet_row=2):
     return ConstraintContext(sheet_row=sheet_row, field_type=field_type, field_max_length=max_length)
 
 
@@ -41,21 +41,21 @@ def test_unique_added_removed_diff():
 
 def test_allowed_values_default_separator():
     c = AllowedValuesConstraint.from_config({"spec_name": "Values"})
-    v, err = c.parse_cell("active|pending|archived", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("active|pending|archived", _ctx(Type.STRING))
     assert err is None
     assert v == ["active", "pending", "archived"]
 
 
 def test_allowed_values_custom_separator():
     c = AllowedValuesConstraint.from_config({"spec_name": "Values", "spec_parsing": {"separator": ","}})
-    v, err = c.parse_cell("a, b ,c", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("a, b ,c", _ctx(Type.STRING))
     assert err is None and v == ["a", "b", "c"]
 
 
 def test_allowed_values_separator_not_emitted_into_contract():
     """spec_parsing knobs MUST NOT leak into the contract output."""
     c = AllowedValuesConstraint.from_config({"spec_name": "Values", "spec_parsing": {"separator": ","}})
-    v, _ = c.parse_cell("a,b,c", _ctx(Type.VARCHAR))
+    v, _ = c.parse_cell("a,b,c", _ctx(Type.STRING))
     emitted = c.to_contract_value(v)
     # Stays flat: just the list, no wrapping dict, no separator field.
     assert emitted == ["a", "b", "c"]
@@ -63,7 +63,7 @@ def test_allowed_values_separator_not_emitted_into_contract():
 
 def test_allowed_values_empty_after_split():
     c = AllowedValuesConstraint.from_config({"spec_name": "Values"})
-    v, err = c.parse_cell("|||", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("|||", _ctx(Type.STRING))
     assert v is None and err is not None and err.kind == "list_empty"
 
 
@@ -97,7 +97,7 @@ def test_min_value_strict_emits_structured_dict():
         "spec_name": "Min",
         "contract_params": {"strict": True},
     })
-    parsed, err = c.parse_cell("5", _ctx(Type.INTEGER))
+    parsed, err = c.parse_cell("5", _ctx(Type.INT64))
     assert err is None and parsed == 5
     emitted = c.to_contract_value(parsed)
     assert emitted == {"value": 5, "strict": True}
@@ -105,13 +105,13 @@ def test_min_value_strict_emits_structured_dict():
 
 def test_min_value_default_strict_false():
     c = MinValueConstraint.from_config({"spec_name": "Min"})
-    parsed, _ = c.parse_cell("5", _ctx(Type.INTEGER))
+    parsed, _ = c.parse_cell("5", _ctx(Type.INT64))
     assert c.to_contract_value(parsed) == {"value": 5, "strict": False}
 
 
 def test_max_value_strict_default_emits_dict():
     c = MaxValueConstraint.from_config({"spec_name": "Max"})
-    parsed, _ = c.parse_cell("99", _ctx(Type.INTEGER))
+    parsed, _ = c.parse_cell("99", _ctx(Type.INT64))
     assert c.to_contract_value(parsed) == {"value": 99, "strict": False}
 
 
@@ -146,37 +146,37 @@ def test_max_value_strict_loosened_is_additive_drift():
 
 def test_pattern_invalid_regex_rejects():
     c = PatternConstraint.from_config({"spec_name": "Pattern"})
-    v, err = c.parse_cell("[unclosed", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("[unclosed", _ctx(Type.STRING))
     assert v is None and err is not None and err.kind == "invalid_pattern"
 
 
 def test_pattern_valid_regex_passes():
     c = PatternConstraint.from_config({"spec_name": "Pattern"})
-    v, err = c.parse_cell(r"^\d{4}$", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell(r"^\d{4}$", _ctx(Type.STRING))
     assert err is None and v == r"^\d{4}$"
 
 
 def test_min_value_integer():
     c = MinValueConstraint.from_config({"spec_name": "Min"})
-    v, err = c.parse_cell("5", _ctx(Type.INTEGER))
+    v, err = c.parse_cell("5", _ctx(Type.INT64))
     assert err is None and v == 5
 
 
 def test_min_value_number():
     c = MinValueConstraint.from_config({"spec_name": "Min"})
-    v, err = c.parse_cell("3.14", _ctx(Type.DOUBLE))
+    v, err = c.parse_cell("3.14", _ctx(Type.FLOAT64))
     assert err is None and v == pytest.approx(3.14)
 
 
 def test_min_value_invalid_for_type():
     c = MinValueConstraint.from_config({"spec_name": "Min"})
-    v, err = c.parse_cell("notanumber", _ctx(Type.INTEGER))
+    v, err = c.parse_cell("notanumber", _ctx(Type.INT64))
     assert v is None and err is not None and err.kind == "invalid_min_max"
 
 
 def test_max_value_string_conflict_with_max_length():
     c = MaxValueConstraint.from_config({"spec_name": "Max"})
-    v, err = c.parse_cell("500", _ctx(Type.VARCHAR, max_length=100))
+    v, err = c.parse_cell("500", _ctx(Type.STRING, max_length=100))
     assert v is None and err is not None and err.kind == "invalid_min_max"
 
 
@@ -361,19 +361,19 @@ def test_unwrap_structured_value_handles_flat_dict_and_none():
 def test_format_known_tokens_parse():
     c = FormatConstraint.from_config({"spec_name": "Format"})
     for token in ("email", "uuid", "iban", "phone"):
-        v, err = c.parse_cell(token, _ctx(Type.VARCHAR))
+        v, err = c.parse_cell(token, _ctx(Type.STRING))
         assert err is None and v == token
 
 
 def test_format_token_is_case_insensitive():
     c = FormatConstraint.from_config({"spec_name": "Format"})
-    v, err = c.parse_cell("Email", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("Email", _ctx(Type.STRING))
     assert err is None and v == "email"
 
 
 def test_format_unknown_token_rejects():
     c = FormatConstraint.from_config({"spec_name": "Format"})
-    v, err = c.parse_cell("klingon", _ctx(Type.VARCHAR))
+    v, err = c.parse_cell("klingon", _ctx(Type.STRING))
     assert v is None and err is not None and err.kind == "unknown_format"
 
 
@@ -381,7 +381,7 @@ def test_format_register_custom_token():
     register_format("npi", description="National Provider Identifier (US healthcare)")
     try:
         c = FormatConstraint.from_config({"spec_name": "Format"})
-        v, err = c.parse_cell("npi", _ctx(Type.VARCHAR))
+        v, err = c.parse_cell("npi", _ctx(Type.STRING))
         assert err is None and v == "npi"
     finally:
         FORMAT_REGISTRY.pop("npi", None)
@@ -422,26 +422,26 @@ def test_format_drift_changed_is_breaking():
 
 def test_default_value_integer():
     c = DefaultValueConstraint.from_config({"spec_name": "Default"})
-    v, err = c.parse_cell("0", _ctx(Type.INTEGER))
+    v, err = c.parse_cell("0", _ctx(Type.INT64))
     assert err is None and v == 0
 
 
 def test_default_value_number():
     c = DefaultValueConstraint.from_config({"spec_name": "Default"})
-    v, err = c.parse_cell("3.14", _ctx(Type.DOUBLE))
+    v, err = c.parse_cell("3.14", _ctx(Type.FLOAT64))
     assert err is None and v == pytest.approx(3.14)
 
 
 def test_default_value_string_length():
     """For string fields, parse_typed_value interprets the cell as a length cap."""
     c = DefaultValueConstraint.from_config({"spec_name": "Default"})
-    v, err = c.parse_cell("12", _ctx(Type.VARCHAR, max_length=50))
+    v, err = c.parse_cell("12", _ctx(Type.STRING, max_length=50))
     assert err is None and v == 12
 
 
 def test_default_value_blank_cell_emits_nothing():
     c = DefaultValueConstraint.from_config({"spec_name": "Default"})
-    v, err = c.parse_cell("", _ctx(Type.INTEGER))
+    v, err = c.parse_cell("", _ctx(Type.INT64))
     assert v is None and err is None
 
 
@@ -451,13 +451,13 @@ def test_default_value_null_token_treated_as_blank():
         "spec_parsing": {"null_tokens": ["-", "n/a", "none"]},
     })
     for token in ("-", "n/a", "N/A", "NONE"):
-        v, err = c.parse_cell(token, _ctx(Type.INTEGER))
+        v, err = c.parse_cell(token, _ctx(Type.INT64))
         assert v is None and err is None, f"expected {token!r} treated as blank"
 
 
 def test_default_value_invalid_for_type_rejects():
     c = DefaultValueConstraint.from_config({"spec_name": "Default"})
-    v, err = c.parse_cell("not-a-number", _ctx(Type.INTEGER))
+    v, err = c.parse_cell("not-a-number", _ctx(Type.INT64))
     assert v is None and err is not None and err.kind == "invalid_default_value"
 
 
@@ -498,7 +498,7 @@ def test_default_value_drift_changed_is_breaking():
 def _field_with_constraints(name: str, constraints: dict) -> "FieldContract":
     from data_contract.contract import FieldContract
     return FieldContract(
-        name=name, type=Type.VARCHAR, nullable=True, description=None,
+        name=name, type=Type.STRING, nullable=True, description=None,
         constraints=dict(constraints),
     )
 
@@ -570,9 +570,9 @@ def test_primary_key_fields_returns_pk_subset():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INTEGER, nullable=False, description=None, primary_key=True),
-            FieldContract(name="b", type=Type.VARCHAR, nullable=True, description=None),
-            FieldContract(name="c", type=Type.INTEGER, nullable=False, description=None, primary_key=True),
+            FieldContract(name="a", type=Type.INT64, nullable=False, description=None, primary_key=True),
+            FieldContract(name="b", type=Type.STRING, nullable=True, description=None),
+            FieldContract(name="c", type=Type.INT64, nullable=False, description=None, primary_key=True),
         ],
     )
     pks = c.primary_key_fields()
@@ -585,8 +585,8 @@ def test_foreign_key_fields_returns_fk_subset():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INTEGER, nullable=False, description=None),
-            FieldContract(name="b", type=Type.INTEGER, nullable=False, description=None,
+            FieldContract(name="a", type=Type.INT64, nullable=False, description=None),
+            FieldContract(name="b", type=Type.INT64, nullable=False, description=None,
                           foreign_key={"table": "OTHER", "column": "id"}),
         ],
     )
@@ -601,8 +601,8 @@ def test_field_name_set_returns_just_names():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INTEGER, nullable=False, description=None),
-            FieldContract(name="b", type=Type.VARCHAR, nullable=True, description=None),
+            FieldContract(name="a", type=Type.INT64, nullable=False, description=None),
+            FieldContract(name="b", type=Type.STRING, nullable=True, description=None),
         ],
     )
     assert c.field_name_set() == {"a", "b"}

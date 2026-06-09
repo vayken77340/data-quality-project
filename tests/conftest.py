@@ -19,6 +19,34 @@ KEYS_SHEET_NAME = "Keys"
 KEYS_HEADERS = ("Table", "PK", "FK", "Comments")
 
 
+# YAML snippet that explicitly enables every check. Used by `validate_data`
+# tests when the test doesn't care about gating -- the top-level `checks:`
+# block is required, so this is the "I don't care, run everything" default.
+ALL_CHECKS_ENABLED_YAML = """\
+checks:
+  type_coercion: true
+  boolean_coercion: true
+  nullable: true
+  max_length: true
+  column_missing: true
+  pk_uniqueness: true
+  fk_existence: true
+  allowed_values: true
+  pattern: true
+  min_value: true
+  max_value: true
+  format: true
+  unique: true
+"""
+
+# YAML snippet that satisfies the required `target:` field. Tests that don't
+# care about target-specific behaviour use this. Postgres is chosen because
+# its boolean tokens are the most permissive (accepts `true`/`false`/`t`/`f`
+# /`yes`/`no`/`y`/`n`/`on`/`off`/`1`/`0`) so token-related test fixtures
+# don't need to be tailored to a specific convention.
+DEFAULT_TARGET_YAML = "target: postgres\n"
+
+
 MINIMAL_DEFAULTS_YAML = """fields:
   column_mapping:
     name:

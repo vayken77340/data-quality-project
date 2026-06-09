@@ -6,10 +6,22 @@ import pytest
 
 from data_contract.errors import ConfigError
 from data_contract.validate_data.config import ValidationConfig
+from tests.conftest import ALL_CHECKS_ENABLED_YAML, DEFAULT_TARGET_YAML
 
 
 def _write(path: Path, text: str) -> Path:
+    """Write `text` to `path`.
+
+    For validation.yaml files, prepend the required `checks:` block AND the
+    required `target:` field UNLESS the test already declared one (lets
+    explicit-error tests still exercise the missing-block path).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.name == "validation.yaml":
+        if "checks:" not in text:
+            text = ALL_CHECKS_ENABLED_YAML + text
+        if "target:" not in text:
+            text = DEFAULT_TARGET_YAML + text
     path.write_text(text, encoding="utf-8")
     return path
 

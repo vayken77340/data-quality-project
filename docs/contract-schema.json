@@ -56,13 +56,17 @@
         "type": {
           "type": "string",
           "enum": [
-            "varchar",
-            "integer",
-            "double",
-            "float",
+            "string",
+            "int32",
+            "int64",
+            "float32",
+            "float64",
+            "decimal",
             "boolean",
             "date",
             "timestamp",
+            "timestamp_tz",
+            "binary",
             "unknown"
           ]
         },

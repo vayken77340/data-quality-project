@@ -1,0 +1,45 @@
+name: iceberg
+description: Apache Iceberg spec types (int=int32, long=int64, unbounded string)
+
+overrides:
+  string:
+    physical_type: "string"         # Iceberg string is unbounded UTF-8
+    length_unit: characters
+
+  int32:
+    physical_type: "int"
+    bounds: { min: -2147483648, max: 2147483647 }
+
+  int64:
+    physical_type: "long"
+    bounds: { min: -9223372036854775808, max: 9223372036854775807 }
+
+  float32:
+    physical_type: "float"
+    bounds: { min: -3.4028234663852886e38, max: 3.4028234663852886e38 }   # IEEE 754
+
+  float64:
+    physical_type: "double"
+    bounds: { min: -1.7976931348623157e308, max: 1.7976931348623157e308 }  # IEEE 754
+
+  decimal:
+    physical_type: "decimal({precision}, {scale})"
+    max_precision: 38               # Iceberg spec cap
+
+  boolean:
+    physical_type: "boolean"
+    data_values:
+      "true":  [true,  "true"]
+      "false": [false, "false"]
+
+  date:
+    physical_type: "date"
+
+  timestamp:
+    physical_type: "timestamp"
+
+  timestamp_tz:
+    physical_type: "timestamptz"
+
+  binary:
+    physical_type: "binary"

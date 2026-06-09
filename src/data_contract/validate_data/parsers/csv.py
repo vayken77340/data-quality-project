@@ -45,16 +45,28 @@ class CsvParser(FileParser):
 
         frames = []
         for path in paths:
+            # `infer_schema=False` forces every data column to pl.String. The
+            # contract layer is the only authority on type validity (see
+            # check_type_coercion + normalize_typed_column). We also pull
+            # null-token handling out of scan_csv so we can apply it ourselves
+            # after the column is guaranteed to be String -- keeps the
+            # "everything-as-string" invariant intact at the boundary.
             lf = pl.scan_csv(
                 str(path),
                 separator=self.params["delimiter"],
                 has_header=True,
                 skip_rows=skip,
-                null_values=null_tokens,
                 quote_char=self.params["quote_char"],
                 encoding=encoding,
-                infer_schema_length=10000,
+                infer_schema=False,
             )
+            if null_tokens:
+                lf = lf.with_columns(
+                    pl.when(pl.col(pl.String).is_in(null_tokens))
+                    .then(None)
+                    .otherwise(pl.col(pl.String))
+                    .name.keep()
+                )
             lf = lf.with_row_index(name="__row_index__", offset=1).with_columns(
                 pl.lit(path.name).alias("__source_file__"),
             )

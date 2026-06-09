@@ -1,0 +1,46 @@
+name: postgres
+description: PostgreSQL (true int2/4/8, native boolean, char-counted text)
+
+overrides:
+  string:
+    physical_type: "VARCHAR({max_length})"
+    length_unit: characters
+
+  int32:
+    physical_type: "INTEGER"
+    bounds: { min: -2147483648, max: 2147483647 }
+
+  int64:
+    physical_type: "BIGINT"
+    bounds: { min: -9223372036854775808, max: 9223372036854775807 }
+
+  float32:
+    physical_type: "REAL"
+    bounds: { min: -3.4028234663852886e38, max: 3.4028234663852886e38 }   # IEEE 754
+
+  float64:
+    physical_type: "DOUBLE PRECISION"
+    bounds: { min: -1.7976931348623157e308, max: 1.7976931348623157e308 }  # IEEE 754
+
+  decimal:
+    physical_type: "NUMERIC({precision}, {scale})"
+    max_precision: 1000             # NUMERIC has no practical precision cap
+
+  boolean:
+    physical_type: "BOOLEAN"
+    data_values:
+      "true":  [true,  "true",  "t", "yes", "y", "on",  "1"]
+      "false": [false, "false", "f", "no",  "n", "off", "0"]
+
+  date:
+    physical_type: "DATE"
+
+  timestamp:
+    physical_type: "TIMESTAMP"
+
+  timestamp_tz:
+    physical_type: "TIMESTAMP WITH TIME ZONE"
+    parse_formats: ["%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S%z"]
+
+  binary:
+    physical_type: "BYTEA"

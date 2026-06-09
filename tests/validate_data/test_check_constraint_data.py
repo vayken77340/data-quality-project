@@ -26,7 +26,7 @@ def _check(cls, value, params=None) -> FieldCheck:
     )
 
 
-def _field(name: str, t: Type = Type.VARCHAR) -> FieldContract:
+def _field(name: str, t: Type = Type.STRING) -> FieldContract:
     return FieldContract(name=name, type=t, nullable=True, description=None)
 
 
@@ -74,7 +74,7 @@ def test_pattern_flags_non_matching():
 def test_min_value_non_strict():
     frame = _frame([{"x": 0}, {"x": 5}, {"x": 10}])
     violating = MinValueConstraint.check_data(
-        frame, _field("x", Type.INTEGER), _check(MinValueConstraint, 5),
+        frame, _field("x", Type.INT64), _check(MinValueConstraint, 5),
     )
     vals = [r["x"] for r in violating.collect().to_dicts()]
     assert vals == [0]
@@ -83,7 +83,7 @@ def test_min_value_non_strict():
 def test_min_value_strict_excludes_boundary():
     frame = _frame([{"x": 5}, {"x": 6}])
     violating = MinValueConstraint.check_data(
-        frame, _field("x", Type.INTEGER), _check(MinValueConstraint, 5, {"strict": True}),
+        frame, _field("x", Type.INT64), _check(MinValueConstraint, 5, {"strict": True}),
     )
     vals = [r["x"] for r in violating.collect().to_dicts()]
     assert vals == [5]
@@ -92,7 +92,7 @@ def test_min_value_strict_excludes_boundary():
 def test_max_value_non_strict():
     frame = _frame([{"x": 99}, {"x": 100}, {"x": 101}])
     violating = MaxValueConstraint.check_data(
-        frame, _field("x", Type.INTEGER), _check(MaxValueConstraint, 100),
+        frame, _field("x", Type.INT64), _check(MaxValueConstraint, 100),
     )
     vals = [r["x"] for r in violating.collect().to_dicts()]
     assert vals == [101]
@@ -101,7 +101,7 @@ def test_max_value_non_strict():
 def test_max_value_strict_excludes_boundary():
     frame = _frame([{"x": 99}, {"x": 100}])
     violating = MaxValueConstraint.check_data(
-        frame, _field("x", Type.INTEGER), _check(MaxValueConstraint, 100, {"strict": True}),
+        frame, _field("x", Type.INT64), _check(MaxValueConstraint, 100, {"strict": True}),
     )
     vals = [r["x"] for r in violating.collect().to_dicts()]
     assert vals == [100]

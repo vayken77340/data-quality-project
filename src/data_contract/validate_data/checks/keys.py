@@ -6,7 +6,37 @@ participating offender for PKs; one row per dangling reference for FKs).
 
 from __future__ import annotations
 
+from typing import Any
+
 from data_contract.contract import Contract
+
+
+def _canonical_str(value: Any) -> str | None:
+    """Render a Python value as the canonical string the parser would produce.
+
+    Used for FK comparisons where contracts often declare parent PK and child
+    FK as different canonical types -- the comparison must compute the same
+    string form on both sides.
+
+    Conventions:
+      - bool                -> "true" / "false" (lowercase, matching the
+                               BOOLEAN data_values literal convention).
+      - whole-number float  -> "1" not "1.0" (matches the Excel parser's
+                               `_to_string` downcast, so a parent Float64(1.0)
+                               and a child String "1" both canonicalise to "1").
+      - everything else     -> `str(value)`.
+
+    Note `bool` must be checked BEFORE `float` because `bool` is a subclass
+    of `int` in Python (but not `float`); the explicit isinstance keeps the
+    ordering safe either way.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def check_pk_uniqueness(frame, contract: Contract):
@@ -41,20 +71,25 @@ def check_pk_uniqueness(frame, contract: Contract):
 def check_fk_existence(child_frame, fk_col: str, parent_frame, parent_pk_col: str):
     """Flag rows whose FK value is non-null but absent from the parent's PK column.
 
-    Compares both sides as strings: contracts often declare the parent PK as
-    `number` and the child FK as `string`. Type alignment is a separate
-    invariant (`validate-contract`); the data-side FK check is purely about
-    "does this identifier exist in the parent set."
+    Both sides are canonicalised to strings via `_canonical_str` (whole-number
+    floats stringify as "1" not "1.0"). This keeps the FK check consistent
+    when contracts declare parent PK and child FK as different canonical
+    types -- a common case where the parent PK is `double` (Float64 after
+    normalisation) but the child FK is `varchar` (still String).
     """
     import polars as pl
 
-    parent_keys = [
-        str(v) for v in
-        parent_frame.select(pl.col(parent_pk_col).cast(pl.String, strict=False))
-                    .collect().to_series().to_list()
+    parent_keys = {
+        _canonical_str(v)
+        for v in parent_frame.select(parent_pk_col).collect().to_series().to_list()
         if v is not None
+    }
+    child_collected = child_frame.collect()
+    fk_values = child_collected[fk_col].to_list()
+    mask = [
+        v is not None and _canonical_str(v) not in parent_keys
+        for v in fk_values
     ]
-    fk_as_string = pl.col(fk_col).cast(pl.String, strict=False)
-    return child_frame.filter(
-        pl.col(fk_col).is_not_null() & ~fk_as_string.is_in(parent_keys)
-    )
+    if not any(mask):
+        return None
+    return child_collected.filter(pl.Series(mask)).lazy()

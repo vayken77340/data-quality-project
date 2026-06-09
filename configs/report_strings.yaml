@@ -1,0 +1,184 @@
+# User-facing strings for the data-quality reports.
+#
+# This file is the single source of truth for every UI string surfaced by the
+# XLSX and Markdown report writers: sheet names, column headers, status
+# labels, section titles, format templates. Editing a value here changes the
+# report without touching code.
+#
+# Notes:
+#   - JSON report keys are NOT in here. They are a stable wire-format
+#     contract for downstream consumers, not UI labels.
+#   - {placeholders} are substituted via str.format() at render time. The
+#     placeholder name must match exactly; a typo raises KeyError loudly.
+
+sheets:
+  run: "Run"
+  summary: "Summary"
+  profile: "Profile"
+  checks: "Checks"
+  run_issues: "Run issues"
+  rejected_pattern: "{table}_rejected"   # template per-table
+
+status:
+  pass: "PASS"
+  fail: "FAIL"
+
+run_sheet:
+  labels:
+    epic: "Epic"
+    generated_at: "Generated at"
+    status: "Status"
+    status_reason: "Status reason"
+    duration_ms: "Duration (ms)"
+    target: "Target"
+    checks_enabled: "Checks enabled"
+    checks_disabled: "Checks disabled"
+    cli_args: "CLI args"
+  no_target: "(none)"
+  contract_versions_heading: "Contract versions"
+
+summary_sheet:
+  overall_labels:
+    score: "Overall clean row %"
+    status: "Status"
+    errors: "Errors"
+    warnings: "Warnings"
+    info: "Info"
+  # Per-table scorecard headers. Dimension columns are appended at render time:
+  #   - Completeness    (always)
+  #   - PK Uniqueness   (always)
+  #   - FK Consistency  (only when the fk_existence check is enabled)
+  scorecard_headers:
+    - "Table"
+    - "PK"
+    - "Files"
+    - "Clean Rows"
+    - "Total Rows"
+    - "Errors"
+    - "Warnings"
+    - "Info"
+    - "Clean Row %"
+  dimension_labels:
+    completeness: "Completeness"
+    pk_uniqueness: "PK Uniqueness"
+    fk_consistency: "FK Consistency"
+  totals_label: "Total"
+  no_pk_placeholder: "-"
+  missing_score_placeholder: "-"
+
+profile_sheet:
+  table_heading_template: "Table: {table}"
+  headers:
+    - "Field"
+    - "Type"
+    - "Type Format"
+    - "Primary Key"
+    - "Foreign Key"
+    - "Null #"
+    - "Null %"
+    - "Distinct Values"
+    - "Total"
+  pk_indicator: "Y"
+  fk_indicator: "Y"
+
+checks_sheet:
+  headers:
+    - "Check"
+    - "Description"
+    - "Violation kind"
+  # Per-check descriptions, shown in the Checks sheet's "Description" column.
+  # Authoritative source -- validation.yaml no longer carries `description:`.
+  descriptions:
+    type_coercion: "Verify each value parses to the field's declared type."
+    boolean_coercion: "Verify boolean cells use one of the target's accepted true/false tokens."
+    nullable: "Verify required (non-nullable) fields have a value on every row."
+    max_length: "Verify string fields stay within their declared max_length."
+    column_missing: "Verify every contract-declared column exists in the data file."
+    pk_uniqueness: "Verify primary-key tuples are unique across rows."
+    fk_existence: "Verify foreign-key values exist in the referenced parent table."
+    allowed_values: "Verify values are in the field's allowed_values list."
+    pattern: "Verify values match the field's regex pattern."
+    min_value: "Verify values respect the field's minimum."
+    max_value: "Verify values respect the field's maximum."
+    format: "Verify values match the field's declared semantic format."
+    unique: "Verify field values are unique across rows when 'unique' is set."
+
+rejected_sheet:
+  # One row per VIOLATION. The source row is identified by Source File +
+  # the PK columns (or Source Row if no PK). `Severity` describes this
+  # violation. A column per contract field then carries the violating
+  # value: only the column for the field this violation is on is filled --
+  # every other field column stays blank. `Check` is the business-friendly
+  # label for the kind (mapped via `check_labels` below); `Expected` is the
+  # concise human-readable rule that was broken.
+  headers:
+    source_file: "Source File"
+    source_row: "Source Row"
+    severity: "Severity"
+    check: "Check"
+    expected: "Expected"
+  truncated_template: "... {count} more rows truncated; see JSON for full list"
+  # Business-friendly label per violation kind. `type_coercion_violation`
+  # uses a template so the field's declared type appears in the label
+  # (e.g. "Type violation: integer", "Type violation: timestamp").
+  check_labels:
+    nullable_violation: "Missing value"
+    column_missing: "Column missing in source"
+    type_coercion_violation: "Type violation: {type}"
+    boolean_coercion_violation: "Type violation: boolean"
+    max_length_violation: "Value too long"
+    pattern_violation: "Pattern mismatch"
+    format_violation: "Format mismatch"
+    allowed_values_violation: "Not in allowed values"
+    min_value_violation: "Value below minimum"
+    max_value_violation: "Value above maximum"
+    unique_violation: "Duplicate value"
+    pk_not_unique: "Duplicate primary key"
+    fk_not_found: "Foreign key not found"
+    extra_column: "Unexpected column"
+    no_input_files: "No input files"
+    parser_failure: "File cannot be parsed"
+    fk_target_table_not_loaded: "FK target table not loaded"
+  # Logical-type → user-facing label used when expanding `{type}` in
+  # `check_labels.type_coercion_violation`.
+  type_user_labels:
+    int32: "integer"
+    int64: "integer"
+    float32: "decimal"
+    float64: "decimal"
+    string: "text"
+    boolean: "boolean"
+    date: "date"
+    timestamp: "timestamp"
+    timestamp_tz: "timestamp"
+
+run_issues_sheet:
+  headers:
+    - "Table"
+    - "Kind"
+    - "Severity"
+    - "Field"
+    - "Expected"
+    - "Hint"
+  field_placeholder: "-"
+
+markdown:
+  title_template: "# Data quality report - epic {epic} - {generated_at}"
+  status_pass: "**PASS**"
+  status_fail: "**FAIL**"
+  headline_template: "{status} - {score:.1f} / 100   ({errors} errors, {warnings} warnings)"
+  target_template: "Target: {target_name}"
+  target_with_disabled_template: "Target: {target_name} - {disabled_count} check(s) disabled: {disabled_list}"
+  no_target_with_disabled_template: "No target - {disabled_count} check(s) disabled: {disabled_list}"
+  dimensions_table_header: "| Dimension | Score | Violations |"
+  dimensions_table_separator: "|---|---|---|"
+  dimensions_row_template: "| {dimension} | {score:.1f} | {violations} |"
+  tables_section: "## Tables"
+  tables_table_header: "| Table | Score | Rows | Clean | Errors | Warn |"
+  tables_table_separator: "|---|---|---|---|---|---|"
+  tables_row_template: "| {table} | {score:.1f} | {total_rows} | {clean} | {errors} | {warnings} |"
+  top_issues_section: "## Top issues"
+  no_issues: "_(none - all checks clean)_"
+  issue_with_field_template: "- **{count}x `{kind}`** on `{field}` - {hint}"
+  issue_without_field_template: "- **{count}x `{kind}`** - {hint}"
+  footer: "- Full XLSX / JSON / HTML in the validations directory."

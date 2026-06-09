@@ -13,7 +13,7 @@ def _write_contract(path: Path, payload: dict) -> None:
 
 
 def _minimal_payload(table: str = "T", **field_overrides) -> dict:
-    field = {"name": "x", "type": "integer", "nullable": False}
+    field = {"name": "x", "type": "int64", "nullable": False}
     field.update(field_overrides)
     return {
         "version": "1.0",
@@ -61,7 +61,7 @@ def test_validate_contract_detects_max_length_on_integer(tmp_path, repo_root, mo
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
     out = capsys.readouterr()
-    assert "max_length_only_on_varchar" in out.err
+    assert "max_length_only_on_string" in out.err
 
 
 def test_validate_contract_detects_precision_on_integer(tmp_path, repo_root, monkeypatch, capsys):
@@ -71,14 +71,14 @@ def test_validate_contract_detects_precision_on_integer(tmp_path, repo_root, mon
     _write_contract(p, _minimal_payload(precision=10))
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
-    assert "precision_scale_only_on_numerics" in capsys.readouterr().err
+    assert "precision_scale_only_on_decimal" in capsys.readouterr().err
 
 
 def test_validate_contract_detects_scale_gt_precision(tmp_path, repo_root, monkeypatch, capsys):
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="double")
+    payload = _minimal_payload(type="float64")
     payload["fields"][0]["precision"] = 5
     payload["fields"][0]["scale"] = 10
     _write_contract(p, payload)
@@ -92,7 +92,7 @@ def test_validate_contract_detects_duplicate_field_names(tmp_path, repo_root, mo
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
     payload = _minimal_payload()
-    payload["fields"].append({"name": "x", "type": "varchar", "nullable": True})
+    payload["fields"].append({"name": "x", "type": "string", "nullable": True})
     _write_contract(p, payload)
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
@@ -115,7 +115,7 @@ def test_validate_contract_legacy_flat_min_value_rejected(tmp_path, repo_root, m
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="double")
+    payload = _minimal_payload(type="float64")
     payload["fields"][0]["min_value"] = 5  # flat — should fail the structured-shape requirement
     _write_contract(p, payload)
     rc = main(["validate-contract", "--file", str(p)])
@@ -147,12 +147,12 @@ def test_validate_contract_cross_table_fk_clean(tmp_path, repo_root, monkeypatch
     contracts = tmp_path / "epics" / "E" / "contracts"
 
     pk = _minimal_payload(table="PARENT")
-    pk["fields"][0] = {"name": "parent_id", "type": "integer", "nullable": False, "primary_key": True}
+    pk["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
     _write_contract(contracts / "PARENT.yaml", pk)
 
     child = _minimal_payload(table="CHILD")
     child["fields"][0] = {
-        "name": "parent_id", "type": "integer", "nullable": False,
+        "name": "parent_id", "type": "int64", "nullable": False,
         "foreign_key": {"table": "PARENT", "column": "parent_id"},
     }
     _write_contract(contracts / "CHILD.yaml", child)
@@ -237,7 +237,7 @@ def test_self_check_directly_via_check_invariants_catches_dangling_fk(repo_root)
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="CHILD",
         fields=[FieldContract(
-            name="parent_id", type=Type.INTEGER, nullable=False, description=None,
+            name="parent_id", type=Type.INT64, nullable=False, description=None,
             foreign_key={"table": "PARENT", "column": "missing_col"},
         )],
     )
@@ -351,12 +351,12 @@ def _build_epic_with_joins(tmp_path: Path, joins_payload: dict) -> Path:
     contracts = tmp_path / "epics" / "E" / "contracts"
     pk_payload = _minimal_payload(table="PARENT")
     pk_payload["epic"] = "E"
-    pk_payload["fields"][0] = {"name": "parent_id", "type": "integer", "nullable": False, "primary_key": True}
+    pk_payload["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
     _write_contract(contracts / "PARENT.yaml", pk_payload)
 
     child_payload = _minimal_payload(table="CHILD")
     child_payload["epic"] = "E"
-    child_payload["fields"][0] = {"name": "parent_id", "type": "integer", "nullable": False}
+    child_payload["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False}
     _write_contract(contracts / "CHILD.yaml", child_payload)
 
     joins_payload.setdefault("epic", "E")
@@ -463,7 +463,7 @@ def test_validate_contract_min_max_consistency(tmp_path, repo_root, monkeypatch,
     _bootstrap_validate_layout(tmp_path, repo_root)
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
-    payload = _minimal_payload(type="double")
+    payload = _minimal_payload(type="float64")
     payload["fields"][0]["min_value"] = {"value": 100, "strict": False}
     payload["fields"][0]["max_value"] = {"value": 50, "strict": False}
     _write_contract(p, payload)

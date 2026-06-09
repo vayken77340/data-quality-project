@@ -17,7 +17,7 @@ def _contract(table, fields):
     )
 
 
-def _f(name, *, t=Type.INTEGER, nullable=False, primary_key=None):
+def _f(name, *, t=Type.INT64, nullable=False, primary_key=None):
     return FieldContract(name=name, type=t, nullable=nullable, description=None, primary_key=primary_key)
 
 
@@ -53,7 +53,7 @@ def test_pk_uniqueness_composite():
     contract = _contract("T", [
         _f("order_id", primary_key=True),
         _f("line_id", primary_key=True),
-        _f("note", t=Type.VARCHAR, nullable=True),
+        _f("note", t=Type.STRING, nullable=True),
     ])
     frame = pl.LazyFrame([
         {"order_id": 1, "line_id": 1, "note": "a"},
@@ -81,5 +81,5 @@ def test_fk_existence_flags_dangling_reference():
 def test_fk_existence_does_not_flag_null():
     child = pl.LazyFrame([{"parent_id": None}, {"parent_id": 100}])
     parent = pl.LazyFrame([{"pk": 100}])
-    violating = check_fk_existence(child, "parent_id", parent, "pk")
-    assert violating.collect().height == 0
+    # No violations -> None, consistent with check_nullable / check_type_coercion.
+    assert check_fk_existence(child, "parent_id", parent, "pk") is None

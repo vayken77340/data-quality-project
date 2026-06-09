@@ -41,12 +41,56 @@ from data_contract.validate_data.parsers import get_by_name
 
 
 @dataclass(frozen=True)
+class CheckSpec:
+    """Per-check spec carried in a CheckGates entry.
+
+    `enabled` is the on/off toggle. Descriptions used to live here too; they
+    now live globally in `configs/report_strings.yaml` under
+    `checks_sheet.descriptions` so each epic's validation.yaml doesn't have
+    to duplicate them.
+    """
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class CheckGates:
+    """Per-check spec map.
+
+    `specs[name]` carries the CheckSpec for each check. A child overlay
+    (per-table) is merged on top of the parent (global) via `with_overrides`:
+    per-table beats global; absent keys inherit.
+
+    `is_enabled(name)` returns True if absent (defensive); production loads go
+    through `_parse_check_gates(require_complete=True)` which guarantees every
+    check is explicitly set, so this fallback only matters for unit tests.
+    """
+    specs: dict[str, CheckSpec] = field(default_factory=dict)
+
+    def is_enabled(self, name: str) -> bool:
+        spec = self.specs.get(name)
+        return spec.enabled if spec is not None else True
+
+    def with_overrides(self, override: "CheckGates") -> "CheckGates":
+        """Merge `override` on top of self. Per-table beats global key by key."""
+        merged: dict[str, CheckSpec] = {**self.specs}
+        for name, child_spec in override.specs.items():
+            merged[name] = child_spec
+        return CheckGates(specs=merged)
+
+    @property
+    def values(self) -> dict[str, bool]:
+        """Back-compat shim: callers that just want the enabled/disabled map."""
+        return {name: spec.enabled for name, spec in self.specs.items()}
+
+
+@dataclass(frozen=True)
 class TableValidationConfig:
     table: str
     format: str
     file_pattern: str
     parser_overrides: dict[str, Any] = field(default_factory=dict)
     field_mapping: dict[str, str] = field(default_factory=dict)
+    checks: CheckGates = field(default_factory=CheckGates)
 
 
 @dataclass(frozen=True)
@@ -60,6 +104,101 @@ _VALID_EXTRA_COLUMN_SEVERITIES = frozenset({"error", "warning", "info", "ignore"
 # Keys allowed under `defaults`. Per-table-only fields (sheet_name, field_mapping)
 # are deliberately excluded — they don't make sense as defaults.
 _DEFAULTS_ALLOWED = frozenset({"format", "file_pattern", "parser_overrides"})
+
+# Allowed check names under `checks:` blocks. Covers structural / per-field core
+# checks AND per-constraint checks (the latter match constraint registry names).
+# Listed here statically so config typos fail at load rather than silently being
+# treated as "enabled".
+_VALID_CHECK_NAMES = frozenset({
+    # Structural / per-field core
+    "type_coercion", "boolean_coercion", "nullable", "max_length",
+    "column_missing",
+    # Keys
+    "pk_uniqueness", "fk_existence",
+    # Per-constraint (must match FieldConstraint.name)
+    "allowed_values", "pattern", "min_value", "max_value", "format", "unique",
+})
+
+
+def _parse_check_gates(
+    raw: Any, *, ctx: str, require_complete: bool = False,
+) -> CheckGates:
+    """Parse a `checks:` block into a CheckGates.
+
+    Each entry is either a bare boolean (shorthand) or a mapping that
+    carries `enabled: <bool>`:
+
+        checks:
+          type_coercion: true              # shorthand
+          boolean_coercion:                # dict form
+            enabled: true
+          ...
+
+    Descriptions are NOT carried here -- they live globally in
+    `configs/report_strings.yaml` under `checks_sheet.descriptions`.
+
+    `require_complete=True` enforces that EVERY valid check name is explicitly
+    present. Used for the top-level block in validation.yaml.
+
+    `require_complete=False` allows partial entries (per-table override blocks).
+    """
+    if raw is None:
+        if require_complete:
+            raise ConfigError(
+                f"{ctx}: top-level 'checks' block is required and must explicitly "
+                f"enable or disable every check. Add a block listing all of: "
+                f"{sorted(_VALID_CHECK_NAMES)} (each as `<name>: true|false`)."
+            )
+        return CheckGates()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{ctx}: 'checks' must be a mapping of check_name -> enabled-flag")
+    unknown = sorted(set(raw) - _VALID_CHECK_NAMES)
+    if unknown:
+        raise ConfigError(
+            f"{ctx}: 'checks' has unknown check names {unknown}; "
+            f"accepted: {sorted(_VALID_CHECK_NAMES)}"
+        )
+    if require_complete:
+        missing = sorted(_VALID_CHECK_NAMES - set(raw))
+        if missing:
+            raise ConfigError(
+                f"{ctx}: top-level 'checks' block must explicitly set every check; "
+                f"missing: {missing}."
+            )
+    specs: dict[str, CheckSpec] = {}
+    for name, body in raw.items():
+        specs[name] = _parse_check_spec(body, name=name, ctx=ctx)
+    return CheckGates(specs=specs)
+
+
+def _parse_check_spec(raw: Any, *, name: str, ctx: str) -> CheckSpec:
+    """Parse one `checks.<name>` entry: either a bool or `{enabled: bool}`."""
+    if isinstance(raw, bool):
+        return CheckSpec(enabled=raw)
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"{ctx}: 'checks.{name}' must be a boolean or a mapping with 'enabled'; "
+            f"got {type(raw).__name__}. Example: `{name}: true` or "
+            f"`{name}: {{ enabled: true }}`."
+        )
+    allowed = {"enabled"}
+    extras = sorted(set(raw) - allowed)
+    if extras:
+        raise ConfigError(
+            f"{ctx}: 'checks.{name}' has unknown keys {extras}; accepted: {sorted(allowed)}. "
+            f"Descriptions live in configs/report_strings.yaml under "
+            f"`checks_sheet.descriptions`, not validation.yaml."
+        )
+    if "enabled" not in raw:
+        raise ConfigError(
+            f"{ctx}: 'checks.{name}' is missing required key 'enabled' (true | false)"
+        )
+    enabled = raw["enabled"]
+    if not isinstance(enabled, bool):
+        raise ConfigError(
+            f"{ctx}: 'checks.{name}.enabled' must be a boolean (true | false); got {enabled!r}"
+        )
+    return CheckSpec(enabled=enabled)
 
 
 @dataclass(frozen=True)
@@ -80,6 +219,16 @@ class ValidationConfig:
     # Names listed under `tables:` in YAML, preserved so the runner can detect
     # "table listed in filter but no matching contract" and emit the right error.
     declared_table_filter: tuple[str, ...] = ()
+    # Required database target. The runner loads the target YAML from
+    # configs/targets/<target>.yaml (or epics/<E>/configs/targets/<t>.yaml)
+    # and overlays it on the base TypeRegistry so per-target rules (bounds,
+    # boolean tokens, length-units, physical_type) drive validation. There is
+    # no "no target" mode: universal logical types only acquire concrete
+    # validation rules once mapped to a target's physical types.
+    target: str = ""
+    # Global enable/disable gates for individual checks. Per-table `checks:`
+    # blocks in `tables.<T>.checks` override these via `with_overrides`.
+    checks: CheckGates = field(default_factory=CheckGates)
 
     @classmethod
     def from_yaml(cls, validation_yaml: Path, parser_yaml_dir: Path) -> "ValidationConfig":
@@ -98,6 +247,34 @@ class ValidationConfig:
                     f"{validation_yaml}: 'contracts_folder', if set, must be a non-empty string"
                 )
             contracts_folder = Path(contracts_folder_raw)
+
+        # --- target ------------------------------------------------------------
+        # The contract uses universal logical types (string, int32, etc.) -- these
+        # have no inherent ranges or formats until grounded in a target database's
+        # physical types. Validation is target-specific by design: there is no
+        # such thing as "default type validation", so the target MUST be declared
+        # explicitly in validation.yaml.
+        target_raw = raw.get("target")
+        if target_raw is None:
+            raise ConfigError(
+                f"{validation_yaml}: 'target' is required. Declare which target "
+                f"database the data is validated against -- e.g. `target: postgres` "
+                f"at the top level. Universal contract types only acquire concrete "
+                f"validation rules once mapped to a target's physical types."
+            )
+        if not isinstance(target_raw, str) or not target_raw:
+            raise ConfigError(
+                f"{validation_yaml}: 'target' must be a non-empty string"
+            )
+        target: str = target_raw
+
+        # --- checks (global) ---------------------------------------------------
+        # The global `checks:` block is REQUIRED and must list every check
+        # name explicitly. Per-table `checks:` blocks (parsed in _resolve_table)
+        # are optional and may list only the keys that differ from global.
+        global_checks = _parse_check_gates(
+            raw.get("checks"), ctx=str(validation_yaml), require_complete=True,
+        )
 
         # --- defaults block ---------------------------------------------------
         defaults_raw = raw.get("defaults", {}) or {}
@@ -129,6 +306,7 @@ class ValidationConfig:
                 table_raw=table_raw or {},
                 defaults=defaults_block,
                 validation_yaml=validation_yaml,
+                global_checks=global_checks,
             )
             tables[table_name] = entry
 
@@ -153,6 +331,8 @@ class ValidationConfig:
             defaults=defaults_block,
             tables=tables,
             declared_table_filter=tuple(declared_filter),
+            target=target,
+            checks=global_checks,
         )
 
     def is_filtered(self) -> bool:
@@ -168,6 +348,7 @@ class ValidationConfig:
             table_raw={},
             defaults=self.defaults,
             validation_yaml=Path("<discovered>"),
+            global_checks=self.checks,
         )
 
     def effective_parser_params(self, table_cfg: TableValidationConfig) -> dict[str, Any]:
@@ -221,6 +402,7 @@ def _resolve_table(
     table_raw: dict,
     defaults: _DefaultsBlock,
     validation_yaml: Path,
+    global_checks: CheckGates = CheckGates(),
 ) -> TableValidationConfig:
     # --- format -----------------------------------------------------------
     raw_fmt = table_raw.get("format")
@@ -288,10 +470,18 @@ def _resolve_table(
                 f"move it under tables.{table_name}.parser_overrides"
             )
 
+    # --- checks (per-table override of global) ----------------------------
+    table_checks = _parse_check_gates(
+        table_raw.get("checks"),
+        ctx=f"{validation_yaml}: tables.{table_name}",
+    )
+    effective_checks = global_checks.with_overrides(table_checks)
+
     return TableValidationConfig(
         table=table_name,
         format=fmt,
         file_pattern=file_pattern,
         parser_overrides=dict(table_overrides_raw),
         field_mapping=dict(mapping_raw),
+        checks=effective_checks,
     )
