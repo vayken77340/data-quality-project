@@ -21,6 +21,7 @@ class Type(str, Enum):
     below; they never appear as members of this enum.
     """
     STRING       = "string"
+    TEXT         = "text"             # variable-length / unbounded string (TEXT, CLOB, etc.)
     INT32        = "int32"
     INT64        = "int64"
     FLOAT32      = "float32"
@@ -107,13 +108,14 @@ class TypeRegistry:
     # -- overlay-aware accessors --------------------------------------------
 
     def data_values_for(self, canonical: Type) -> dict[str, frozenset[str]] | None:
-        """Return the data_values token map for a canonical type, or None if absent.
+        """Return the universal data_values token map for a canonical type.
 
-        Target overlay wins when it declares a value for the same canonical.
+        Targets no longer override `data_values`; tokens live on each
+        contract field, stamped from configs/types.yaml at contract
+        generation. This accessor returns the base universal token list
+        (used as a legacy fallback by the validator and as the source for
+        the contract-time stamping).
         """
-        ov = self._overlay_for(canonical)
-        if ov is not None and ov.data_values is not None:
-            return ov.data_values
         for entry in self.entries:
             if entry.canonical is canonical and entry.data_values is not None:
                 return entry.data_values

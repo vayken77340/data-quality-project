@@ -199,7 +199,7 @@ def test_generate_self_check_catches_dangling_fk(tmp_path, repo_root, monkeypatc
     (edir / "contracts").mkdir(parents=True)
 
 
-    (edir / "configs" / "defaults.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T\n",

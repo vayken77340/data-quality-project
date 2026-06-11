@@ -174,32 +174,39 @@ def test_int32_overflow_rejected_with_oracle(tmp_path: Path, repo_root: Path):
 
 
 # ---------------------------------------------------------------------------
-# Boolean token discrimination across targets
+# Boolean token discrimination
 # ---------------------------------------------------------------------------
+#
+# Boolean tokens are now contract-level, not target-level. Generated contracts
+# carry the universal token list from configs/types.yaml -- including French
+# (vrai/faux/oui/non), English (true/false/yes/no/y/n/t/f), and digit (0/1)
+# forms. The same token list applies regardless of which target the contract
+# is validated against.
+#
+# Spec authors who want to narrow the accepted tokens can edit the generated
+# contract's `data_values:` block per boolean field.
 
 
-def test_postgres_accepts_true_and_Y(tmp_path: Path, repo_root: Path):
-    """Postgres `boolin` accepts both `true` and lowercase `y`."""
-    report = _run_validate_data(tmp_path, repo_root, target="postgres")
+def _all_targets_accept_universal_bool_tokens(target: str, tmp_path: Path, repo_root: Path):
+    """For any target, the universal token list applies: `true`, `Y`, `vrai`,
+    `1`, etc. all parse as booleans because the contract is authoritative."""
+    report = _run_validate_data(tmp_path, repo_root, target=target)
     flag_violations = _violations_for_field(report, "flag")
     offenders = _all_offending_values(flag_violations, "boolean_coercion_violation")
-    assert "true" not in offenders
-    assert "Y" not in offenders
+    for token in ("true", "Y"):
+        assert token not in offenders, (
+            f"{token!r} should be accepted under target {target!r} "
+            f"(contract-level tokens, not target-level)"
+        )
 
 
-def test_oracle_rejects_true_accepts_Y(tmp_path: Path, repo_root: Path):
-    """Oracle's Y/N convention rejects the ISO `true` token but accepts `Y`."""
-    report = _run_validate_data(tmp_path, repo_root, target="oracle")
-    flag_violations = _violations_for_field(report, "flag")
-    offenders = _all_offending_values(flag_violations, "boolean_coercion_violation")
-    assert "true" in offenders
-    assert "Y" not in offenders
+def test_postgres_accepts_universal_bool_tokens(tmp_path: Path, repo_root: Path):
+    _all_targets_accept_universal_bool_tokens("postgres", tmp_path, repo_root)
 
 
-def test_iceberg_rejects_Y_accepts_true(tmp_path: Path, repo_root: Path):
-    """Iceberg's strict bool tokens accept `true`/`false` only; `Y` is flagged."""
-    report = _run_validate_data(tmp_path, repo_root, target="iceberg")
-    flag_violations = _violations_for_field(report, "flag")
-    offenders = _all_offending_values(flag_violations, "boolean_coercion_violation")
-    assert "Y" in offenders
-    assert "true" not in offenders
+def test_oracle_accepts_universal_bool_tokens(tmp_path: Path, repo_root: Path):
+    _all_targets_accept_universal_bool_tokens("oracle", tmp_path, repo_root)
+
+
+def test_iceberg_accepts_universal_bool_tokens(tmp_path: Path, repo_root: Path):
+    _all_targets_accept_universal_bool_tokens("iceberg", tmp_path, repo_root)

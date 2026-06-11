@@ -10,7 +10,7 @@ from data_contract import __version__
 from data_contract._util import dump_yaml, now_iso_z
 from data_contract.config import (
     ALL_TABLES,
-    DEFAULTS_FILENAME,
+    DEFAULT_SPEC_CONFIGS_FILENAME,
     Defaults,
     EpicConfig,
     MergedConfig,
@@ -289,6 +289,9 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     skip_self_check = (not write) or getattr(args, "skip_self_check", False)
 
     settings = load_settings()
+    # Spec-parsing defaults are global config: derived from the --types path
+    # (same global config folder) rather than from per-epic directories.
+    default_spec_configs_path = Path(args.types).parent / DEFAULT_SPEC_CONFIGS_FILENAME
 
     total = _Outcome()
     for epic in epics:
@@ -296,6 +299,7 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
             epic=epic,
             epic_root=epic_root,
             registry=registry,
+            default_spec_configs_path=default_spec_configs_path,
             version=args.version,
             explicit_config=Path(args.config) if args.config else None,
             allow_unknown_types=args.allow_unknown_types,
@@ -346,6 +350,7 @@ def _process_epic(
     epic: str,
     epic_root: Path,
     registry: TypeRegistry,
+    default_spec_configs_path: Path,
     version: str | None,
     explicit_config: Path | None,
     allow_unknown_types: bool,
@@ -366,7 +371,7 @@ def _process_epic(
             version=version,
             explicit_path=explicit_config,
         )
-        defaults = Defaults.from_yaml(epic_configs_dir / DEFAULTS_FILENAME)
+        defaults = Defaults.from_yaml(default_spec_configs_path)
         merged = merge(defaults, epic_config)
     except ConfigError as e:
         print(f"config error in epic {epic}: {e}", file=sys.stderr)

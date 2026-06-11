@@ -275,6 +275,7 @@ parse_float = parse_float32
 
 _PARSER_BY_TYPE: dict[Type, Callable[..., ParseResult]] = {
     Type.STRING:       parse_string,
+    Type.TEXT:         parse_string,    # unbounded variable-length: same parse path
     Type.INT32:        parse_int32,
     Type.INT64:        parse_int64,
     Type.FLOAT32:      parse_float32,

@@ -73,7 +73,7 @@ def check_type_coercion(
     in unit tests that pass a LazyFrame directly), the function collects the
     frame itself.
     """
-    if field.type in (Type.STRING, Type.UNKNOWN):
+    if field.type in (Type.STRING, Type.TEXT, Type.UNKNOWN):
         return None
     if field.type is Type.BOOLEAN and type_registry is not None \
             and type_registry.data_values_for(Type.BOOLEAN) is not None:
@@ -123,7 +123,7 @@ def normalize_typed_column(
     Idempotent: re-normalising a column whose dtype is not String (e.g. already
     Int64) returns the DataFrame unchanged.
     """
-    if field.type in (Type.STRING, Type.UNKNOWN):
+    if field.type in (Type.STRING, Type.TEXT, Type.UNKNOWN):
         return df
     if field.type is Type.BOOLEAN and type_registry is not None \
             and type_registry.data_values_for(Type.BOOLEAN) is not None:
@@ -162,7 +162,7 @@ def _parser_kwargs(field: FieldContract, type_registry: TypeRegistry | None) -> 
         formats = type_registry.parse_formats_for(t) if type_registry else ()
         return {"formats": formats}
     if t is Type.BOOLEAN:
-        tokens = type_registry.data_values_for(Type.BOOLEAN) if type_registry else None
+        tokens = _field_boolean_tokens(field, type_registry)
         return {"tokens": tokens or {"true": frozenset(), "false": frozenset()}}
     if t is Type.STRING:
         unit = type_registry.length_unit_for(Type.STRING) if type_registry else "characters"
@@ -177,20 +177,55 @@ def _parser_kwargs(field: FieldContract, type_registry: TypeRegistry | None) -> 
 
 
 def boolean_token_map(type_registry: TypeRegistry) -> dict[str, frozenset[str]] | None:
-    """Convenience wrapper: token map for BOOLEAN, or None if not declared."""
+    """Convenience wrapper: registry-level token map for BOOLEAN.
+
+    Kept for callers that ask "does BOOLEAN have any data_values at all" without
+    a specific field in hand. Field-level lookups should go through
+    `_field_boolean_tokens(field, registry)` instead.
+    """
     return type_registry.data_values_for(Type.BOOLEAN)
+
+
+def _field_boolean_tokens(
+    field: FieldContract, type_registry: TypeRegistry | None,
+) -> dict[str, frozenset[str]] | None:
+    """Resolve the boolean token map for `field`.
+
+    Order of precedence:
+      1. `field.data_values` -- the contract is authoritative; this is the
+         universal source of truth stamped at generation time.
+      2. `type_registry.data_values_for(Type.BOOLEAN)` -- fallback for legacy
+         contracts written before `data_values` lived on the field.
+    """
+    if field.data_values:
+        return _normalise_token_map(field.data_values)
+    if type_registry is None:
+        return None
+    return type_registry.data_values_for(Type.BOOLEAN)
+
+
+def _normalise_token_map(
+    raw: dict[str, list[str] | tuple[str, ...] | frozenset[str]],
+) -> dict[str, frozenset[str]]:
+    """Lowercase + strip each token; same form `check_boolean_coercion` matches against."""
+    out: dict[str, frozenset[str]] = {}
+    for literal, tokens in raw.items():
+        out[str(literal).strip().lower()] = frozenset(
+            str(t).strip().lower() for t in tokens
+        )
+    return out
 
 
 def check_boolean_coercion(frame, field: FieldContract, type_registry: TypeRegistry):
     """Flag rows where a boolean field's value matches none of the declared tokens.
 
-    Comparison is case-insensitive and whitespace-stripped, matching the form
-    stored in the registry. Returns None when the field isn't boolean or when
-    no `data_values` block is declared for BOOLEAN.
+    Token source: `field.data_values` first (the contract is authoritative for
+    boolean tokens), then `type_registry.data_values_for(Type.BOOLEAN)` as a
+    legacy fallback. Comparison is case-insensitive and whitespace-stripped.
     """
     if field.type is not Type.BOOLEAN:
         return None
-    tokens = type_registry.data_values_for(Type.BOOLEAN)
+    tokens = _field_boolean_tokens(field, type_registry)
     if tokens is None:
         return None
     import polars as pl
@@ -212,7 +247,7 @@ def normalize_boolean_column(df, field: FieldContract, type_registry: TypeRegist
     """
     if field.type is not Type.BOOLEAN:
         return df
-    tokens = type_registry.data_values_for(Type.BOOLEAN)
+    tokens = _field_boolean_tokens(field, type_registry)
     if tokens is None:
         return df
     import polars as pl

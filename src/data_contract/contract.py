@@ -22,6 +22,7 @@ CORE_FIELD_KEYS = frozenset({
     "name", "type", "nullable", "description",
     "max_length", "precision", "scale",
     "primary_key", "foreign_key",
+    "data_values",
 })
 
 
@@ -62,6 +63,13 @@ class FieldContract:
     scale: int | None = None
     primary_key: bool | None = None
     foreign_key: dict[str, str] | None = None
+    # Per-field acceptable raw tokens, keyed by canonical value as a string.
+    # Today only BOOLEAN populates this: keys are "true" / "false", values
+    # are the source-side tokens (case-insensitive, whitespace-stripped at
+    # match time). The contract is the authoritative source: targets no
+    # longer carry boolean data_values. Stamped onto each BOOLEAN field by
+    # `build_contract` from the base type registry.
+    data_values: dict[str, list[str]] | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,6 +88,8 @@ class FieldContract:
             out["primary_key"] = self.primary_key
         if self.foreign_key is not None:
             out["foreign_key"] = dict(self.foreign_key)
+        if self.data_values is not None:
+            out["data_values"] = {k: list(v) for k, v in self.data_values.items()}
         for k, v in self.constraints.items():
             out[k] = v
         return out
@@ -88,6 +98,13 @@ class FieldContract:
     def from_dict(cls, payload: dict[str, Any]) -> "FieldContract":
         constraints = {k: v for k, v in payload.items() if k not in CORE_FIELD_KEYS}
         fk = payload.get("foreign_key")
+        data_values_raw = payload.get("data_values")
+        data_values: dict[str, list[str]] | None = None
+        if isinstance(data_values_raw, dict):
+            # Coerce keys to str so YAML's `true:` (bool) and `"true":` (str)
+            # both load to the same field; values are kept user-readable
+            # (the validator normalises at match time).
+            data_values = {str(k).strip().lower(): list(v) for k, v in data_values_raw.items()}
         return cls(
             name=payload["name"],
             type=Type.from_canonical_string(payload["type"]),
@@ -98,6 +115,7 @@ class FieldContract:
             scale=payload.get("scale"),
             primary_key=payload.get("primary_key"),
             foreign_key=dict(fk) if isinstance(fk, dict) else None,
+            data_values=data_values,
             constraints=constraints,
         )
 
@@ -334,6 +352,18 @@ def build_contract(
                 ))
             else:
                 seen_field_names[name_value] = row.sheet_row
+                # For BOOLEAN, stamp the universal data_values block (from
+                # the base type registry) onto the field. The contract then
+                # carries its own authoritative token list -- targets no
+                # longer dictate which tokens are valid.
+                field_data_values = None
+                if parsed_type.type is Type.BOOLEAN:
+                    base_tokens = type_registry.data_values_for(Type.BOOLEAN)
+                    if base_tokens is not None:
+                        field_data_values = {
+                            literal: sorted(tokens)
+                            for literal, tokens in base_tokens.items()
+                        }
                 fields.append(FieldContract(
                     name=name_value,
                     type=parsed_type.type,
@@ -342,6 +372,7 @@ def build_contract(
                     max_length=parsed_type.max_length,
                     precision=parsed_type.precision,
                     scale=parsed_type.scale,
+                    data_values=field_data_values,
                     constraints=constraint_values,
                 ))
 

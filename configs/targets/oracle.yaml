@@ -6,6 +6,9 @@ overrides:
     physical_type: "VARCHAR2({max_length} BYTE)"
     length_unit: bytes              # VARCHAR2(n BYTE) is the Oracle default
 
+  text:
+    physical_type: "CLOB"            # unbounded variable-length string
+
   int32:
     physical_type: "NUMBER(10, 0)"
     bounds: { min: -2147483648, max: 2147483647 }
@@ -31,17 +34,19 @@ overrides:
 
   boolean:
     physical_type: "CHAR(1)"        # Oracle has no native BOOLEAN; CHAR(1) Y/N convention
-    data_values:
-      "true":  ["Y", "1"]
-      "false": ["N", "0"]
+    # Accepted boolean tokens are no longer target-controlled; they live on
+    # each BOOLEAN field in the generated contract (stamped from
+    # configs/types.yaml at generation time).
 
   date:
     physical_type: "DATE"
-    parse_formats: ["%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y"]
+    # Includes "%Y-%m-%d %H:%M" so cells exported with a zero time component
+    # (e.g. "2024-01-15 00:00") still parse as DATE; the time is discarded.
+    parse_formats: ["%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y", "%Y-%m-%d %H:%M"]
 
   timestamp:
     physical_type: "TIMESTAMP"
-    parse_formats: ["%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S"]
+    parse_formats: ["%Y-%m-%d %H:%M:%S", "%d-%b-%Y %H:%M:%S", "%Y-%m-%d %H:%M"]
 
   timestamp_tz:
     physical_type: "TIMESTAMP WITH TIME ZONE"

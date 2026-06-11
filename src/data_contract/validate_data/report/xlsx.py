@@ -20,12 +20,36 @@ Every user-facing string in this module is sourced from
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+
+# XML 1.0 forbids most C0 control characters in element / attribute content,
+# and Excel will refuse to open a workbook that contains any. openpyxl does
+# not strip them, so a stray 0x00 / 0x07 / 0x1B in source data (we've seen
+# them coming out of Excel files re-exported by legacy tools) makes
+# `wb.save()` produce a file that throws "file format or extension is not
+# valid" on open. We sanitize every cell value before appending to the sheet.
+# Tab (0x09), LF (0x0a), and CR (0x0d) are the ONLY C0 controls Excel allows
+# and are preserved.
+_ILLEGAL_XLSX_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _safe_cell(value: Any) -> Any:
+    """Strip Excel-illegal control characters from string cell values."""
+    if isinstance(value, str):
+        return _ILLEGAL_XLSX_CHARS.sub("", value)
+    return value
+
+
+def _append(ws, row: list[Any]) -> None:
+    """`ws.append` wrapper that sanitizes every cell first."""
+    ws.append([_safe_cell(v) for v in row])
 
 from data_contract.contract import Contract
 from data_contract.validate_data.report.colors import hex_
@@ -112,7 +136,7 @@ def _populate_run(ws, report: ValidationReport, S) -> None:
     ]
     bold = Font(bold=True)
     for label, value in rows:
-        ws.append([label, value])
+        _append(ws, [label, value])
         ws.cell(row=ws.max_row, column=1).font = bold
     status_row = 3
     status_cell = ws.cell(row=status_row, column=2)
@@ -122,12 +146,12 @@ def _populate_run(ws, report: ValidationReport, S) -> None:
         else _FILL_ORANGE
     )
 
-    ws.append([])
-    ws.append([S.get("run_sheet", "contract_versions_heading")])
+    _append(ws, [])
+    _append(ws, [S.get("run_sheet", "contract_versions_heading")])
     ws.cell(row=ws.max_row, column=1).font = Font(bold=True, italic=True)
     if rm:
         for tbl, ver in rm.contracts.items():
-            ws.append([tbl, ver])
+            _append(ws, [tbl, ver])
     _autosize(ws, ncols=2, max_width=80)
 
 
@@ -176,17 +200,17 @@ def _populate_summary(ws, report: ValidationReport, S) -> None:
     bold = Font(bold=True)
 
     OL = S.get("summary_sheet", "overall_labels")
-    ws.append([OL["score"], f"{overall.score:.1f}"])
-    ws.append([OL["status"], status])
-    ws.append([OL["errors"], counts["error"]])
-    ws.append([OL["warnings"], counts["warning"]])
-    ws.append([OL["info"], counts["info"]])
+    _append(ws, [OL["score"], f"{overall.score:.1f}"])
+    _append(ws, [OL["status"], status])
+    _append(ws, [OL["errors"], counts["error"]])
+    _append(ws, [OL["warnings"], counts["warning"]])
+    _append(ws, [OL["info"], counts["info"]])
     for r in range(1, ws.max_row + 1):
         ws.cell(row=r, column=1).font = bold
     status_cell = ws.cell(row=2, column=2)
     status_cell.fill = _FILL_RED if status == fail_label else _FILL_GREEN
 
-    ws.append([])
+    _append(ws, [])
     base_cols = list(S.get("summary_sheet", "scorecard_headers"))
     DL = S.get("summary_sheet", "dimension_labels")
     show_fk = _has_fk_check(report)
@@ -197,7 +221,7 @@ def _populate_summary(ws, report: ValidationReport, S) -> None:
     if show_fk:
         dim_columns.append((DL["fk_consistency"], _FK_CONSISTENCY_KINDS))
     headers = base_cols + [name for name, _ in dim_columns]
-    ws.append(headers)
+    _append(ws, headers)
     _style_header_row(ws, ncols=len(headers))
 
     no_pk = S.get("summary_sheet", "no_pk_placeholder")
@@ -233,7 +257,7 @@ def _populate_summary(ws, report: ValidationReport, S) -> None:
         ]
         for _, kinds in dim_columns:
             row.append(f"{_filtered_score(tr.violations, kinds, tr.total_rows):.1f}")
-        ws.append(row)
+        _append(ws, row)
         fill = _FILL_RED if n_err else (_FILL_ORANGE if n_warn else _FILL_GREEN)
         for c in range(1, len(headers) + 1):
             ws.cell(row=ws.max_row, column=c).fill = fill
@@ -263,7 +287,7 @@ def _populate_summary(ws, report: ValidationReport, S) -> None:
     for name, _ in dim_columns:
         avg = dim_weighted[name] / total_weight if total_weight else 0.0
         totals_row.append(f"{avg:.1f}")
-    ws.append(totals_row)
+    _append(ws, totals_row)
     # Style the totals row: bold + neutral header fill to distinguish from data rows.
     for c in range(1, len(headers) + 1):
         cell = ws.cell(row=ws.max_row, column=c)
@@ -287,10 +311,10 @@ def _populate_profile_all(ws, report: ValidationReport, S) -> None:
         if tr.profile is None:
             continue
         if not first_section:
-            ws.append([])
+            _append(ws, [])
         first_section = False
 
-        ws.append([S.fmt("profile_sheet", "table_heading_template", table=tr.table)])
+        _append(ws, [S.fmt("profile_sheet", "table_heading_template", table=tr.table)])
         heading_row = ws.max_row
         ws.merge_cells(start_row=heading_row, start_column=1,
                        end_row=heading_row, end_column=len(headers))
@@ -299,11 +323,11 @@ def _populate_profile_all(ws, report: ValidationReport, S) -> None:
         heading_cell.fill = _HEADER_FILL
         heading_cell.alignment = _HEADER_ALIGN
 
-        ws.append(headers)
+        _append(ws, headers)
         _style_header_row(ws, ncols=len(headers))
 
         for f in tr.profile.fields:
-            ws.append([
+            _append(ws, [
                 f.name,
                 f.type,
                 f.type_format,
@@ -326,7 +350,7 @@ def _populate_checks(ws, report: ValidationReport, S) -> None:
     """List every enabled check with its YAML-supplied description and the
     violation kind it emits. Disabled checks are intentionally omitted."""
     headers = list(S.get("checks_sheet", "headers"))
-    ws.append(headers)
+    _append(ws, headers)
     _style_header_row(ws, ncols=len(headers))
     rm = report.run_metadata
     if rm is None:
@@ -336,7 +360,7 @@ def _populate_checks(ws, report: ValidationReport, S) -> None:
             vk = violation_kind_for_check(name)
         except KeyError:
             vk = ""
-        ws.append([name, rm.checks_descriptions.get(name, ""), vk])
+        _append(ws, [name, rm.checks_descriptions.get(name, ""), vk])
     if ws.max_row > 1:
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
@@ -400,7 +424,7 @@ def _populate_rejected(
         + list(contract_fields)
         + [H["check"], H["expected"]]
     )
-    ws.append(headers)
+    _append(ws, headers)
     _style_header_row(ws, ncols=len(headers))
 
     # Column-index lookup for the contract-field block.
@@ -438,14 +462,14 @@ def _populate_rejected(
             row.extend(field_block)
             row.append(_check_label(v, S, field_type_label))
             row.append(v.get("expected", ""))
-            ws.append(row)
+            _append(ws, row)
 
             fill = _severity_fill(severity_raw)
             if fill is not None:
                 ws.cell(row=ws.max_row, column=severity_col).fill = fill
 
     if tr.rejected_rows_truncated:
-        ws.append([
+        _append(ws, [
             S.fmt("rejected_sheet", "truncated_template",
                   count=tr.rejected_rows_truncated)
         ])
@@ -508,14 +532,14 @@ def _has_run_issues(report: ValidationReport) -> bool:
 def _populate_run_issues(ws, report: ValidationReport, S) -> None:
     headers = list(S.get("run_issues_sheet", "headers"))
     field_placeholder = S.get("run_issues_sheet", "field_placeholder")
-    ws.append(headers)
+    _append(ws, headers)
     _style_header_row(ws, ncols=len(headers))
     for v in _operational_violations(report):
         try:
             hint = HINTS.get(v.kind, "")
         except Exception:
             hint = ""
-        ws.append([v.table, v.kind, v.severity, v.field or field_placeholder,
+        _append(ws, [v.table, v.kind, v.severity, v.field or field_placeholder,
                    v.expected, hint])
     _autosize(ws, ncols=len(headers), max_width=80)
 

@@ -64,9 +64,13 @@ def test_bigint(registry):
 
 
 def test_text(registry):
+    # `text` now resolves to the new TEXT canonical (variable-length /
+    # unbounded). The old behaviour aliased it to STRING; that mapping moved
+    # out so spec authors can declare an unbounded column.
     parsed, err = parse_type("text", registry, sheet_row=9)
     assert err is None
-    assert parsed.type is Type.STRING
+    assert parsed.type is Type.TEXT
+    assert parsed.max_length is None
 
 
 def test_unknown_type_returns_rejection(registry):
@@ -229,7 +233,9 @@ def test_data_values_empty_list_rejected(tmp_path):
 
 def test_parse_formats_loaded_for_date(registry):
     formats = registry.parse_formats_for(Type.DATE)
-    assert formats == ("%Y-%m-%d", "%d/%m/%Y")
+    # `%Y-%m-%d %H:%M` is accepted as DATE so cells exported with a zero
+    # time component still parse cleanly (time is discarded).
+    assert formats == ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%d %H:%M")
 
 
 def test_parse_formats_loaded_for_timestamp(registry):

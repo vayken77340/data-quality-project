@@ -6,6 +6,9 @@ overrides:
     physical_type: "VARCHAR({max_length})"
     length_unit: characters
 
+  text:
+    physical_type: "TEXT"             # unbounded variable-length string
+
   int32:
     physical_type: "INTEGER"
     bounds: { min: -2147483648, max: 2147483647 }
@@ -28,9 +31,9 @@ overrides:
 
   boolean:
     physical_type: "BOOLEAN"
-    data_values:
-      "true":  [true,  "true",  "t", "yes", "y", "on",  "1"]
-      "false": [false, "false", "f", "no",  "n", "off", "0"]
+    # Accepted boolean tokens are no longer target-controlled; they live on
+    # each BOOLEAN field in the generated contract (stamped from
+    # configs/types.yaml at generation time).
 
   date:
     physical_type: "DATE"

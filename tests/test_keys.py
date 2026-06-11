@@ -584,7 +584,7 @@ def _bootstrap_keys_epic(
     tables_in_keys = tables_in_keys if tables_in_keys is not None else [("T", "x", None)]
 
     # Defaults: declares the standard column_mapping plus a Keys block.
-    (edir / "configs" / "defaults.yaml").write_text(
+    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(
         """
 fields:
   column_mapping:
@@ -702,7 +702,7 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
-    (edir / "configs" / "defaults.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T\n",

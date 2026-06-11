@@ -44,13 +44,13 @@ def _write(path: Path, content: str) -> Path:
 def _make_epic_dir(tmp_path: Path) -> Path:
     cfgs = tmp_path / "configs"
     cfgs.mkdir()
-    _write(cfgs / "defaults.yaml", DEFAULTS_YAML)
+    _write(cfgs / "default_spec_configs.yaml", DEFAULTS_YAML)
     return cfgs
 
 
 def test_defaults_loads(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    defaults = Defaults.from_yaml(cfgs / "defaults.yaml")
+    defaults = Defaults.from_yaml(cfgs / "default_spec_configs.yaml")
     assert defaults.column_mapping is not None
     assert defaults.column_mapping.name.spec_name == "Champ dans extract"
     assert defaults.column_mapping.name.value_required is True
@@ -111,7 +111,7 @@ def test_select_empty_dir_raises(tmp_path):
 
 def test_defaults_yaml_is_never_picked_as_a_version(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    # Only defaults.yaml exists in the dir; no version configs.
+    # Only default_spec_configs.yaml exists in the dir; no version configs.
     with pytest.raises(ConfigError):
         select_version_config(cfgs)
 
@@ -137,7 +137,7 @@ def test_tables_list(tmp_path):
 def test_merge_uses_defaults_column_mapping(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     p = _write(cfgs / "v.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n")
-    defaults = Defaults.from_yaml(cfgs / "defaults.yaml")
+    defaults = Defaults.from_yaml(cfgs / "default_spec_configs.yaml")
     cfg = EpicConfig.from_yaml(p)
     merged = merge(defaults, cfg)
     assert merged.column_mapping.name.spec_name == "Champ dans extract"
@@ -153,7 +153,7 @@ def test_merge_overrides_partial_column_mapping(tmp_path):
         "      spec_name: Field Description\n"
     )
     p = _write(cfgs / "v.yaml", override_yaml)
-    defaults = Defaults.from_yaml(cfgs / "defaults.yaml")
+    defaults = Defaults.from_yaml(cfgs / "default_spec_configs.yaml")
     cfg = EpicConfig.from_yaml(p)
     merged = merge(defaults, cfg)
     assert merged.column_mapping.description.spec_name == "Field Description"
@@ -176,7 +176,7 @@ def test_merge_preserves_defaults_constraints_when_overriding_unrelated_field(tm
     # Append the `unique` constraint block before the `keys:` block that lives
     # at the end of DEFAULTS_YAML. We re-build the defaults file from scratch
     # here so the constraint sits under `column_mapping:`.
-    _write(cfgs / "defaults.yaml", """
+    _write(cfgs / "default_spec_configs.yaml", """
 fields:
   column_mapping:
     name:        { spec_name: Champ dans extract, value_required: true }
@@ -200,7 +200,7 @@ fields:
         "      spec_name: Field Description\n"
     )
     p = _write(cfgs / "v.yaml", override_yaml)
-    defaults = Defaults.from_yaml(cfgs / "defaults.yaml")
+    defaults = Defaults.from_yaml(cfgs / "default_spec_configs.yaml")
     cfg = EpicConfig.from_yaml(p)
     merged = merge(defaults, cfg)
     assert "unique" in merged.column_mapping.constraints

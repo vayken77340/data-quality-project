@@ -54,6 +54,16 @@ def build_contract_json_schema() -> dict[str, Any]:
             "required": ["table", "column"],
             "additionalProperties": False,
         },
+        # Per-field accepted-token map. Today only BOOLEAN fields populate
+        # this (keys "true"/"false", values are arrays of raw tokens). Kept
+        # generic so other canonicals could declare their own token maps later.
+        "data_values": {
+            "type": "object",
+            "patternProperties": {
+                "^.+$": {"type": "array", "items": {"type": ["string", "number", "boolean"]}},
+            },
+            "additionalProperties": False,
+        },
     }
 
     # Each registered constraint contributes its contract_key to the Field

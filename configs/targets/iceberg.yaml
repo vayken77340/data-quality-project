@@ -6,6 +6,9 @@ overrides:
     physical_type: "string"         # Iceberg string is unbounded UTF-8
     length_unit: characters
 
+  text:
+    physical_type: "string"          # Iceberg string is already unbounded
+
   int32:
     physical_type: "int"
     bounds: { min: -2147483648, max: 2147483647 }
@@ -28,9 +31,9 @@ overrides:
 
   boolean:
     physical_type: "boolean"
-    data_values:
-      "true":  [true,  "true"]
-      "false": [false, "false"]
+    # Accepted boolean tokens are no longer target-controlled; they live on
+    # each BOOLEAN field in the generated contract (stamped from
+    # configs/types.yaml at generation time).
 
   date:
     physical_type: "date"

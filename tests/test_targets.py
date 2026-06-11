@@ -32,14 +32,12 @@ def base_registry(repo_root: Path):
 def test_load_oracle_target(repo_root: Path):
     cfg = load_target_config(repo_root / "configs" / "targets" / "oracle.yaml")
     assert cfg.name == "oracle"
-    # Oracle: Y/N tokens, bytes length_unit, decimal max_precision 38.
-    bool_ov = cfg.overrides[Type.BOOLEAN]
-    assert bool_ov.data_values == {
-        "true": frozenset({"y", "1"}),
-        "false": frozenset({"n", "0"}),
-    }
+    # Oracle: bytes length_unit, decimal max_precision 38. Boolean tokens are
+    # no longer target-controlled; they live on each contract field.
     assert cfg.overrides[Type.STRING].length_unit == "bytes"
     assert cfg.overrides[Type.DECIMAL].max_precision == 38
+    # Target still declares physical_type for BOOLEAN (CHAR(1)) but no tokens.
+    assert cfg.overrides[Type.BOOLEAN].physical_type == "CHAR(1)"
 
 
 def test_load_postgres_target(repo_root: Path):
@@ -49,11 +47,9 @@ def test_load_postgres_target(repo_root: Path):
     assert cfg.overrides[Type.INT64].bounds == (
         -9223372036854775808, 9223372036854775807,
     )
-    # Postgres native bool tokens include `t`/`f`/`on`/`off`.
-    bool_ov = cfg.overrides[Type.BOOLEAN]
-    assert "t" in bool_ov.data_values["true"]
-    assert "on" in bool_ov.data_values["true"]
-    assert "off" in bool_ov.data_values["false"]
+    # Boolean tokens are no longer target-controlled. Target carries only the
+    # physical type.
+    assert cfg.overrides[Type.BOOLEAN].physical_type == "BOOLEAN"
 
 
 def test_load_iceberg_target(repo_root: Path):
@@ -97,20 +93,22 @@ def test_bounds_on_string_rejected(tmp_path: Path):
         load_target_config(p)
 
 
-def test_data_values_on_int_rejected(tmp_path: Path):
+def test_data_values_on_target_rejected(tmp_path: Path):
+    """Declaring `data_values:` on ANY canonical in a target YAML is a config
+    error -- boolean tokens live on the contract field, not on the target."""
     p = tmp_path / "x.yaml"
     p.write_text(
         "name: x\n"
         "description: bad\n"
         "overrides:\n"
-        "  int64:\n"
-        "    physical_type: BIGINT\n"
+        "  boolean:\n"
+        "    physical_type: BOOLEAN\n"
         "    data_values:\n"
         "      'true':  [yes]\n"
         "      'false': [no]\n",
         encoding="utf-8",
     )
-    with pytest.raises(ConfigError, match="data_values is not allowed"):
+    with pytest.raises(ConfigError, match="unknown keys.*data_values"):
         load_target_config(p)
 
 
@@ -215,16 +213,16 @@ def test_with_target_overlays_bounds(base_registry, repo_root: Path):
     assert merged.bounds_for(Type.INT32) == (-2147483648, 2147483647)
 
 
-def test_with_target_overlays_boolean_tokens(base_registry, repo_root: Path):
+def test_with_target_does_not_override_boolean_tokens(base_registry, repo_root: Path):
+    """Boolean tokens live on the contract field, not on the target. Applying
+    a target overlay must leave the registry's universal token list untouched."""
     oracle = load_target_config(repo_root / "configs" / "targets" / "oracle.yaml")
     merged = base_registry.with_target(oracle)
-    # Base accepts oui/vrai/yes/true/y/1/t.
     base_true = base_registry.data_values_for(Type.BOOLEAN)["true"]
     assert "vrai" in base_true
-    # Oracle target strictly accepts Y/1 only.
+    # With Oracle applied the registry still returns the universal list.
     merged_true = merged.data_values_for(Type.BOOLEAN)["true"]
-    assert merged_true == frozenset({"y", "1"})
-    assert "vrai" not in merged_true
+    assert merged_true == base_true
 
 
 def test_length_unit_for_string_requires_active_target(base_registry, repo_root: Path):

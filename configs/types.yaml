@@ -1,7 +1,13 @@
 mappings:
   string:
-    aliases: [string, varchar, char, texte, text, str]
+    aliases: [string, varchar, char, texte, str]
     parameter: max_length
+
+  text:
+    # Variable-length / unbounded string. Spec authors who don't know or don't
+    # care about a max length use this; targets map it to their unbounded
+    # variant (Postgres TEXT, Oracle CLOB, Iceberg string). No max_length.
+    aliases: [text, clob, longtext, longvarchar, "texte long"]
 
   int32:
     aliases: [int32, smallint, int4]
@@ -28,11 +34,18 @@ mappings:
 
   date:
     aliases: [date]
-    parse_formats: ["%Y-%m-%d", "%d/%m/%Y"]
+    # Accept "%Y-%m-%d %H:%M" so source data exported as "2024-01-15 00:00"
+    # (date-only Excel cells re-exported with a zero time component) parses
+    # cleanly into a DATE column. The time component is discarded.
+    parse_formats: ["%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%d %H:%M"]
 
   timestamp:
-    aliases: [timestamp, datetime, "date horodatée"]
-    parse_formats: ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M"]
+    aliases: [timestamp, datetime, "date horodatée", "Date / heure"]
+    parse_formats:
+      - "%Y-%m-%d %H:%M:%S"
+      - "%Y-%m-%dT%H:%M:%S"
+      - "%d/%m/%Y %H:%M"
+      - "%Y-%m-%d %H:%M"             # without seconds
 
   timestamp_tz:
     aliases: [timestamp_tz, timestamptz, "timestamp with time zone"]

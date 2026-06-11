@@ -32,14 +32,17 @@ from data_contract.type_mapping import Type
 # the type and is REQUIRED whenever an overrides entry is declared.
 _OVERRIDE_ALLOWLIST: dict[str, frozenset[Type]] = {
     "physical_type": frozenset({
-        Type.STRING, Type.INT32, Type.INT64, Type.FLOAT32, Type.FLOAT64,
+        Type.STRING, Type.TEXT, Type.INT32, Type.INT64, Type.FLOAT32, Type.FLOAT64,
         Type.DECIMAL, Type.BOOLEAN, Type.DATE, Type.TIMESTAMP,
         Type.TIMESTAMP_TZ, Type.BINARY,
     }),
     "bounds":        frozenset({Type.INT32, Type.INT64, Type.FLOAT32, Type.FLOAT64, Type.DECIMAL}),
     "max_precision": frozenset({Type.DECIMAL}),
     "length_unit":   frozenset({Type.STRING}),
-    "data_values":   frozenset({Type.BOOLEAN}),
+    # `data_values` is intentionally not listed: boolean tokens live on each
+    # contract field (stamped from configs/types.yaml at generation time),
+    # not on the target. Declaring `data_values:` on a target is a config
+    # mistake and raises `ConfigError` at load.
     "parse_formats": frozenset({Type.DATE, Type.TIMESTAMP, Type.TIMESTAMP_TZ}),
 }
 
@@ -63,7 +66,6 @@ class TargetOverrides:
     bounds: tuple[Any, Any] | None = None
     max_precision: int | None = None
     length_unit: str | None = None              # "bytes" | "characters"
-    data_values: dict[str, frozenset[str]] | None = None
     parse_formats: tuple[str, ...] = ()
 
 
@@ -130,7 +132,6 @@ def _parse_overrides_body(
     bounds: tuple[Any, Any] | None = None
     max_precision: int | None = None
     length_unit: str | None = None
-    data_values: dict[str, frozenset[str]] | None = None
     parse_formats: tuple[str, ...] = ()
 
     unknown = sorted(set(body) - set(_OVERRIDE_ALLOWLIST))
@@ -183,14 +184,6 @@ def _parse_overrides_body(
             )
         length_unit = unit
 
-    if "data_values" in body:
-        # Reuse the registry's parser via a small adapter -- the canonical name
-        # is BOOLEAN here and the shape matches `_parse_data_values`.
-        from data_contract.type_mapping import _parse_data_values  # local import to avoid cycles
-        data_values = _parse_data_values(
-            body["data_values"], path=path, canonical=canonical.value,
-        )
-
     if "parse_formats" in body:
         from data_contract.type_mapping import _parse_parse_formats
         parse_formats = _parse_parse_formats(
@@ -202,7 +195,6 @@ def _parse_overrides_body(
         bounds=bounds,
         max_precision=max_precision,
         length_unit=length_unit,
-        data_values=data_values,
         parse_formats=parse_formats,
     )
 

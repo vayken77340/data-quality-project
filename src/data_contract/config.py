@@ -13,9 +13,15 @@ from data_contract.nullable import NullableMapping
 
 
 ALL_TABLES = "__ALL__"
-DEFAULTS_FILENAME = "defaults.yaml"
+# Spec-parsing defaults (column mapping, keys/joins sheet shape, etc.) live
+# globally at configs/default_spec_configs.yaml. The file used to live per-
+# epic as defaults.yaml but the spec format is universal, so it's a global
+# config now.
+DEFAULT_SPEC_CONFIGS_FILENAME = "default_spec_configs.yaml"
+# Back-compat alias kept so external imports of DEFAULTS_FILENAME still resolve.
+DEFAULTS_FILENAME = DEFAULT_SPEC_CONFIGS_FILENAME
 VALIDATION_FILENAME = "validation.yaml"
-_NON_VERSION_FILENAMES = frozenset({DEFAULTS_FILENAME, VALIDATION_FILENAME})
+_NON_VERSION_FILENAMES = frozenset({DEFAULT_SPEC_CONFIGS_FILENAME, VALIDATION_FILENAME})
 
 
 @dataclass(frozen=True)
@@ -307,7 +313,7 @@ class Defaults:
         if keys_raw is None:
             raise ConfigError(
                 f"{path}: missing required top-level 'keys' block. "
-                f"Every defaults.yaml must declare keys.sheet_name and keys.column_mapping."
+                f"Every default_spec_configs.yaml must declare keys.sheet_name and keys.column_mapping."
             )
         keys = KeysSpec.from_dict(keys_raw)
 
@@ -473,12 +479,12 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
 
     if cm is None:
         raise ConfigError(
-            f"{epic.path}: no column_mapping available (neither in defaults.yaml nor the version config)"
+            f"{epic.path}: no column_mapping available (neither in default_spec_configs.yaml nor the version config)"
         )
 
     if defaults.keys is None:
         raise ConfigError(
-            f"{epic.path}: defaults.yaml is missing the required 'keys' block"
+            f"{epic.path}: default_spec_configs.yaml is missing the required 'keys' block"
         )
 
     return MergedConfig(

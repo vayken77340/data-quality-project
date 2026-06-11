@@ -161,7 +161,11 @@ def run_validate_data(
     epic_dir = epic_root / epic
     configs_dir = epic_dir / "configs"
     validation_yaml = configs_dir / "validation.yaml"
-    parser_yaml_dir = configs_dir / "parsers"
+    # Parser defaults (encoding, delimiter, header_row, null_tokens, ...) are
+    # global config: a CSV is parsed the same way regardless of which epic
+    # owns the data. They live next to types.yaml under the global config
+    # folder rather than per-epic, so derive their location from --types.
+    parser_yaml_dir = types_path.parent / "parsers"
     input_dir = _resolve_epic_path(input_dir, epic_dir, default_subdir=None)
     out_dir = _resolve_epic_path(output_dir, epic_dir, default_subdir=DEFAULT_OUTPUT_SUBDIR)
 
@@ -563,22 +567,28 @@ def _validate_one_table(
     # then normalize the column in place so every downstream check sees
     # canonical Booleans. The normalisation runs even when the coercion check
     # is disabled, because downstream checks expect canonical pl.Boolean.
-    bool_tokens = type_registry.data_values_for(Type.BOOLEAN)
-    if bool_tokens is not None:
-        for fc in contract.fields:
-            if fc.type is not Type.BOOLEAN or fc.name not in data_columns:
-                continue
-            if checks.is_enabled("boolean_coercion"):
-                accepted_list = sorted({*bool_tokens.get("true", set()),
-                                        *bool_tokens.get("false", set())})
-                _emit_from_lazy(
-                    check_boolean_coercion(df.lazy(), fc, type_registry),
-                    kind="boolean_coercion_violation", severity="error",
-                    table=contract.table, field=fc, pk_cols=pk_cols,
-                    expected=f"one of: {', '.join(accepted_list)}",
-                    report=report,
-                )
-            df = normalize_boolean_column(df, fc, type_registry)
+    #
+    # Token source is per-field: `fc.data_values` (stamped onto the contract
+    # at generation time) is authoritative. Targets do not control which
+    # tokens are accepted -- the contract does.
+    from data_contract.validate_data.checks.core_fields import _field_boolean_tokens
+    for fc in contract.fields:
+        if fc.type is not Type.BOOLEAN or fc.name not in data_columns:
+            continue
+        field_tokens = _field_boolean_tokens(fc, type_registry)
+        if field_tokens is None:
+            continue
+        if checks.is_enabled("boolean_coercion"):
+            accepted_list = sorted({*field_tokens.get("true", set()),
+                                    *field_tokens.get("false", set())})
+            _emit_from_lazy(
+                check_boolean_coercion(df.lazy(), fc, type_registry),
+                kind="boolean_coercion_violation", severity="error",
+                table=contract.table, field=fc, pk_cols=pk_cols,
+                expected=f"one of: {', '.join(accepted_list)}",
+                report=report,
+            )
+        df = normalize_boolean_column(df, fc, type_registry)
 
     # Phase A2: typed coerce + normalize for every non-VARCHAR, non-BOOLEAN
     # field. Hoisted ABOVE nullable/max_length and per-constraint checks so
@@ -589,7 +599,7 @@ def _validate_one_table(
     for fc in contract.fields:
         if fc.name not in data_columns:
             continue
-        if fc.type in (Type.STRING, Type.UNKNOWN, Type.BOOLEAN):
+        if fc.type in (Type.STRING, Type.TEXT, Type.UNKNOWN, Type.BOOLEAN):
             continue
         if checks.is_enabled("type_coercion"):
             _emit_from_lazy(
