@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from data_contract.validate_data.report.aggregation import aggregate_top_values
 from data_contract.validate_data.report.dimensions import (
     QUALITY_DIMENSIONS,
     compute_overall_score,
@@ -189,8 +190,8 @@ def _render_detail(issue: _Issue, details: dict[str, str]) -> str:
 
 def _detail_kwargs(issue: _Issue) -> dict[str, Any]:
     """Compute the placeholder values consumed by each kind's detail template."""
-    samples = _sample_offending(issue.violations, n=_SAMPLE_N)
-    kwargs: dict[str, Any] = {"sample": ", ".join(_fmt_value(s) for s in samples)}
+    samples = _top_value_samples(issue.violations, n=_SAMPLE_N)
+    kwargs: dict[str, Any] = {"sample": ", ".join(samples)}
     if issue.kind == "max_length_violation":
         kwargs["limit"] = _max_length_limit(issue.violations)
         kwargs["longest"] = _longest_value_length(issue.violations)
@@ -207,19 +208,19 @@ def _detail_kwargs(issue: _Issue) -> dict[str, Any]:
     return kwargs
 
 
-def _sample_offending(violations: tuple[Violation, ...], *, n: int) -> list[Any]:
-    """Pick up to `n` distinct non-null offending values, in encounter order."""
-    out: list[Any] = []
-    seen: set = set()
-    for v in violations:
-        val = v.offending_value
-        if val is None:
+def _top_value_samples(violations: tuple[Violation, ...], *, n: int) -> list[str]:
+    """Pick the `n` most-frequent non-null offending values, formatted for MD.
+
+    Driven by the shared `aggregate_top_values` helper so the MD samples line
+    up with the HTML top-N drill-down. Null values are dropped here (the kind
+    is implied -- `nullable_violation` has no sample line at all).
+    """
+    agg = aggregate_top_values(violations, n=n + 1)   # +1 to absorb a possible null bucket
+    out: list[str] = []
+    for value, count in agg.top:
+        if value == "(null)":
             continue
-        key = repr(val)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(val)
+        out.append(f"`{value}` ({count})")
         if len(out) >= n:
             break
     return out
@@ -228,12 +229,12 @@ def _sample_offending(violations: tuple[Violation, ...], *, n: int) -> list[Any]
 def _max_length_limit(violations: tuple[Violation, ...]) -> str:
     """Extract the contract's max_length from any violation's `expected` field.
 
-    The expected text is shaped `"len <= {n} ({physical_type})"` -- a small
-    regex pulls the limit out so we don't need to thread the contract through
-    the markdown renderer.
+    The expected text is shaped `"max {n} chars"` -- a small regex pulls the
+    limit out so we don't need to thread the contract through the markdown
+    renderer.
     """
     for v in violations:
-        m = re.search(r"len\s*<=\s*(\d+)", v.expected or "")
+        m = re.search(r"max\s+(\d+)\s+chars", v.expected or "")
         if m:
             return m.group(1)
     return "?"

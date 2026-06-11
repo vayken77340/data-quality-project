@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from data_contract.contract import Contract
+from data_contract.validate_data.report.aggregation import aggregate_top_values
 from data_contract.validate_data.report.dimensions import (
     Dimension,
     QUALITY_DIMENSIONS,
@@ -34,12 +35,36 @@ from data_contract.validate_data.report.dimensions import (
     violation_kind_for_check,
 )
 from data_contract.validate_data.report.hints import hint_for
+from data_contract.validate_data.report.strings import load_strings
 from data_contract.validate_data.runner import (
     RejectedRow,
     TableReport,
     ValidationReport,
 )
 from data_contract.validate_data.violations import Violation
+
+
+_TOP_VALUES_N = 10
+
+
+def _check_label_for(kind: str, field_type_label: str = "") -> str:
+    """Resolve the business-friendly label for a violation kind.
+
+    Mirrors `xlsx._check_label` so JSON/HTML/Markdown/Excel all surface the
+    same wording. `{type}` placeholder is substituted from the caller-supplied
+    physical type label; when missing, the templated suffix is dropped so we
+    never render a dangling "Type violation: " with an empty type.
+    """
+    try:
+        labels = load_strings().get("rejected_sheet", "check_labels")
+    except KeyError:
+        labels = {}
+    template = labels.get(kind, kind)
+    if "{type}" in template:
+        if field_type_label:
+            return template.format(type=field_type_label)
+        return template.split("{type}")[0].rstrip(": ").strip()
+    return template
 
 
 SCHEMA_VERSION = "1.0"
@@ -194,13 +219,23 @@ def _render_profile(profile) -> dict[str, Any] | None:
 
 
 def _render_rejected_row(r: RejectedRow) -> dict[str, Any]:
+    enriched: list[dict[str, Any]] = []
+    for v in r.violations:
+        out = dict(v)
+        # Friendly label for the Check column / HTML header. Type-templated
+        # kinds (type_coercion_violation) carry the per-row physical type that
+        # the runner attached, so the label reads "Type violation: integer".
+        out["check_label"] = _check_label_for(
+            v.get("kind") or "", v.get("physical_type") or ""
+        )
+        enriched.append(out)
     return {
         "source_file": r.source_file,
         "source_row": r.source_row,
         "pk_values": dict(r.pk_values),
         "source_row_data": dict(r.source_row_data),
         "worst_severity": r.worst_severity,
-        "violations": list(r.violations),
+        "violations": enriched,
     }
 
 
@@ -231,7 +266,18 @@ def _cluster_pk_violations(
     duplicates = []
     total_rows = 0
     spans = set()
+    # PK-level top values: each duplicate cluster IS a (value, count) pair, so
+    # we synthesize the TopValues directly off the cluster sizes rather than
+    # routing back through `aggregate_top_values` (which keys on
+    # `offending_value`, irrelevant for multi-column PKs).
+    cluster_sizes: list[tuple[str, int]] = []
     for key, participants in clusters.items():
+        value_repr = (
+            ", ".join(f"{c}={v}" for c, v in zip(pk_fields, key))
+            if len(pk_fields) > 1
+            else str(key[0])
+        )
+        cluster_sizes.append((value_repr, len(participants)))
         duplicates.append({
             "value": list(key) if len(key) > 1 else key[0],
             "occurrences": [
@@ -244,18 +290,30 @@ def _cluster_pk_violations(
             if p.source_file:
                 spans.add(p.source_file)
 
+    cluster_sizes.sort(key=lambda t: -t[1])
+    top = cluster_sizes[:_TOP_VALUES_N]
+    remainder = cluster_sizes[_TOP_VALUES_N:]
+    top_values = [{"value": v, "count": c} for v, c in top]
+    remaining_rows = sum(c for _, c in remainder)
+    remaining_distinct = len(remainder)
+
     table = clusters[next(iter(clusters))][0].table
+    field = ", ".join(pk_fields) if len(pk_fields) > 1 else pk_fields[0]
     return [{
         "check_id": _check_id(table, ", ".join(pk_fields), "pk_not_unique"),
         "kind": "pk_not_unique",
+        "check_label": _check_label_for("pk_not_unique"),
         "dimension": dimension_for("pk_not_unique").value,
         "severity": "error",
-        "field": ", ".join(pk_fields) if len(pk_fields) > 1 else pk_fields[0],
+        "field": field,
         "row_count": total_rows,
         "distinct_values": len(clusters),
         "spans_files": len(spans),
-        "expected": "primary key must be unique",
+        "expected": "must be unique",
         "hint": hint_for("pk_not_unique"),
+        "top_values": top_values,
+        "remaining_rows": remaining_rows,
+        "remaining_distinct": remaining_distinct,
         "duplicates": duplicates,
     }]
 
@@ -279,15 +337,22 @@ def _condense_other_violations(
             hint = hint_for(kind)
         except KeyError:
             hint = ""
+        agg = aggregate_top_values(bucket, n=_TOP_VALUES_N)
         out.append({
             "check_id": _check_id(table, field, kind),
             "kind": kind,
+            "check_label": _check_label_for(kind),
             "dimension": dim,
             "severity": bucket[0].severity,
             "field": field,
             "row_count": len(bucket),
             "expected": bucket[0].expected,
             "hint": hint,
+            "top_values": [
+                {"value": value, "count": count} for value, count in agg.top
+            ],
+            "remaining_rows": agg.remaining_rows,
+            "remaining_distinct": agg.remaining_distinct,
             "sample_offending_values": [
                 {
                     "value": v.offending_value,

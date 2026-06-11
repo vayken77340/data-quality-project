@@ -623,17 +623,10 @@ def _validate_one_table(
                             table=contract.table, field=fc, pk_cols=pk_cols,
                             expected="required", report=report)
         if checks.is_enabled("max_length"):
-            # Prefer the target's physical_type label when set; falls back to
-            # "string(N chars)" or "string(N bytes)" with no target.
-            try:
-                pt = type_registry.physical_type_for(fc)
-            except Exception:
-                pt = None
-            unit = type_registry.length_unit_for(Type.STRING)
-            ml_expected = (
-                f"len <= {fc.max_length} ({pt})" if pt
-                else f"len <= {fc.max_length} ({unit})"
-            )
+            # Physical-type detail (VARCHAR2 / bytes vs chars) belongs in the
+            # profile sheet, not in every Expected cell. The unit (chars/bytes)
+            # is implied by the target and surfaced once there.
+            ml_expected = f"max {fc.max_length} chars"
             _emit_from_lazy(check_max_length(df.lazy(), fc, type_registry),
                             kind="max_length_violation", severity="error",
                             table=contract.table, field=fc, pk_cols=pk_cols,
@@ -671,7 +664,7 @@ def _validate_one_table(
                 table=contract.table,
                 field=None,
                 pk_cols=pk_cols,
-                expected="PK must be unique",
+                expected="must be unique",
                 report=report,
                 pk_violation=True,
             )
@@ -755,67 +748,29 @@ def _extract_pk_values(row: dict[str, Any], pk_cols: list[str]) -> dict[str, Any
     return {c: row.get(c) for c in pk_cols}
 
 
-def _type_coercion_expected(field: FieldContract, type_registry: TypeRegistry) -> str:
-    """Concise human-readable description of the type_coercion rule.
-
-    Goal: fit in a spreadsheet cell and read like a sentence a non-engineer
-    can act on. Date / timestamp formats are surfaced as `YYYY-MM-DD`-style
-    patterns rather than `%Y-%m-%d`, and integer / float rules don't carry
-    a regex.
-    """
-    # When a target is active, prefer the target's physical type name in the
-    # message so the spec author sees "valid VARCHAR2(100 BYTE)" instead of
-    # the bare canonical name.
-    label = None
-    if type_registry is not None:
-        try:
-            label = type_registry.physical_type_for(field)
-        except Exception:
-            label = None
-    if label is None:
-        label = field.type.value
-    if field.type in (Type.INT32, Type.INT64):
-        return f"valid {label} (integer)"
-    if field.type in (Type.FLOAT32, Type.FLOAT64):
-        return f"valid {label} (decimal)"
-    if field.type in (Type.DATE, Type.TIMESTAMP, Type.TIMESTAMP_TZ):
-        formats = type_registry.parse_formats_for(field.type) if type_registry else ()
-        if formats:
-            humanised = ", ".join(_humanise_strftime(f) for f in formats)
-            return f"valid {label} (e.g. {humanised})"
-        return f"valid {label}"
-    return f"valid {label}"
-
-
-# Mapping used to convert Python strftime directives into readable templates
-# like `YYYY-MM-DD HH:MM:SS`. Conflicts between %m (month) and %M (minute) are
-# resolved by always rendering them as the same `MM`, because in date context
-# the position disambiguates.
-_STRFTIME_HUMAN: dict[str, str] = {
-    "%Y": "YYYY", "%y": "YY",
-    "%m": "MM",   "%B": "Month",  "%b": "Mon",
-    "%d": "DD",   "%A": "Day",    "%a": "Day",
-    "%H": "HH",   "%I": "HH",     "%p": "AM/PM",
-    "%M": "MM",   "%S": "SS",     "%f": "ffffff",
-    "%z": "+ZZZZ", "%Z": "TZ",
-    "%j": "DDD",  "%U": "WW",     "%W": "WW",
-    "%%": "%",
+_TYPE_EXPECTED_LABEL: dict[Type, str] = {
+    Type.INT32: "integer",
+    Type.INT64: "integer",
+    Type.FLOAT32: "decimal",
+    Type.FLOAT64: "decimal",
+    Type.DATE: "date",
+    Type.TIMESTAMP: "timestamp",
+    Type.TIMESTAMP_TZ: "timestamp",
+    Type.BOOLEAN: "boolean",
 }
 
 
-def _humanise_strftime(fmt: str) -> str:
-    """Convert a Python strftime string into a `YYYY-MM-DD`-style template."""
-    out: list[str] = []
-    i = 0
-    while i < len(fmt):
-        if fmt[i] == "%" and i + 1 < len(fmt):
-            directive = fmt[i:i+2]
-            out.append(_STRFTIME_HUMAN.get(directive, directive))
-            i += 2
-        else:
-            out.append(fmt[i])
-            i += 1
-    return "".join(out)
+def _type_coercion_expected(field: FieldContract, type_registry: TypeRegistry) -> str:
+    """Terse type label for the Expected cell.
+
+    Examples (concrete format hints, physical-type detail, etc.) belong in the
+    hint and the top-values drill-down -- not in this cell.
+    """
+    return _TYPE_EXPECTED_LABEL.get(field.type, field.type.value)
+
+
+_ALLOWED_VALUES_PREVIEW = 5
+_PATTERN_INLINE_MAX = 40
 
 
 def _describe_constraint(check: FieldCheck) -> str:
@@ -827,13 +782,21 @@ def _describe_constraint(check: FieldCheck) -> str:
         op = "<" if check.params.get("strict") else "<="
         return f"{op} {check.value}"
     if cls.name == "allowed_values":
-        return f"one of: {', '.join(repr(x) for x in (check.value or []))}"
+        values = list(check.value or [])
+        preview = ", ".join(str(x) for x in values[:_ALLOWED_VALUES_PREVIEW])
+        extra = len(values) - _ALLOWED_VALUES_PREVIEW
+        if extra > 0:
+            return f"one of: {preview} (+{extra} more)"
+        return f"one of: {preview}"
     if cls.name == "pattern":
-        return f"matches /{check.value}/"
+        pattern = str(check.value)
+        if len(pattern) > _PATTERN_INLINE_MAX:
+            return "matches pattern"
+        return f"matches /{pattern}/"
     if cls.name == "format":
         return f"format {check.value}"
     if cls.name == "unique":
-        return "unique across rows"
+        return "unique"
     return cls.VIOLATION_KIND or cls.name
 
 

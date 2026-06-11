@@ -221,9 +221,10 @@ def test_xlsx_rejected_sheet_when_violations(tmp_path: Path):
     wb.close()
 
 
-def test_xlsx_rejected_sheet_dynamic_triplets_for_multi_violation_row(tmp_path: Path):
-    """A source row with multiple violations becomes multiple sheet rows --
-    one per violation -- each spotlighting its own field column."""
+def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path):
+    """A source row with multiple violations becomes ONE sheet row; the Check
+    and Expected cells stack one line per violation so a reader can map check
+    N to expected N at the same vertical offset."""
     # max_length violation on `label` AND nullable violation on `code`.
     epic = tmp_path / "epics" / "M"
     (epic / "configs").mkdir(parents=True)
@@ -280,10 +281,10 @@ def test_xlsx_rejected_sheet_dynamic_triplets_for_multi_violation_row(tmp_path: 
     assert headers[-2] == "Check"
     assert headers[-1] == "Expected"
 
-    # Two violations on the same source row -> two sheet rows.
+    # Two violations on the same source row -> ONE sheet row (stacked cells).
     data_rows = [tuple(rj.cell(row=r, column=c).value for c in range(1, rj.max_column + 1))
                  for r in range(2, rj.max_row + 1)]
-    assert len(data_rows) == 2
+    assert len(data_rows) == 1
 
     # Only 'label' and 'code' have violations; 'id' has no violation so it
     # does NOT appear as a field column (only the PK `id` is present).
@@ -294,17 +295,17 @@ def test_xlsx_rejected_sheet_dynamic_triplets_for_multi_violation_row(tmp_path: 
     label_col = headers.index("label")
     code_col = headers.index("code")
     check_col = len(headers) - 2
-    seen: list[tuple[str, str, str]] = []
-    for row in data_rows:
-        if row[code_col] not in (None, ""):
-            seen.append(("code", row[check_col], row[code_col]))
-        if row[label_col] not in (None, ""):
-            seen.append(("label", row[check_col], row[label_col]))
-    assert ("code", "Missing value", "(null)") in seen
-    assert ("label", "Value too long", "toolong") in seen
-    # All severities uppercased.
-    for row in data_rows:
-        assert row[0] == "ERROR"
+    expected_col = len(headers) - 1
+    only = data_rows[0]
+    # Field-block cells carry the offending value for each violating field.
+    assert only[code_col] == "(null)"
+    assert only[label_col] == "toolong"
+    # Check and Expected are newline-stacked, sorted: errors first, then by
+    # field name -> 'code' before 'label'.
+    assert only[check_col] == "Missing value\nValue too long"
+    assert only[expected_col] == "required\nmax 3 chars"
+    # Severity = worst across the row, uppercased.
+    assert only[0] == "ERROR"
     wb.close()
 
 

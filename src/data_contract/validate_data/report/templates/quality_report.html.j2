@@ -62,6 +62,29 @@
   details[open] summary { border-bottom: 1px solid var(--c-border); }
   details .body { padding: 10px 14px; }
 
+  /* Compact issue-as-<details> wrapper. List-marker hidden so the summary line
+     mirrors the old .issue card visually but is clickable to expand. */
+  details.issue { padding: 0; }
+  details.issue > summary { padding: 12px 14px; font-weight: normal; list-style: none; }
+  details.issue > summary::-webkit-details-marker { display: none; }
+  details.issue > summary::before { content: "\25B8 "; color: var(--c-muted); margin-right: 4px; font-size: 11px; }
+  details.issue[open] > summary::before { content: "\25BE "; }
+  details.issue > .body { padding: 4px 14px 12px; border-top: 1px solid var(--c-border); }
+
+  table.top-values, table.violations {
+    width: auto; min-width: 60%; font-size: 12px; margin: 6px 0 0;
+  }
+  table.top-values th, table.violations th { font-size: 11px; padding: 4px 8px; }
+  table.top-values td, table.violations td { padding: 4px 8px; font-family: ui-monospace, "SF Mono", Consolas, monospace; }
+  table.top-values tr.remainder td { font-style: italic; color: var(--c-muted); font-family: inherit; }
+
+  /* Rejected-row card */
+  .rejected-row { background: #fff; border: 1px solid var(--c-border); border-radius: 6px;
+                  padding: 10px 14px; margin: 8px 0; }
+  .rejected-row .head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .rejected-row .pk { margin-top: 4px; font-size: 12px; color: var(--c-muted); }
+  .rejected-row .pk code { color: var(--c-text); }
+
   .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
           font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
   .pill.completeness { background: #E5F1FB; color: #1F5D8C; }
@@ -159,13 +182,30 @@
 {% if _ns.issues %}
   {% for i in _ns.issues|sort(attribute='count', reverse=true) %}
     {% if loop.index <= 10 %}
-    <div class="issue">
-      <span class="count">{{ i.v.row_count }}x</span>
-      <span class="kind">{{ i.v.kind }}</span>
-      {% if i.v.field %}on <code>{{ i.table }}.{{ i.v.field }}</code>{% else %}on <code>{{ i.table }}</code>{% endif %}
-      <span class="pill {{ i.v.dimension }}">{{ i.v.dimension }}</span>
-      <div class="hint">{{ i.v.hint }}</div>
-    </div>
+    <details class="issue">
+      <summary>
+        <span class="count">{{ i.v.row_count }}x</span>
+        <span class="kind">{{ i.v.check_label or i.v.kind }}</span>
+        {% if i.v.field %}on <code>{{ i.table }}.{{ i.v.field }}</code>{% else %}on <code>{{ i.table }}</code>{% endif %}
+        <span class="pill {{ i.v.dimension }}">{{ i.v.dimension }}</span>
+      </summary>
+      <div class="body">
+        <div class="hint">{{ i.v.hint }}</div>
+        {% if i.v.top_values %}
+        <table class="top-values">
+          <thead><tr><th>Value</th><th>Rows</th></tr></thead>
+          <tbody>
+            {% for tv in i.v.top_values %}
+              <tr><td><code>{{ tv.value }}</code></td><td>{{ tv.count }}</td></tr>
+            {% endfor %}
+            {% if i.v.remaining_rows %}
+              <tr class="remainder"><td>+ {{ i.v.remaining_distinct }} other value(s)</td><td>{{ i.v.remaining_rows }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </details>
     {% endif %}
   {% endfor %}
 {% else %}
@@ -246,23 +286,33 @@
     <summary>{{ t.table }} ({{ t.rejected_rows|length }} row{{ '' if t.rejected_rows|length == 1 else 's' }}{% if t.rejected_rows_truncated %} + {{ t.rejected_rows_truncated }} more truncated{% endif %})</summary>
     <div class="body">
       {% for r in t.rejected_rows %}
-      <div class="issue">
-        <strong>{{ r.source_file }}</strong> row <strong>{{ r.source_row }}</strong>
-        <span class="pill {{ 'completeness' if r.worst_severity == 'error' else 'validity' }}">{{ r.worst_severity }}</span>
-        <div style="margin-top:6px; font-size:12px;">
-          <strong>Source row:</strong>
-          {% for k, v in r.source_row_data.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} | {% endif %}{% endfor %}
+      <div class="rejected-row">
+        <div class="head">
+          <strong>{{ r.source_file }}</strong> row <strong>{{ r.source_row }}</strong>
+          <span class="pill {{ 'uniqueness' if r.worst_severity == 'error' else 'validity' }}">{{ r.worst_severity }}</span>
         </div>
-        <div style="margin-top:6px;">
-          {% for v in r.violations %}
-          <div class="hint" style="margin-top:4px;">
-            <span class="pill {{ v.dimension }}">{{ v.dimension }}</span>
-            <strong>{{ v.kind }}</strong>
-            {% if v.field %} on <code>{{ v.field }}</code>{% endif %}
-            - {{ v.hint }}
-          </div>
-          {% endfor %}
+        {% if r.pk_values %}
+        <div class="pk">
+          PK:
+          {% for k, v in r.pk_values.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
         </div>
+        {% endif %}
+        <table class="violations">
+          <thead>
+            <tr><th>Column</th><th>Value</th><th>Check</th><th>Expected</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            {% for v in r.violations %}
+            <tr>
+              <td>{% if v.field %}<code>{{ v.field }}</code>{% else %}-{% endif %}</td>
+              <td>{% if v.offending_value is none %}<em>(null)</em>{% else %}<code>{{ v.offending_value }}</code>{% endif %}</td>
+              <td><span class="pill {{ v.dimension }}">{{ v.dimension }}</span> {{ v.check_label or v.kind }}</td>
+              <td>{{ v.expected }}</td>
+              <td style="font-family: inherit; color: var(--c-muted);">{{ v.hint }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       {% endfor %}
     </div>

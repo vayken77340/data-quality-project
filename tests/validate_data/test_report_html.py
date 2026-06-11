@@ -104,16 +104,36 @@ def test_html_surfaces_target(tmp_path: Path):
     assert "postgres" in html.lower()
 
 
-def test_html_rejected_rows_section_has_full_source_context(tmp_path: Path):
-    """The HTML rejected-rows accordion shows BOTH columns (id and label) for
-    each offending row, not just the failing field."""
+def test_html_rejected_rows_compact_pk_plus_violation_table(tmp_path: Path):
+    """Rejected-rows section shows PK + a tight per-violation table (Column /
+    Value / Check / Expected / Why) rather than dumping the full source row."""
     html = _run(tmp_path, "id,label\n1,toolong\n")
     assert "Rejected rows" in html
-    # Both id=1 and label=toolong are present.
+    # PK line carries the primary key, not the full source-row dump.
     assert "id=1" in html
-    assert "label=toolong" in html
-    # Hint appears in the violation block.
+    assert "label=toolong" not in html, "old full-source-row dump should be gone"
+    # Violation table headers + the offending value and friendly check label.
+    assert "<table class=\"violations\">" in html
+    assert ">Column<" in html and ">Value<" in html and ">Check<" in html
+    assert ">Expected<" in html and ">Why<" in html
+    assert "toolong" in html               # offending value
+    assert "Value too long" in html        # friendly check label
+    assert "max 3 chars" in html           # terse Expected
+    # Hint appears in the violation table.
     assert "shorten" in html.lower() or "raise the cap" in html.lower()
+
+
+def test_html_top_issues_drill_down_lists_top_values(tmp_path: Path):
+    """Top issues are expandable; each card lists value+count for the
+    offenders that triggered the check."""
+    html = _run(tmp_path, "id,label\n1,toolong\n2,toolong\n3,short\n4,alsotoolong\n")
+    # `<details class="issue">` wrapper used for the drill-down.
+    assert "<details class=\"issue\">" in html
+    # Top values table renders with the offending strings + their counts.
+    assert "top-values" in html
+    assert "toolong" in html
+    # Friendly check label is used in the summary, not the raw kind.
+    assert "Value too long" in html
 
 
 def test_html_profile_section_present(tmp_path: Path):

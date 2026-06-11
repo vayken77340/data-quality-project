@@ -378,20 +378,22 @@ def _populate_rejected(
     contract: Contract | None,
     S,
 ) -> None:
-    """One row per violation.
+    """One row per source row.
 
     Layout: `Severity | Source File | <PK fields | OR Source Row> |
               <only the fields that actually have a violation in this table> |
               Check | Expected`.
 
-    Only contract fields that have at least one violation across the table's
-    rejected rows are emitted as columns -- fields that are clean for every
-    rejected row are not shown. The remaining contract-field columns work
-    like a spotlight: each violation row carries the offending value in its
-    own field column and leaves the other field columns blank.
+    When a row violates multiple checks, the Check and Expected cells stack
+    one line per violation (newline-joined) so a reader can map check N to
+    expected N at the same vertical offset. Field-block cells get the
+    offending value for that field only -- if the same field is hit by
+    multiple checks on this row, the values stack the same way.
 
-    Only the Severity cell is colour-tinted; the rest of the row stays
-    uncoloured so the eye lands on the severity column.
+    Only contract fields that have at least one violation across the table's
+    rejected rows are emitted as columns. Only the Severity cell is
+    colour-tinted; the rest of the row stays uncoloured so the eye lands
+    on the severity column.
     """
     H = S.get("rejected_sheet", "headers")
 
@@ -427,46 +429,73 @@ def _populate_rejected(
     _append(ws, headers)
     _style_header_row(ws, ncols=len(headers))
 
-    # Column-index lookup for the contract-field block.
     severity_col = 1
-    field_block_start = 1 + 1 + len(key_headers) + 1   # severity + source file + keys, then +1 for 1-based start
+    # 1-based: severity (1) + source_file (1) + key columns + 1 to step past them.
+    field_block_start = 1 + 1 + len(key_headers) + 1
     field_to_col = {
         name: field_block_start + idx for idx, name in enumerate(contract_fields)
     }
+    n_field_cols = len(contract_fields)
+    check_col = field_block_start + n_field_cols
+    expected_col = check_col + 1
+
+    wrap_align = Alignment(wrap_text=True, vertical="top")
 
     for r in tr.rejected_rows:
-        # Stable ordering: errors before warnings before info, then field name.
+        # Stable ordering inside the row: errors before warnings before info,
+        # then by field name. Check and Expected are stacked in this order so
+        # readers can map line N of one cell to line N of the other.
         ordered = sorted(
             r.violations,
             key=lambda v: (_severity_rank(v.get("severity")), v.get("field") or ""),
         )
+
+        # Worst severity across the row drives the cell tint.
+        worst_severity = r.worst_severity or (
+            ordered[0].get("severity") if ordered else ""
+        )
+
+        row: list[Any] = [(worst_severity or "").upper(), r.source_file]
+        if has_pk:
+            for pk_name in pk_fields:
+                row.append(_stringify_cell(r.pk_values.get(pk_name)))
+        else:
+            row.append(r.source_row)
+
+        # Build per-field stacks of offending values (one field may be hit
+        # by multiple checks on the same row).
+        field_block_values: list[list[str]] = [[] for _ in contract_fields]
+        check_lines: list[str] = []
+        expected_lines: list[str] = []
         for v in ordered:
-            severity_raw = v.get("severity") or ""
-            row: list[Any] = [severity_raw.upper(), r.source_file]
-            if has_pk:
-                for pk_name in pk_fields:
-                    row.append(_stringify_cell(r.pk_values.get(pk_name)))
-            else:
-                row.append(r.source_row)
-            # Contract-field block: blank by default, populate the violating
-            # one. A `None` offending value (e.g. nullable_violation) is
-            # rendered as the literal `(null)` so the spotlight is still
-            # visible -- otherwise the cell would look identical to the
-            # blanks around it.
+            check_lines.append(_check_label(v, S, field_type_label))
+            expected_lines.append(v.get("expected", ""))
             field = v.get("field")
-            field_block = [""] * len(contract_fields)
             if field and field in field_to_col:
                 col_idx = field_to_col[field] - field_block_start
                 raw = v.get("offending_value")
-                field_block[col_idx] = "(null)" if raw is None else _stringify_cell(raw)
-            row.extend(field_block)
-            row.append(_check_label(v, S, field_type_label))
-            row.append(v.get("expected", ""))
-            _append(ws, row)
+                rendered = "(null)" if raw is None else _stringify_cell(raw)
+                field_block_values[col_idx].append(rendered)
 
-            fill = _severity_fill(severity_raw)
-            if fill is not None:
-                ws.cell(row=ws.max_row, column=severity_col).fill = fill
+        row.extend("\n".join(values) for values in field_block_values)
+        row.append("\n".join(check_lines))
+        row.append("\n".join(expected_lines))
+        _append(ws, row)
+
+        # Severity tint on column 1.
+        fill = _severity_fill(worst_severity)
+        if fill is not None:
+            ws.cell(row=ws.max_row, column=severity_col).fill = fill
+
+        # Wrap stacked cells so all lines stay visible.
+        excel_row = ws.max_row
+        ws.cell(row=excel_row, column=check_col).alignment = wrap_align
+        ws.cell(row=excel_row, column=expected_col).alignment = wrap_align
+        for idx, values in enumerate(field_block_values):
+            if len(values) > 1:
+                ws.cell(
+                    row=excel_row, column=field_block_start + idx
+                ).alignment = wrap_align
 
     if tr.rejected_rows_truncated:
         _append(ws, [
