@@ -179,6 +179,41 @@ markdown:
   tables_row_template: "| {table} | {score:.1f} | {total_rows} | {clean} | {errors} | {warnings} |"
   top_issues_section: "## Top issues"
   no_issues: "_(none - all checks clean)_"
-  issue_with_field_template: "- **{count}x `{kind}`** on `{field}` - {hint}"
-  issue_without_field_template: "- **{count}x `{kind}`** - {hint}"
+  # The issue line is built in two parts:
+  #   1. Headline -- count, kind label, field name
+  #   2. Detail   -- per-kind extra context (limit + longest, samples, etc.)
+  # The hint comes from `hints.py` (kind-keyed action sentence). Templates use
+  # `{kind_label}` (business-friendly name from check_labels), and the detail
+  # block is rendered inline via {detail}.
+  issue_with_field_template: "- **{count}x `{kind_label}`** on `{field}` - {detail}{hint}"
+  issue_without_field_template: "- **{count}x `{kind_label}`** - {detail}{hint}"
+  # Per-kind detail blocks. Each template gets violation-kind-specific kwargs
+  # rendered by the markdown writer:
+  #   max_length_violation:        {limit, longest, sample}
+  #   nullable_violation:          {} -- no detail; cells are null by definition
+  #   pk_not_unique:               {sample_pk}
+  #   fk_not_found:                {sample}
+  #   *_coercion_violation:        {sample}
+  #   pattern/format/allowed_*:    {sample}
+  #   min_value/max_value:         {sample}
+  # `{sample}` is a short comma-separated preview of up to 3 offending values.
+  # Empty when no sample is meaningful (nullable_violation).
+  issue_details:
+    max_length_violation: "limit={limit}, longest actual={longest} (e.g. {sample}); "
+    nullable_violation: ""
+    pk_not_unique: "e.g. duplicate PK={sample_pk}; "
+    fk_not_found: "e.g. missing key={sample}; "
+    type_coercion_violation: "e.g. {sample}; "
+    boolean_coercion_violation: "e.g. {sample}; "
+    pattern_violation: "e.g. {sample}; "
+    format_violation: "e.g. {sample}; "
+    allowed_values_violation: "e.g. {sample}; "
+    min_value_violation: "e.g. {sample}; "
+    max_value_violation: "e.g. {sample}; "
+    unique_violation: "e.g. duplicate={sample}; "
+    column_missing: ""
+    extra_column: ""
+    no_input_files: ""
+    parser_failure: ""
+    fk_target_table_not_loaded: ""
   footer: "- Full XLSX / JSON / HTML in the validations directory."

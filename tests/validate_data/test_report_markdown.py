@@ -94,9 +94,14 @@ def test_md_clean_run_shows_pass(tmp_path: Path):
 def test_md_fail_run_shows_fail_and_top_issue(tmp_path: Path):
     md = _run(tmp_path, "id,label\n1,toolong\n")
     assert "**FAIL**" in md
-    assert "max_length_violation" in md
-    # Hint must be in the rendered top-issue line.
-    assert "max_length" in md.lower()
+    # Top issues use the business-friendly label, not the raw kind string.
+    assert "Value too long" in md
+    # Detail block carries the contract's max_length AND the longest actual length.
+    assert "limit=3" in md         # contract says max_length=3
+    assert "longest actual=7" in md  # 'toolong' is 7 chars
+    # The offending value itself shows up in the sample.
+    assert "toolong" in md
+    # Hint sentence still rendered after the detail block.
     assert ("shorten" in md.lower() or "raise the cap" in md.lower())
 
 

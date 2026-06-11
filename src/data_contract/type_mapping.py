@@ -419,6 +419,16 @@ def parse_type(raw: str | None, registry: TypeRegistry, *, sheet_row: int) -> tu
             message=f"type {raw!r} is not declared in the type registry",
         )
 
+    # Bare bounded-string (varchar / varchar2 / char / texte / string / str
+    # without a length) is meaningless: there's no max to enforce and the
+    # target's physical_type template `VARCHAR2({max_length} BYTE)` would
+    # fail to render. Promote to the variable-length canonical TEXT instead.
+    # That way `VARCHAR2(100)` stays a bounded STRING but bare `VARCHAR2`
+    # becomes the unbounded variant (CLOB on Oracle, TEXT on Postgres,
+    # string on Iceberg).
+    if entry.canonical is Type.STRING and not raw_args:
+        return ParsedType(type=Type.TEXT), None
+
     parsed_kwargs: dict[str, int] = {}
     for slot, value in zip(entry.parameters, raw_args):
         # Strip internal whitespace so French-style grouped numbers like

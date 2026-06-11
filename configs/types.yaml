@@ -1,6 +1,6 @@
 mappings:
   string:
-    aliases: [string, varchar, char, texte, str]
+    aliases: [string, varchar, varchar2, char, texte, str]
     parameter: max_length
 
   text:

@@ -14,8 +14,11 @@ Every user-facing string is sourced from `configs/report_strings.yaml` via
 
 from __future__ import annotations
 
-from collections import Counter
+import re
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from data_contract.validate_data.report.dimensions import (
     QUALITY_DIMENSIONS,
@@ -24,9 +27,11 @@ from data_contract.validate_data.report.dimensions import (
 from data_contract.validate_data.report.hints import hint_for
 from data_contract.validate_data.report.strings import load_strings
 from data_contract.validate_data.runner import ValidationReport
+from data_contract.validate_data.violations import Violation
 
 
 TOP_N = 5
+_SAMPLE_N = 3                                   # number of offending values shown inline
 
 
 def render_markdown(report: ValidationReport) -> str:
@@ -91,24 +96,28 @@ def render_markdown(report: ValidationReport) -> str:
                            errors=n_err, warnings=n_warn))
     lines.append("")
 
-    # Top issues with hints.
+    # Top issues with hints + offending-value context.
     lines.append(S.get("markdown", "top_issues_section"))
     lines.append("")
     top = _top_violations(report)
     if not top:
         lines.append(S.get("markdown", "no_issues"))
     else:
-        for (kind, field, n) in top:
+        check_labels = S.get("rejected_sheet", "check_labels")
+        details = S.get("markdown", "issue_details")
+        for issue in top:
             try:
-                hint = hint_for(kind)
+                hint = hint_for(issue.kind)
             except KeyError:
                 hint = ""
-            if field:
-                lines.append(S.fmt("markdown", "issue_with_field_template",
-                                   count=n, kind=kind, field=field, hint=hint))
-            else:
-                lines.append(S.fmt("markdown", "issue_without_field_template",
-                                   count=n, kind=kind, hint=hint))
+            kind_label = _kind_label(issue, check_labels)
+            detail = _render_detail(issue, details)
+            tmpl_key = "issue_with_field_template" if issue.field else "issue_without_field_template"
+            lines.append(S.fmt(
+                "markdown", tmpl_key,
+                count=issue.count, kind_label=kind_label,
+                field=issue.field or "", hint=hint, detail=detail,
+            ))
     lines.append("")
     lines.append(S.get("markdown", "footer"))
 
@@ -121,14 +130,132 @@ def write_markdown(report: ValidationReport, out_path: Path) -> Path:
     return out_path
 
 
-def _top_violations(report: ValidationReport) -> list[tuple[str, str | None, int]]:
-    """Aggregate every violation (across tables) by (kind, field) and return
-    the TOP_N most frequent ones."""
-    counter: Counter = Counter()
+@dataclass(frozen=True)
+class _Issue:
+    kind: str
+    field: str | None
+    count: int
+    violations: tuple[Violation, ...]
+
+
+def _top_violations(report: ValidationReport) -> list[_Issue]:
+    """Aggregate violations by (kind, field) and return the TOP_N largest
+    groups along with the raw Violations so renderers can extract samples."""
+    grouped: dict[tuple[str, str | None], list[Violation]] = defaultdict(list)
     for tr in report.table_reports:
         for v in tr.violations:
-            counter[(v.kind, v.field)] += 1
-    out: list[tuple[str, str | None, int]] = []
-    for (kind, field), n in counter.most_common(TOP_N):
-        out.append((kind, field, n))
+            grouped[(v.kind, v.field)].append(v)
+    sorted_groups = sorted(grouped.items(), key=lambda kv: -len(kv[1]))[:TOP_N]
+    return [
+        _Issue(kind=kind, field=field, count=len(violations),
+               violations=tuple(violations))
+        for (kind, field), violations in sorted_groups
+    ]
+
+
+def _kind_label(issue: _Issue, check_labels: dict[str, str]) -> str:
+    """Resolve the business-friendly label for a violation kind.
+
+    `type_coercion_violation` carries a `{type}` placeholder which we leave
+    in literal form here (the markdown is summary text -- the type would
+    repeat for each row in the group). Fall back to the raw kind string
+    if no label exists.
+    """
+    template = check_labels.get(issue.kind, issue.kind)
+    if "{type}" in template:
+        # Strip the templated suffix for the headline -- the per-row type
+        # variation is surfaced in the rejected sheet, not the summary.
+        return template.split("{type}")[0].rstrip(": ").strip()
+    return template
+
+
+def _render_detail(issue: _Issue, details: dict[str, str]) -> str:
+    """Render the per-kind detail block (limit + longest, sample values, etc.).
+
+    Returns an empty string when no detail template is configured for this
+    kind, so the issue line collapses to just the headline + hint.
+    """
+    template = details.get(issue.kind, "")
+    if not template:
+        return ""
+    kwargs = _detail_kwargs(issue)
+    try:
+        return template.format(**kwargs)
+    except KeyError:
+        # Template referenced a placeholder we didn't compute -- skip the
+        # detail rather than crash the whole report.
+        return ""
+
+
+def _detail_kwargs(issue: _Issue) -> dict[str, Any]:
+    """Compute the placeholder values consumed by each kind's detail template."""
+    samples = _sample_offending(issue.violations, n=_SAMPLE_N)
+    kwargs: dict[str, Any] = {"sample": ", ".join(_fmt_value(s) for s in samples)}
+    if issue.kind == "max_length_violation":
+        kwargs["limit"] = _max_length_limit(issue.violations)
+        kwargs["longest"] = _longest_value_length(issue.violations)
+    if issue.kind == "pk_not_unique":
+        # PK violations carry the offending PK in `pk_values`; surface that
+        # instead of the raw cell value (which is just one PK column).
+        first_pk = next(
+            (v.pk_values for v in issue.violations if v.pk_values), None
+        )
+        kwargs["sample_pk"] = (
+            ", ".join(f"{k}={_fmt_value(v)}" for k, v in first_pk.items())
+            if first_pk else "?"
+        )
+    return kwargs
+
+
+def _sample_offending(violations: tuple[Violation, ...], *, n: int) -> list[Any]:
+    """Pick up to `n` distinct non-null offending values, in encounter order."""
+    out: list[Any] = []
+    seen: set = set()
+    for v in violations:
+        val = v.offending_value
+        if val is None:
+            continue
+        key = repr(val)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(val)
+        if len(out) >= n:
+            break
     return out
+
+
+def _max_length_limit(violations: tuple[Violation, ...]) -> str:
+    """Extract the contract's max_length from any violation's `expected` field.
+
+    The expected text is shaped `"len <= {n} ({physical_type})"` -- a small
+    regex pulls the limit out so we don't need to thread the contract through
+    the markdown renderer.
+    """
+    for v in violations:
+        m = re.search(r"len\s*<=\s*(\d+)", v.expected or "")
+        if m:
+            return m.group(1)
+    return "?"
+
+
+def _longest_value_length(violations: tuple[Violation, ...]) -> int:
+    """Longest character length observed across the group's offending values."""
+    longest = 0
+    for v in violations:
+        val = v.offending_value
+        if isinstance(val, str) and len(val) > longest:
+            longest = len(val)
+    return longest
+
+
+def _fmt_value(value: Any) -> str:
+    """Render an offending value for a markdown summary cell.
+
+    Strings get surrounded by backticks and truncated; non-strings are repr'd.
+    """
+    if isinstance(value, str):
+        if len(value) > 50:
+            return f"`{value[:47]}...`"
+        return f"`{value}`"
+    return f"`{value!r}`"
