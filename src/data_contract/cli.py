@@ -8,7 +8,7 @@ from typing import Sequence
 
 from data_contract import __version__
 from data_contract._util import dump_yaml, now_iso_z
-from data_contract.config import (
+from data_contract.generation.config import (
     ALL_TABLES,
     DEFAULT_SPEC_CONFIGS_FILENAME,
     Defaults,
@@ -20,39 +20,38 @@ from data_contract.config import (
     select_version_config,
     version_sort_key,
 )
-from data_contract.contract import (
-    Contract,
-    Rejection,
+from data_contract.contract import Contract, Rejection
+from data_contract.generation.builder import (
     build_contract,
     drift_path_for,
     history_path_for_table,
     write_history_only,
     write_outputs,
 )
-from data_contract.catalog import (
+from data_contract.generation.catalog import (
     DEFAULT_CONSTRAINTS_DOC,
     regen_constraint_doc,
     would_regen_change,
 )
-from data_contract.docs import load_drift_entries, write_data_dictionary
-from data_contract.schema_export import DEFAULT_SCHEMA_OUT, write_contract_json_schema
-from data_contract.drift import DriftReport, diff_contracts
+from data_contract.generation.docs import load_drift_entries, write_data_dictionary
+from data_contract.generation.schema_export import DEFAULT_SCHEMA_OUT, write_contract_json_schema
+from data_contract.generation.drift import DriftReport, diff_contracts
 from data_contract.errors import ConfigError, SpecReaderError
-from data_contract.joins import (
+from data_contract.generation.joins import (
     JoinsContract,
     JoinsRejection,
     build_joins_result,
     read_joins_sheet,
     write_joins_outputs,
 )
-from data_contract.keys import (
+from data_contract.generation.keys import (
     KeysData,
     build_pk_index,
     enrich_field_contract_list,
     read_keys_sheet,
 )
 from data_contract.settings import Settings, load_settings
-from data_contract.spec_reader import (
+from data_contract.generation.spec_reader import (
     iter_field_rows,
     list_table_spec_sheets,
     open_workbook,
@@ -220,7 +219,7 @@ def _self_check_post_build(
     `outcome.rejected` so the exit code reflects the failure. Canonical YAMLs
     are NOT deleted — left in place for the human to inspect.
     """
-    from data_contract.validate_contract import (
+    from data_contract.generation.validate_contract import (
         check_invariants,
         check_joins_invariants,
     )
@@ -857,7 +856,7 @@ def _cmd_export_schema(args: argparse.Namespace) -> int:
 
 def _cmd_validate_data(args: argparse.Namespace) -> int:
     try:
-        from data_contract.validate_data.runner import run_validate_data
+        from data_contract.validation.runner import run_validate_data
     except ImportError as e:
         print(
             f"validate-data requires the [validate-data] extras. Install with:\n"
@@ -879,7 +878,7 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
 
 def _cmd_validate_contract(args: argparse.Namespace) -> int:
     # Imported lazily — keeps the validate-contract path off the generate import surface.
-    from data_contract.validate_contract import run_validate_contract
+    from data_contract.generation.validate_contract import run_validate_contract
     return run_validate_contract(
         epic=args.epic,
         file=args.file,

@@ -21,23 +21,46 @@ KEYS_HEADERS = ("Table", "PK", "FK", "Comments")
 
 # YAML snippet that explicitly enables every check. Used by `validate_data`
 # tests when the test doesn't care about gating -- the top-level `checks:`
-# block is required, so this is the "I don't care, run everything" default.
+# block is required and tier-keyed, so this is the "I don't care, run
+# everything" default.
 ALL_CHECKS_ENABLED_YAML = """\
 checks:
-  type_coercion: true
-  boolean_coercion: true
-  nullable: true
-  max_length: true
-  column_missing: true
-  pk_uniqueness: true
-  fk_existence: true
-  allowed_values: true
-  pattern: true
-  min_value: true
-  max_value: true
-  format: true
-  unique: true
+  structural:
+    type_coercion: true
+    boolean_coercion: true
+    nullable: true
+    max_length: true
+  table:
+    column_missing: true
+    pk_uniqueness: true
+    fk_existence: true
+  field:
+    allowed_values: true
+    pattern: true
+    min_value: true
+    max_value: true
+    format: true
+    unique: true
 """
+
+# YAML snippet that explicitly enables every metric. The top-level
+# `metrics:` block is also required and tier-keyed by scope.
+ALL_METRICS_ENABLED_YAML = """\
+metrics:
+  field:
+    null_count: true
+    null_percentage: true
+    distinct_count: true
+    completeness: true
+    duplicate_pct: true
+  table:
+    row_count: true
+"""
+
+# Bundled "checks + metrics, everything enabled" -- tests that don't care
+# about gating include this directly to satisfy the two required top-level
+# blocks at once.
+ALL_CHECKS_ENABLED_YAML = ALL_CHECKS_ENABLED_YAML + ALL_METRICS_ENABLED_YAML
 
 # YAML snippet that satisfies the required `target:` field. Tests that don't
 # care about target-specific behaviour use this. Postgres is chosen because

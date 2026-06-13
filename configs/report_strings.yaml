@@ -16,7 +16,13 @@ sheets:
   summary: "Summary"
   profile: "Profile"
   checks: "Checks"
-  run_issues: "Run issues"
+  check_status: "Check status"
+  metrics: "Metrics"
+  # "Table issues" covers everything that isn't tied to a specific source row:
+  # schema gaps (column_missing, extra_column) plus operational failures
+  # (no_input_files, parser_failure, fk_target_table_not_loaded). Row-keyed
+  # issues live in `<table>_rejected`.
+  run_issues: "Table issues"
   rejected_pattern: "{table}_rejected"   # template per-table
 
 status:
@@ -152,11 +158,46 @@ rejected_sheet:
     timestamp: "timestamp"
     timestamp_tz: "timestamp"
 
+check_status_sheet:
+  # Tables x checks grid. Cells show OK/WARNING/ERROR with inline row
+  # counts. Row-scope cells use cell_template_row; table-scope cells
+  # (column_missing etc.) use cell_template_table because there's no
+  # pass-row count -- only a violation count.
+  labels:
+    table: "Table"
+  status_labels:
+    OK: "OK"
+    WARNING: "WARN"
+    ERROR: "ERR"
+    SKIPPED: "--"
+    NA: "n/a"
+  cell_template_row: "{label} {pass_rows}/{warning_rows}/{error_rows}"
+  cell_template_table: "{label} ({count})"
+
+metrics_sheet:
+  # Per-table sections: a small table-scope band ("row_count: 1240") then
+  # a field x metric grid. Edit metric_labels to rename a metric's column
+  # header without touching code.
+  table_heading_template: "Table: {table}"
+  labels:
+    field: "Field"
+    table_scope: "Table-scope"
+  metric_labels:
+    null_count: "Null #"
+    null_percentage: "Null %"
+    distinct_count: "Distinct"
+    completeness: "Completeness %"
+    duplicate_pct: "Duplicate %"
+    row_count: "Row count"
+
 run_issues_sheet:
+  # Severity first to mirror the rejected sheet's visual prominence; Check
+  # column carries the friendly label, raw `Kind` is dropped to keep the
+  # sheet readable. Hint stays last so the wide column lives at the edge.
   headers:
-    - "Table"
-    - "Kind"
     - "Severity"
+    - "Table"
+    - "Check"
     - "Field"
     - "Expected"
     - "Hint"
@@ -177,6 +218,9 @@ markdown:
   tables_table_header: "| Table | Score | Rows | Clean | Errors | Warn |"
   tables_table_separator: "|---|---|---|---|---|---|"
   tables_row_template: "| {table} | {score:.1f} | {total_rows} | {clean} | {errors} | {warnings} |"
+  check_status_section: "## Check status"
+  metrics_section: "## Metrics"
+  table_issues_section: "## Table issues"
   top_issues_section: "## Top issues"
   no_issues: "_(none - all checks clean)_"
   # The issue line is built in two parts:

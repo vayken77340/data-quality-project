@@ -15,26 +15,49 @@ defaults:
   format: excel
   file_pattern: "sample/{table}*.xlsx"
 
-# Required: every check has an explicit on/off flag. Descriptions live
-# globally in configs/report_strings.yaml under `checks_sheet.descriptions`
-# (they describe the check itself, not the epic, so they don't belong here).
+# Tier-keyed checks block. Every name within a tier must be listed
+# explicitly (true|false). Descriptions live in
+# configs/report_strings.yaml under `checks_sheet.descriptions`.
+#
+# Tiers:
+#   structural -- type-system-derived (hard-coded set; new structural
+#                 checks are added by introducing a new Type in
+#                 configs/types.yaml, not by registering a new check).
+#   table      -- table_checks/ registry. Pluggable: drop a TableCheck
+#                 subclass in src/data_contract/table_checks/.
+#   field      -- field_constraints/ registry. Pluggable: drop a
+#                 FieldConstraint subclass in src/data_contract/field_constraints/.
 checks:
-  # Structural / per-field core
-  type_coercion: true
-  boolean_coercion: true
-  nullable: true
-  max_length: true
-  column_missing: true
-  # Keys
-  pk_uniqueness: true
-  fk_existence: false
-  # Per-constraint (FieldConstraint registry names)
-  allowed_values: false
-  pattern: false
-  min_value: false
-  max_value: false
-  format: false
-  unique: false
+  structural:
+    type_coercion: true
+    boolean_coercion: true
+    nullable: true
+    max_length: true
+  table:
+    column_missing: true
+    pk_uniqueness: true
+    fk_existence: false
+  field:
+    allowed_values: false
+    pattern: false
+    min_value: false
+    max_value: false
+    format: false
+    unique: false
+
+# Tier-keyed metrics block. `field` metrics emit one value per contract
+# field; `table` metrics emit a single scalar per table. Devs can drop a
+# new TableMetric subclass into src/data_contract/metrics/ and it will be
+# required here at load time.
+metrics:
+  field:
+    null_count: true
+    null_percentage: true
+    distinct_count: true
+    completeness: true
+    duplicate_pct: true
+  table:
+    row_count: true
 
 # `contracts_folder` is optional; omitted = <epic_dir>/contracts.
 # contracts_folder: "epics/1118/contracts"
