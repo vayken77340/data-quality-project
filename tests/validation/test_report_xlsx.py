@@ -23,6 +23,10 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -237,6 +241,10 @@ def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -321,6 +329,10 @@ def test_xlsx_rejected_sheet_uses_source_row_when_no_pk(tmp_path: Path):
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs" / "types.yaml").write_text(
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     (tmp_path / "configs" / "targets").mkdir()

@@ -575,6 +575,10 @@ def _bootstrap_keys_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     edir = tmp_path / "epics" / "E"
     (edir / "configs").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
@@ -584,7 +588,7 @@ def _bootstrap_keys_epic(
     tables_in_keys = tables_in_keys if tables_in_keys is not None else [("T", "x", None)]
 
     # Defaults: declares the standard column_mapping plus a Keys block.
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(
         """
 fields:
   column_mapping:
@@ -697,12 +701,16 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     edir = tmp_path / "epics" / "E"
     (edir / "configs").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T\n",

@@ -35,7 +35,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     (edir / "configs").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: 1118\nversion: '1.0'\nspec_file_name: Spec_example.xlsx\n"
         "tables:\n  - table_name: PROJECT\n",
@@ -128,9 +128,13 @@ def test_unknown_type_rejects_table(tmp_path: Path, repo_root: Path, monkeypatch
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
 
     # Defaults
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
 
     # Version config
     (epic_dir / "configs" / "v1.0.yaml").write_text(
@@ -170,6 +174,10 @@ def test_generate_all_epics_when_no_epic_arg(tmp_path: Path, repo_root: Path, mo
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
 
     # Build two epics with one tiny spec each.
     from openpyxl import Workbook
@@ -180,7 +188,7 @@ def test_generate_all_epics_when_no_epic_arg(tmp_path: Path, repo_root: Path, mo
         (edir / "configs").mkdir(parents=True)
         (edir / "specs").mkdir(parents=True)
         (edir / "contracts").mkdir(parents=True)
-        (tmp_path / "configs" / "default_spec_configs.yaml").write_text(defaults_text, encoding="utf-8")
+        (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults_text, encoding="utf-8")
         (edir / "configs" / "v1.0.yaml").write_text(
             f"epic: '{epic}'\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
             f"tables:\n  - table_name: T\n",
@@ -211,6 +219,10 @@ def test_generate_all_epics_aggregates_exit_code(tmp_path: Path, repo_root: Path
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
 
     from openpyxl import Workbook
     defaults_text = minimal_defaults_yaml()
@@ -220,7 +232,7 @@ def test_generate_all_epics_aggregates_exit_code(tmp_path: Path, repo_root: Path
         (edir / "configs").mkdir(parents=True)
         (edir / "specs").mkdir(parents=True)
         (edir / "contracts").mkdir(parents=True)
-        (tmp_path / "configs" / "default_spec_configs.yaml").write_text(defaults_text, encoding="utf-8")
+        (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults_text, encoding="utf-8")
         (edir / "configs" / "v1.0.yaml").write_text(
             f"epic: '{name}'\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
             f"tables:\n  - table_name: T\n",
@@ -262,11 +274,15 @@ def _bootstrap_multi_version_epic(tmp_path: Path, repo_root: Path, *, versions: 
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     edir = tmp_path / "epics" / "E"
     (edir / "configs").mkdir(parents=True, exist_ok=True)
     (edir / "specs").mkdir(parents=True, exist_ok=True)
     (edir / "contracts").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
 
     from openpyxl import Workbook
 

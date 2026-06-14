@@ -76,7 +76,7 @@ from typing import Any
 import yaml
 
 from data_contract.errors import ConfigError
-from data_contract.validation.parsers import get_by_name
+from data_contract.data_parsers import get_by_name
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +88,11 @@ from data_contract.validation.parsers import get_by_name
 # configs/types.yaml plus a phase in `_validate_one_table`).
 _STRUCTURAL_CHECK_NAMES: frozenset[str] = frozenset({
     "type_coercion", "boolean_coercion", "nullable", "max_length",
+    # Source-schema drift checks (default off). The parser may expose a
+    # ParserSchema with column_names / column_types; these checks compare
+    # that against the contract and emit warnings on mismatch. Skipped
+    # silently when the parser doesn't report a schema (e.g. fixed-width).
+    "field_names_from_sample", "field_types_from_sample",
 })
 
 CHECK_TIER_KEYS: tuple[str, ...] = ("structural", "table", "field")
@@ -427,7 +432,11 @@ class _DefaultsBlock:
 @dataclass(frozen=True)
 class ValidationConfig:
     settings: ValidationSettings
-    parser_yaml_dir: Path
+    # Per-format parser defaults loaded once from `configs/parsers.yaml`.
+    # Empty dict when the file is missing -- the runner then falls through
+    # to validation.yaml overrides for every value. Stored already-parsed
+    # so the validation runner doesn't redo filesystem work per table.
+    parser_yaml_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     contracts_folder: Path | None = None
     defaults: _DefaultsBlock = field(default_factory=_DefaultsBlock)
     tables: dict[str, TableValidationConfig] = field(default_factory=dict)
@@ -437,12 +446,20 @@ class ValidationConfig:
     metrics: MetricGates = field(default_factory=MetricGates)
 
     @classmethod
-    def from_yaml(cls, validation_yaml: Path, parser_yaml_dir: Path) -> "ValidationConfig":
+    def from_yaml(
+        cls, validation_yaml: Path, parsers_yaml_path: Path,
+    ) -> "ValidationConfig":
         if not validation_yaml.is_file():
             raise ConfigError(f"validation config not found: {validation_yaml}")
         raw = yaml.safe_load(validation_yaml.read_text(encoding="utf-8")) or {}
         if not isinstance(raw, dict):
             raise ConfigError(f"{validation_yaml}: top-level YAML must be a mapping")
+
+        # --- per-format parser defaults (configs/parsers.yaml) ----------------
+        # Load once; the dict is then merged with validation.yaml-side overrides
+        # at `effective_parser_params` call time.
+        from data_contract.data_parsers import load_parser_yaml_overrides
+        parser_yaml_overrides = load_parser_yaml_overrides(parsers_yaml_path)
 
         # --- contracts_folder --------------------------------------------------
         contracts_folder_raw = raw.get("contracts_folder")
@@ -529,7 +546,7 @@ class ValidationConfig:
 
         return cls(
             settings=ValidationSettings(extra_columns_severity=extra_sev, rejected_row_cap=cap),
-            parser_yaml_dir=parser_yaml_dir,
+            parser_yaml_overrides=parser_yaml_overrides,
             contracts_folder=contracts_folder,
             defaults=defaults_block,
             tables=tables,
@@ -553,14 +570,16 @@ class ValidationConfig:
         )
 
     def effective_parser_params(self, table_cfg: TableValidationConfig) -> dict[str, Any]:
-        parser_yaml = self.parser_yaml_dir / f"{table_cfg.format}.yaml"
-        parser_yaml_defaults: dict[str, Any] = {}
-        if parser_yaml.is_file():
-            loaded = yaml.safe_load(parser_yaml.read_text(encoding="utf-8")) or {}
-            if not isinstance(loaded, dict):
-                raise ConfigError(f"{parser_yaml}: top-level YAML must be a mapping")
-            parser_yaml_defaults = loaded
-        return {**parser_yaml_defaults, **self.defaults.parser_overrides, **table_cfg.parser_overrides}
+        """Three-layer merge (last wins):
+        1. `configs/parsers.yaml` `<format>:` block (per-format defaults).
+        2. `validation.yaml: defaults.parser_overrides:` (per-run global).
+        3. `validation.yaml: tables.<T>.parser_overrides:` (per-table).
+        """
+        return {
+            **self.parser_yaml_overrides.get(table_cfg.format, {}),
+            **self.defaults.parser_overrides,
+            **table_cfg.parser_overrides,
+        }
 
 
 # ---------------------------------------------------------------------------

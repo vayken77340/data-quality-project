@@ -425,6 +425,10 @@ def _bootstrap_joins_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     edir = tmp_path / "epics" / "E"
     (edir / "configs").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
@@ -444,7 +448,7 @@ joins:
     cardinality:   { spec_name: Card,         value_required: false }
     description:   { spec_name: Description,  value_required: false }
 """
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(defaults, encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults, encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T1\n  - table_name: T2\n",

@@ -40,6 +40,10 @@ def _write_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (tmp_path / "configs" / "targets").mkdir()
     for name in ("postgres.yaml", "oracle.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / name).write_text(
@@ -69,6 +73,7 @@ def _write_epic(
         "structural": {
             "type_coercion": True, "boolean_coercion": True,
             "nullable": True, "max_length": True,
+            "field_names_from_sample": False, "field_types_from_sample": False,
         },
         "table": {
             "column_missing": True, "pk_uniqueness": True, "fk_existence": True,

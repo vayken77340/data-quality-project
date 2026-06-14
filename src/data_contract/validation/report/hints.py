@@ -86,6 +86,19 @@ HINTS: dict[str, str] = {
         "The foreign-key target table was not validated in this run. "
         "Re-run without a --table filter or include the target table in the validation.yaml tables block."
     ),
+    # Source-schema drift (parser declared a schema that diverges from the contract).
+    "field_name_drift": (
+        "A column name declared by the source file does not match the contract (or vice versa). "
+        "Confirm whether the upstream team renamed a column -- update the contract field or correct the source extract."
+    ),
+    "field_type_drift": (
+        "A column's type declared by the source file disagrees with the contract type after normalisation. "
+        "Either update the contract type to match what upstream now produces, or fix the source-side type if the contract is authoritative."
+    ),
+    "field_type_unknown": (
+        "The source declared a type the parser doesn't know how to translate to a contract Type. "
+        "Extend the parser's SOURCE_TYPE_ALIASES with the new source-side type so the drift check can compare it next run."
+    ),
 }
 
 

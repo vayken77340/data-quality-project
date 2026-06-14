@@ -7,10 +7,24 @@ from pathlib import Path
 from typing import Sequence
 
 from data_contract import __version__
-from data_contract._util import dump_yaml, now_iso_z
+from data_contract._util import (
+    InvalidEpicName,
+    dump_yaml,
+    now_iso_z,
+    validate_epic_name,
+)
+
+
+def _epic_arg_type(raw: str) -> str:
+    """argparse `type=` adapter for `--epic`. Surfaces validation errors as
+    the standard `argument --epic: <reason>` argparse message."""
+    try:
+        return validate_epic_name(raw)
+    except InvalidEpicName as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 from data_contract.generation.config import (
     ALL_TABLES,
-    DEFAULT_SPEC_CONFIGS_FILENAME,
+    SPECS_PARSING_FILENAME,
     Defaults,
     EpicConfig,
     MergedConfig,
@@ -120,7 +134,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "drift",
         help="Compute drift between two existing history snapshots without regenerating.",
     )
-    drift.add_argument("--epic", required=True)
+    drift.add_argument("--epic", required=True, type=_epic_arg_type)
     drift.add_argument("--table", required=True)
     drift.add_argument("--from", dest="from_version", required=True, help="Older history version, e.g. 1.0.")
     drift.add_argument("--to", dest="to_version", required=True, help="Newer history version, e.g. 2.0.")
@@ -141,7 +155,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "validate-contract",
         help="Validate a contract YAML on disk: JSON Schema + semantic invariants.",
     )
-    validate_c.add_argument("--epic", default=None, help="Validate every <epic>/contracts/*.yaml.")
+    validate_c.add_argument(
+        "--epic", default=None, type=_epic_arg_type,
+        help="Validate every <epic>/contracts/*.yaml.",
+    )
     validate_c.add_argument("--file", default=None, help="Validate a single YAML file. Mutually exclusive with --epic.")
     validate_c.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
     validate_c.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
@@ -166,7 +183,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "validate-data",
         help="Validate sample data against an epic's contracts.",
     )
-    validate_d.add_argument("--epic", required=True)
+    validate_d.add_argument("--epic", required=True, type=_epic_arg_type)
     validate_d.add_argument("--table", default=None, help="Restrict to one table.")
     validate_d.add_argument(
         "--input-dir",
@@ -196,7 +213,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _add_generate_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--epic", default=None, help="Epic name (e.g. 1118). If omitted, every epic under --epic-root is processed.")
+    p.add_argument(
+        "--epic", default=None, type=_epic_arg_type,
+        help=(
+            "Epic name (e.g. 1118, 1118_MVP). Letters/digits/spaces/.-_; "
+            "1-64 chars; must start and end with a letter or digit. "
+            "If omitted, every epic under --epic-root is processed."
+        ),
+    )
     p.add_argument("--version", default=None, help="Pick a specific version config (mutually exclusive with --config).")
     p.add_argument("--config", default=None, help="Explicit path to a version config (requires --epic; mutually exclusive with --version).")
     p.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
@@ -290,7 +314,7 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     settings = load_settings()
     # Spec-parsing defaults are global config: derived from the --types path
     # (same global config folder) rather than from per-epic directories.
-    default_spec_configs_path = Path(args.types).parent / DEFAULT_SPEC_CONFIGS_FILENAME
+    specs_parsing_path = Path(args.types).parent / SPECS_PARSING_FILENAME
 
     total = _Outcome()
     for epic in epics:
@@ -298,7 +322,7 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
             epic=epic,
             epic_root=epic_root,
             registry=registry,
-            default_spec_configs_path=default_spec_configs_path,
+            specs_parsing_path=specs_parsing_path,
             version=args.version,
             explicit_config=Path(args.config) if args.config else None,
             allow_unknown_types=args.allow_unknown_types,
@@ -349,7 +373,7 @@ def _process_epic(
     epic: str,
     epic_root: Path,
     registry: TypeRegistry,
-    default_spec_configs_path: Path,
+    specs_parsing_path: Path,
     version: str | None,
     explicit_config: Path | None,
     allow_unknown_types: bool,
@@ -370,7 +394,7 @@ def _process_epic(
             version=version,
             explicit_path=explicit_config,
         )
-        defaults = Defaults.from_yaml(default_spec_configs_path)
+        defaults = Defaults.from_yaml(specs_parsing_path)
         merged = merge(defaults, epic_config)
     except ConfigError as e:
         print(f"config error in epic {epic}: {e}", file=sys.stderr)

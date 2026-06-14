@@ -33,6 +33,13 @@ checks:
     boolean_coercion: true
     nullable: true
     max_length: true
+    # Source-schema drift checks (default off). Flip on to compare
+    # parser-discovered column names / types against the contract.
+    # `field_names_from_sample` skips silently for parsers that don't expose
+    # column names; `field_types_from_sample` skips silently for parsers
+    # without type info (e.g. CSV).
+    field_names_from_sample: false
+    field_types_from_sample: false
   table:
     column_missing: true
     pk_uniqueness: true

@@ -13,11 +13,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from data_contract.validation.parsers.base import FileParser
+from data_contract.data_parsers.base import FileParser, ParsedFile, ParserSchema
 
 
 class ExcelParser(FileParser):
-    """Read Excel workbooks (one or more) into a single Polars LazyFrame.
+    """Read one Excel workbook into a list of stringified row dicts.
 
     Spec params:    header_row, null_tokens, sheet_name.
     Reads via:      python-calamine (Rust-based xlsx reader). Every cell is
@@ -29,68 +29,61 @@ class ExcelParser(FileParser):
                          `table_name_hint` (i.e. the contract's table key)
                          when such a sheet exists in the workbook.
                       3. fallback to the first sheet.
-    Multi-file:     concat with `__source_file__` and `__row_index__` columns
-                    added per source frame.
+    Multi-file:     handled by `FileParser.read()`.
+
+    Schema:         column_names exposed from the header row. column_types
+                    is None -- Excel cell types are too fuzzy to declare
+                    confidently (a column may mix numbers, formulas, blanks).
     """
 
     name = "excel"
     extensions = (".xlsx", ".xls")
     PARSER_PARAMS = ("header_row", "null_tokens", "sheet_name")
-    DEFAULTS = {"header_row": 1, "null_tokens": [""]}
+    # No DEFAULTS classvar -- per-format defaults live in `configs/parsers.yaml`.
 
-    def read(self, paths: list[Path], *, table_name_hint: str | None = None) -> Any:
-        import polars as pl
+    def parse_file(
+        self, path: Path, *, table_name_hint: str | None = None
+    ) -> ParsedFile:
         from python_calamine import CalamineWorkbook
-
-        if not paths:
-            raise ValueError("ExcelParser.read called with no paths")
 
         skip = max(0, int(self.params["header_row"]) - 1)
         null_tokens = list(self.params["null_tokens"])
         explicit_sheet = self.params.get("sheet_name")
 
-        frames = []
-        for path in paths:
-            wb = CalamineWorkbook.from_path(str(path))
-            resolved_sheet = _resolve_sheet_name(
-                wb, explicit=explicit_sheet, table_name_hint=table_name_hint
+        wb = CalamineWorkbook.from_path(str(path))
+        resolved_sheet = _resolve_sheet_name(
+            wb, explicit=explicit_sheet, table_name_hint=table_name_hint
+        )
+        sheet = wb.get_sheet_by_name(resolved_sheet)
+        raw_rows = sheet.to_python(skip_empty_area=False)
+
+        sliced = raw_rows[skip:]
+        if not sliced:
+            return ParsedFile(
+                rows=[],
+                schema=ParserSchema(column_names=[], column_types=None),
             )
-            sheet = wb.get_sheet_by_name(resolved_sheet)
-            rows = sheet.to_python(skip_empty_area=False)
 
-            sliced = rows[skip:]
-            if not sliced:
-                df = pl.DataFrame({}, schema={})
-            else:
-                header = [str(c) if c is not None else "" for c in sliced[0]]
-                data_rows = sliced[1:]
-                columns: dict[str, list[str | None]] = {h: [] for h in header}
-                for row in data_rows:
-                    # Pad / truncate to header width; calamine returns ragged
-                    # rows when trailing cells are empty.
-                    padded = list(row) + [None] * (len(header) - len(row))
-                    for i, h in enumerate(header):
-                        columns[h].append(_to_string(padded[i]))
-                schema = {h: pl.String for h in header}
-                df = pl.DataFrame(columns, schema=schema)
+        header = [str(c) if c is not None else "" for c in sliced[0]]
+        data_rows = sliced[1:]
+        null_set = set(null_tokens)
+        rows: list[dict[str, str | None]] = []
+        for row in data_rows:
+            # Pad / truncate to header width; calamine returns ragged rows
+            # when trailing cells are empty.
+            padded = list(row) + [None] * (len(header) - len(row))
+            out: dict[str, str | None] = {}
+            for i, h in enumerate(header):
+                value = _to_string(padded[i])
+                if value in null_set:
+                    value = None
+                out[h] = value
+            rows.append(out)
 
-            # Map configured null tokens to actual nulls (every column is
-            # String here, so this is uniform).
-            if null_tokens:
-                df = df.with_columns(
-                    pl.when(pl.col(pl.String).is_in(null_tokens))
-                    .then(None)
-                    .otherwise(pl.col(pl.String))
-                    .name.keep()
-                )
-
-            lf = df.lazy().with_row_index(name="__row_index__", offset=1).with_columns(
-                pl.lit(path.name).alias("__source_file__"),
-            )
-            frames.append(lf)
-        if len(frames) == 1:
-            return frames[0]
-        return pl.concat(frames, how="diagonal_relaxed")
+        return ParsedFile(
+            rows=rows,
+            schema=ParserSchema(column_names=header, column_types=None),
+        )
 
 
 def _to_string(value: Any) -> str | None:

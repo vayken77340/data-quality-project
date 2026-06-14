@@ -8,6 +8,7 @@ Layout (verb-axis):
     ├── field_constraints/   per-field constraint registry (dev extension point)
     ├── table_checks/        whole-table check registry (dev extension point)
     ├── metrics/             data profiling registry (dev extension point)
+    ├── data_parsers/        file-format parser registry (dev extension point)
     ├── contract.py          shared Contract / FieldContract / FieldCheck dataclasses
     ├── type_mapping.py      shared type system
     ├── targets.py           shared per-database type overlay
@@ -17,10 +18,11 @@ Layout (verb-axis):
     ├── cli.py               CLI dispatcher
     └── __main__.py          entry point
 
-Devs adding a new check or metric should NOT need to read framework code.
-The three extension registries each have a base class + a register helper
-re-exported below so a new check is at most a 3-line import. See
-EXTENDING.md (next to this file) for the per-tier recipe.
+Devs adding a new check, metric, or parser should NOT need to read
+framework code. The four extension registries each have a base class +
+a register helper re-exported below so a new extension is at most a
+3-line import. See EXTENDING.md (next to this file) for the per-tier
+recipe.
 """
 
 from __future__ import annotations
@@ -44,6 +46,12 @@ from data_contract.metrics import (
     TableMetric,
     register as register_metric,
 )
+from data_contract.data_parsers import (
+    FileParser,
+    ParsedFile,
+    ParserSchema,
+    register as register_parser,
+)
 
 __all__ = [
     "__version__",
@@ -55,4 +63,6 @@ __all__ = [
     "TableCheck", "register_table_check",
     # Metrics
     "TableMetric", "MetricResult", "register_metric",
+    # Data parsers
+    "FileParser", "ParsedFile", "ParserSchema", "register_parser",
 ]

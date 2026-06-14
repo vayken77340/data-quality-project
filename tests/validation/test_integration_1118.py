@@ -265,22 +265,40 @@ def test_input_dir_override_against_external_fixture(repo_root: Path, tmp_path: 
     """--input-dir overrides the epic_dir base. With the shipped file_pattern
     `sample/{table}*.xlsx`, pointing --input-dir at a dir that has a sample/
     subdir lets you validate an arbitrary external dataset.
+
+    We seed the external dataset by copying the clean fixtures from epic
+    1118 and then blanking the first data row's PK in PROJECT -- guarantees
+    at least one error (`nullable_violation` on a non-nullable PK column),
+    so the CLI returns exit code 2.
     """
+    import shutil
+    from openpyxl import load_workbook
+
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
-    # Build an external dir with a sample/ subdir holding the dirty fixtures.
     ext = tmp_path / "external"
     (ext / "sample").mkdir(parents=True)
-    import shutil
-    for f in (repo_root / "epics" / "1118" / "sample_dirty").iterdir():
+    # Copy the clean fixtures into the external sample/ directory.
+    for f in (repo_root / "epics" / "1118" / "sample").iterdir():
         shutil.copy2(f, ext / "sample" / f.name)
+    # Dirty PROJECT.xlsx: blank the first data row's `proj_id` (the
+    # non-nullable PK -- a guaranteed violation). The PROJECT contract
+    # declares proj_id as the first field so it lands in column A.
+    project_xlsx = ext / "sample" / "PROJECT.xlsx"
+    wb = load_workbook(project_xlsx)
+    ws = wb.active
+    # Row 1 is the header per the default `header_row: 1` parser config;
+    # row 2 is the first data row. Blank A2 to trigger the violation.
+    ws["A2"] = None
+    wb.save(project_xlsx)
+
     rc = main([
         "validate-data",
         "--epic", "1118",
         "--input-dir", str(ext),  # absolute path
         "--output-dir", str(out),
     ])
-    assert rc == 2  # dirty fixtures have seeded violations
+    assert rc == 2  # the seeded null PK trips a nullable_violation
 
 
 def test_default_output_dir_lands_under_epic_validations(repo_root: Path, tmp_path: Path, monkeypatch):
@@ -301,8 +319,8 @@ def test_no_input_files_violation_includes_diagnostic(repo_root: Path, tmp_path:
     out = _outdir(tmp_path)
     # Point file_pattern at a subdir that exists but has no matching files (typo case).
     fake_epic = tmp_path / "epics" / "1118"
-    (fake_epic / "configs" / "parsers").mkdir(parents=True)
     from tests.conftest import ALL_CHECKS_ENABLED_YAML
+    (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
         ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + """
 defaults:
@@ -354,8 +372,8 @@ def test_no_input_files_diagnostic_when_base_missing(repo_root: Path, tmp_path: 
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
     fake_epic = tmp_path / "epics" / "1118"
-    (fake_epic / "configs" / "parsers").mkdir(parents=True)
     from tests.conftest import ALL_CHECKS_ENABLED_YAML
+    (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
         ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + """
 defaults:
@@ -415,8 +433,8 @@ def _build_french_boolean_epic(
 
     epic_root = epic_root_parent / "epics"
     fake_epic = epic_root / "1118"
-    (fake_epic / "configs" / "parsers").mkdir(parents=True)
     from tests.conftest import ALL_CHECKS_ENABLED_YAML
+    (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
         ALL_CHECKS_ENABLED_YAML +
         "target: postgres\n"

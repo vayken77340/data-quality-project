@@ -34,7 +34,7 @@ tables:
     format: csv
     file_pattern: "project_*.csv"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert "PROJECT" in cfg.tables
     t = cfg.tables["PROJECT"]
     assert t.format == "csv"
@@ -54,7 +54,7 @@ tables:
     file_pattern: "x.parquet"
 """)
     with pytest.raises(ConfigError, match="unknown parser"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_unknown_override_key_rejected(tmp_path):
@@ -68,7 +68,7 @@ tables:
       bogus_key: value
 """)
     with pytest.raises(ConfigError, match="unknown keys"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_field_mapping_must_be_string_to_string(tmp_path):
@@ -82,7 +82,7 @@ tables:
       "Spec Col": 123  # value isn't a string
 """)
     with pytest.raises(ConfigError, match="field_mapping"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_invalid_settings_rejected(tmp_path):
@@ -96,14 +96,17 @@ settings:
   extra_columns_severity: catastrophic
 """)
     with pytest.raises(ConfigError, match="extra_columns_severity"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_effective_parser_params_uses_parser_yaml_defaults(tmp_path):
+    """`configs/parsers.yaml` is the per-format defaults source. Top-level
+    keys are format names; each block is the parser's default params."""
     cfg_dir = tmp_path / "configs"
-    _write(cfg_dir / "parsers" / "csv.yaml", """
-delimiter: ";"
-encoding: utf-8
+    _write(cfg_dir / "parsers.yaml", """
+csv:
+  delimiter: ";"
+  encoding: utf-8
 """)
     _write(cfg_dir / "validation.yaml", """
 tables:
@@ -111,32 +114,44 @@ tables:
     format: csv
     file_pattern: "x.csv"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     params = cfg.effective_parser_params(cfg.tables["X"])
     assert params == {"delimiter": ";", "encoding": "utf-8"}
 
 
-def test_effective_parser_params_overrides_win(tmp_path):
+def test_effective_parser_params_layers_yaml_then_global_then_table(tmp_path):
+    """Three-layer merge (last wins):
+    1. configs/parsers.yaml[<format>:]      -- per-format defaults
+    2. validation.yaml: defaults.parser_overrides: -- per-run global
+    3. validation.yaml: tables.<T>.parser_overrides: -- per-table
+    """
     cfg_dir = tmp_path / "configs"
-    _write(cfg_dir / "parsers" / "csv.yaml", """
-delimiter: ","
-encoding: utf-8
+    _write(cfg_dir / "parsers.yaml", """
+csv:
+  delimiter: ","
+  encoding: utf-8
 """)
     _write(cfg_dir / "validation.yaml", """
+defaults:
+  parser_overrides:
+    delimiter: ";"
 tables:
   X:
     format: csv
     file_pattern: "x.csv"
     parser_overrides:
-      delimiter: "|"
+      encoding: latin-1
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     params = cfg.effective_parser_params(cfg.tables["X"])
-    # override delimiter wins; parser-yaml encoding survives
-    assert params == {"delimiter": "|", "encoding": "utf-8"}
+    # YAML base (delimiter "," + encoding utf-8), then defaults overrides
+    # bump delimiter to ";", then table overrides bump encoding to latin-1.
+    assert params == {"delimiter": ";", "encoding": "latin-1"}
 
 
 def test_effective_parser_params_missing_yaml_returns_overrides_only(tmp_path):
+    """Missing `configs/parsers.yaml` is OK -- the loader returns {} and
+    the merge falls through to validation.yaml-side overrides."""
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
@@ -144,7 +159,7 @@ tables:
     format: csv
     file_pattern: "x.csv"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     params = cfg.effective_parser_params(cfg.tables["X"])
     assert params == {}
 
@@ -159,7 +174,7 @@ tables:
   PROJECT:
   CALENDAR:
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.defaults.file_pattern == "data.xlsx"
     assert cfg.defaults.format == "excel"
     assert cfg.tables["PROJECT"].file_pattern == "data.xlsx"
@@ -181,7 +196,7 @@ tables:
     format: csv
     file_pattern: "orders.csv"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.tables["PROJECT"].format == "excel"
     assert cfg.tables["PROJECT"].file_pattern == "project_special.xlsx"
     assert cfg.tables["CALENDAR"].file_pattern == "fallback.xlsx"
@@ -201,7 +216,7 @@ tables:
     file_pattern: "calendar.xlsx"
 """)
     with pytest.raises(ConfigError, match="no file_pattern"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_missing_format_and_no_default_is_config_error(tmp_path):
@@ -214,7 +229,7 @@ tables:
   PROJECT:
 """)
     with pytest.raises(ConfigError, match="no format"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_empty_defaults_file_pattern_rejected(tmp_path):
@@ -228,7 +243,7 @@ tables:
     format: excel
 """)
     with pytest.raises(ConfigError, match="defaults.file_pattern"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_unknown_defaults_key_rejected(tmp_path):
@@ -243,7 +258,7 @@ tables:
   PROJECT:
 """)
     with pytest.raises(ConfigError, match="unknown keys"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_tables_omitted_validates_all_discovered_contracts(tmp_path):
@@ -258,7 +273,7 @@ defaults:
   format: excel
   file_pattern: "data.xlsx"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.is_filtered() is False
     entry = cfg.build_table_entry("AUTO_TABLE")
     assert entry.table == "AUTO_TABLE"
@@ -275,7 +290,7 @@ defaults:
 tables:
   PROJECT:
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.is_filtered() is True
     assert list(cfg.tables) == ["PROJECT"]
 
@@ -290,7 +305,7 @@ defaults:
 tables:
   PROJECT:
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.contracts_folder == Path("somewhere/else/contracts")
 
 
@@ -303,7 +318,7 @@ defaults:
 tables:
   PROJECT:
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.contracts_folder is None
 
 
@@ -321,7 +336,7 @@ tables:
     parser_overrides:
       delimiter: "|"      # override defaults
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     params = cfg.effective_parser_params(cfg.tables["PROJECT"])
     # delimiter from table wins, encoding from defaults survives
     assert params["delimiter"] == "|"
@@ -343,7 +358,7 @@ tables:
     parser_overrides:
       sheet_name: "Calendar"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     assert cfg.effective_parser_params(cfg.tables["PROJECT"])["sheet_name"] == "Project"
     assert cfg.effective_parser_params(cfg.tables["CALENDAR"])["sheet_name"] == "Calendar"
 
@@ -356,7 +371,7 @@ tables:
     format: excel
     file_pattern: "data.xlsx"
 """)
-    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+    cfg = ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
     params = cfg.effective_parser_params(cfg.tables["PROJECT"])
     assert "sheet_name" not in params
 
@@ -375,7 +390,7 @@ tables:
       sheet_name: "Sheet1"
 """)
     with pytest.raises(ConfigError, match="unknown keys"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_misplaced_top_level_sheet_name_rejected_at_load(tmp_path):
@@ -391,7 +406,7 @@ tables:
     sheet_name: "Sheet1"
 """)
     with pytest.raises(ConfigError, match="parser_overrides"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_misplaced_top_level_encoding_rejected_at_load(tmp_path):
@@ -406,7 +421,7 @@ tables:
     encoding: utf-8
 """)
     with pytest.raises(ConfigError, match="parser_overrides"):
-        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers")
+        ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
 def test_violation_to_dict_round_trip():

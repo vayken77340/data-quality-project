@@ -23,6 +23,10 @@ def _build_epic(tmp_path: Path, *, target: str | None = None,
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     # Targets always needed now (target: is required in validation.yaml).
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
@@ -49,11 +53,13 @@ def _build_epic(tmp_path: Path, *, target: str | None = None,
         "max_length": True, "column_missing": True, "pk_uniqueness": True,
         "fk_existence": True, "allowed_values": True, "pattern": True,
         "min_value": True, "max_value": True, "format": True, "unique": True,
+        "field_names_from_sample": False, "field_types_from_sample": False,
     }
     base.update(disable or {})
     tier_of = {
         "type_coercion": "structural", "boolean_coercion": "structural",
         "nullable": "structural", "max_length": "structural",
+        "field_names_from_sample": "structural", "field_types_from_sample": "structural",
         "column_missing": "table", "pk_uniqueness": "table", "fk_existence": "table",
         "allowed_values": "field", "pattern": "field", "min_value": "field",
         "max_value": "field", "format": "field", "unique": "field",

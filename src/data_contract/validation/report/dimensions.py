@@ -51,13 +51,19 @@ _STRUCTURAL_KIND_TO_DIMENSION: dict[str, Dimension] = {
     "type_coercion_violation":     Dimension.VALIDITY,
     "max_length_violation":        Dimension.VALIDITY,
     "boolean_coercion_violation":  Dimension.VALIDITY,
+    # Source-schema drift (default off; one source -> one warning kind).
+    "field_name_drift":        Dimension.VALIDITY,
+    "field_type_drift":        Dimension.VALIDITY,
+    "field_type_unknown":         Dimension.VALIDITY,
 }
 
 _STRUCTURAL_CHECK_TO_KIND: dict[str, str] = {
-    "type_coercion":    "type_coercion_violation",
-    "boolean_coercion": "boolean_coercion_violation",
-    "nullable":         "nullable_violation",
-    "max_length":       "max_length_violation",
+    "type_coercion":        "type_coercion_violation",
+    "boolean_coercion":     "boolean_coercion_violation",
+    "nullable":             "nullable_violation",
+    "max_length":           "max_length_violation",
+    "field_names_from_sample":  "field_name_drift",
+    "field_types_from_sample":  "field_type_drift",
 }
 
 # Operational kinds: bypass the quality-score machinery.

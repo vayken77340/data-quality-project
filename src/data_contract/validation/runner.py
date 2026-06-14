@@ -45,7 +45,7 @@ from data_contract.validation.config import (
     ValidationConfig,
     ValidationSettings,
 )  # TableValidationConfig is re-used by _resolve_table_configs.
-from data_contract.validation.parsers import get_by_name
+from data_contract.data_parsers import get_by_name
 from data_contract.violations import Violation
 # Pluggable registries (the three tiers' homes).
 from data_contract import table_checks as _table_checks_pkg
@@ -86,6 +86,14 @@ class TableReport:
     by_check: dict[str, Any] = dc_field(default_factory=dict)
     # Configurable metrics: dict[metric_name, metrics.MetricResult].
     metrics: dict[str, Any] = dc_field(default_factory=dict)
+    # Per-file parser-discovered schema, populated when the parser exposed
+    # `ParserSchema` (CSV header, Excel header, JSON `report_header`, etc.).
+    # The optional `field_*_from_sample` structural checks consume this.
+    # Shape: list[tuple[filename, ParserSchema | None]].
+    source_schemas: list[tuple[str, Any]] = dc_field(default_factory=list)
+    # Parser class used to load this table (stashed so the drift checks can
+    # call its `normalize_source_type` for source-type translation).
+    parser_cls: Any = None
 
 
 @dataclass
@@ -162,19 +170,29 @@ def run_validate_data(
       - output_dir: None -> epic_dir/"validations"; relative -> epic_dir/<relative>;
         absolute -> as-is.
     """
+    # Defensive: callers reaching the runner via the library API (tests,
+    # other tools) bypass cli.py's argparse validator. Enforce the same
+    # epic-name rules here so a bad name can't escape into filesystem paths.
+    from data_contract._util import InvalidEpicName, validate_epic_name
+    try:
+        epic = validate_epic_name(epic)
+    except InvalidEpicName as e:
+        print(f"validate-data: {e}", file=sys.stderr)
+        return 1
+
     epic_dir = epic_root / epic
     configs_dir = epic_dir / "configs"
     validation_yaml = configs_dir / "validation.yaml"
     # Parser defaults (encoding, delimiter, header_row, null_tokens, ...) are
     # global config: a CSV is parsed the same way regardless of which epic
-    # owns the data. They live next to types.yaml under the global config
-    # folder rather than per-epic, so derive their location from --types.
-    parser_yaml_dir = types_path.parent / "parsers"
+    # owns the data. They live in one YAML next to types.yaml -- derive its
+    # location from --types so a custom types.yaml gets a matching parsers.yaml.
+    parsers_yaml_path = types_path.parent / "parsers.yaml"
     input_dir = _resolve_epic_path(input_dir, epic_dir, default_subdir=None)
     out_dir = _resolve_epic_path(output_dir, epic_dir, default_subdir=DEFAULT_OUTPUT_SUBDIR)
 
     try:
-        config = ValidationConfig.from_yaml(validation_yaml, parser_yaml_dir)
+        config = ValidationConfig.from_yaml(validation_yaml, parsers_yaml_path)
     except (ConfigError, OSError) as e:
         print(f"validate-data: {e}", file=sys.stderr)
         return 1
@@ -515,7 +533,7 @@ def _validate_one_table(
     parser_params = config.effective_parser_params(table_cfg)
     parser = parser_cls(parser_params)
     try:
-        frame = parser.read(paths, table_name_hint=contract.table)
+        parsed = parser.read(paths, table_name_hint=contract.table)
     except Exception as e:
         report.violations.append(Violation(
             kind="parser_failure",
@@ -525,6 +543,15 @@ def _validate_one_table(
             offending_value=str(e),
         ))
         return None
+    frame = parsed.frame
+    # Stash the per-file parser schemas on the report so the optional
+    # source-schema drift checks can compare them against the contract
+    # later in this function.
+    report.source_schemas = parsed.per_file_schemas
+    # Remember the parser class so `check_field_types_from_sample` can call
+    # `parser.normalize_source_type(...)` for the format-specific
+    # source-type -> contract-type translation.
+    report.parser_cls = parser_cls
 
     # Rename data columns to contract field names via field_mapping.
     if table_cfg.field_mapping:
@@ -549,6 +576,34 @@ def _validate_one_table(
     contract_field_names = contract.field_name_set()
     data_columns = {c for c in df.columns if c not in {"__source_file__", "__row_index__"}}
     checks = table_cfg.checks
+
+    # Structural source-schema drift checks. Both default off, both emit
+    # warnings. Each skips silently when no source file in this run
+    # reported the relevant schema component (e.g. CSV runs never
+    # trigger `field_types_from_sample` because CSV has no type info).
+    if checks.is_enabled("field_names_from_sample") and report.source_schemas:
+        from data_contract.validation.checks.sample_field_drift import (
+            check_field_names_from_sample,
+        )
+        report.violations.extend(
+            check_field_names_from_sample(
+                table=contract.table,
+                per_file_schemas=report.source_schemas,
+                contract=contract,
+            )
+        )
+    if checks.is_enabled("field_types_from_sample") and report.source_schemas:
+        from data_contract.validation.checks.sample_field_drift import (
+            check_field_types_from_sample,
+        )
+        report.violations.extend(
+            check_field_types_from_sample(
+                table=contract.table,
+                per_file_schemas=report.source_schemas,
+                contract=contract,
+                parser=parser,
+            )
+        )
 
     # Table-tier checks that don't need cross-table state. The registry
     # dispatch handles column_missing (table-scope, returns list[Violation])

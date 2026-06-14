@@ -24,6 +24,10 @@ def _build_test_epic(tmp_path: Path, *, target: str | None = None) -> Path:
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     # Targets always needed now (target: is required in validation.yaml).
     (tmp_path / "configs" / "targets").mkdir()
     for name in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):

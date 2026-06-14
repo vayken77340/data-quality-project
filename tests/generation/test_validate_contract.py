@@ -32,6 +32,10 @@ def _bootstrap_validate_layout(tmp_path: Path, repo_root: Path) -> Path:
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     return tmp_path
 
 
@@ -199,7 +203,7 @@ def test_generate_self_check_catches_dangling_fk(tmp_path, repo_root, monkeypatc
     (edir / "contracts").mkdir(parents=True)
 
 
-    (tmp_path / "configs" / "default_spec_configs.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
         "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
         "tables:\n  - table_name: T\n",

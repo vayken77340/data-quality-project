@@ -35,6 +35,19 @@ The CLI auto-picks the highest-version config in `epics/<epic>/configs/`. Pin a 
 
 Exit codes: `0` = all tables built clean, `2` = at least one rejection, `1` = an epic couldn't be processed (bad config / missing spec).
 
+## Epic names
+
+The epic name is also the folder name under `epics/` and the literal `epic:` field stamped into every generated contract YAML, so the rules are conservative on purpose:
+
+- **Allowed**: ASCII letters, digits, spaces, and `.`, `_`, `-`. 1–64 characters.
+- **Must start AND end with a letter or digit** — so `--foo`, `1118.`, ` 1118` are all rejected.
+- **Reserved**: `.`, `..`, anything containing `..` (path-traversal guard), and the Windows-illegal characters `/ \ : * ? " < > |`.
+- **No leading or trailing whitespace, no control characters, no Unicode letters** (Unicode normalisation across Windows / macOS / Linux causes surprises during folder iteration).
+
+Valid examples: `1118`, `1118_MVP`, `1118 P1`, `customer_360`, `acme-q3`.
+
+Spaces are allowed but mean every CLI invocation needs quotes — `python -m data_contract validate-data --epic "1118 MVP"`. If you don't need spaces, prefer `1118_MVP` to avoid the paper-cut. The validator runs at both the CLI argparse boundary and inside the runner's library entry point, so library callers get the same protection as CLI users.
+
 ## Commands
 
 - `generate` — build contracts. Writes `<table>.yaml`, history, drift, rejected files, the data dictionary XLSX, and a snapshot of the source spec into history as needed.

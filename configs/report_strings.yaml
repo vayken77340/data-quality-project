@@ -108,6 +108,8 @@ checks_sheet:
     max_value: "Verify values respect the field's maximum."
     format: "Verify values match the field's declared semantic format."
     unique: "Verify field values are unique across rows when 'unique' is set."
+    field_names_from_sample: "Compare column names declared by the source file against the contract; warn on either-side drift."
+    field_types_from_sample: "Compare source-declared column types (where the format carries them) against the contract types; warn on mismatch."
 
 rejected_sheet:
   # One row per VIOLATION. The source row is identified by Source File +
@@ -145,6 +147,9 @@ rejected_sheet:
     no_input_files: "No input files"
     parser_failure: "File cannot be parsed"
     fk_target_table_not_loaded: "FK target table not loaded"
+    field_name_drift: "Source-declared column name drifted from contract"
+    field_type_drift: "Source-declared column type drifted from contract"
+    field_type_unknown: "Source-declared type unknown to parser"
   # Logical-type → user-facing label used when expanding `{type}` in
   # `check_labels.type_coercion_violation`.
   type_user_labels:
@@ -260,4 +265,7 @@ markdown:
     no_input_files: ""
     parser_failure: ""
     fk_target_table_not_loaded: ""
+    field_name_drift: ""
+    field_type_drift: ""
+    field_type_unknown: ""
   footer: "- Full XLSX / JSON / HTML in the validations directory."

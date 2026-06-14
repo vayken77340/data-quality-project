@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from data_contract.errors import ConfigError
-from data_contract.validation import parsers
-from data_contract.validation.parsers import (
+from data_contract import data_parsers as parsers
+from data_contract.data_parsers import (
     REGISTRY,
     FileParser,
     get_by_extension,
@@ -144,16 +144,26 @@ def test_register_custom_parser_round_trip():
 
 
 def test_parser_init_rejects_unknown_param():
-    from data_contract.validation.parsers.csv import CsvParser
+    from data_contract.data_parsers.csv import CsvParser
 
     with pytest.raises(ConfigError, match="unknown config keys"):
         CsvParser({"bogus_key": "value"})
 
 
-def test_parser_init_merges_defaults():
-    from data_contract.validation.parsers.csv import CsvParser
+def test_parser_init_carries_only_explicit_params():
+    """No DEFAULTS classvar -- per-format defaults live in
+    `configs/parsers.yaml`. `__init__` stores the params dict it receives
+    as-is; nothing is injected from the class."""
+    from data_contract.data_parsers.csv import CsvParser
 
-    parser = CsvParser({"delimiter": ";"})
-    assert parser.params["delimiter"] == ";"
-    assert parser.params["encoding"] == "utf-8"  # from DEFAULTS
-    assert parser.params["header_row"] == 1
+    assert CsvParser().params == {}
+    assert CsvParser({"delimiter": ";"}).params == {"delimiter": ";"}
+
+
+def test_parser_init_rejects_unknown_param_without_defaults():
+    """The PARSER_PARAMS typo gate is independent of any defaults layer --
+    bogus keys still raise even though no DEFAULTS is consulted."""
+    from data_contract.data_parsers.csv import CsvParser
+
+    with pytest.raises(ConfigError, match="unknown config keys"):
+        CsvParser({"bogus_key": "value"})

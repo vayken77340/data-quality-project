@@ -23,6 +23,10 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(

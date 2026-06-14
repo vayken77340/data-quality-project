@@ -30,6 +30,8 @@ checks:
     boolean_coercion: true
     nullable: true
     max_length: true
+    field_names_from_sample: false
+    field_types_from_sample: false
   table:
     column_missing: true
     pk_uniqueness: true

@@ -1,4 +1,0 @@
-encoding: utf-8
-delimiter: ","
-header_row: 1
-null_tokens: ["", "NULL"]

@@ -153,6 +153,7 @@ def _write_yaml(path: Path, content: str) -> Path:
 _CHECK_TIER_OF = {
     "type_coercion": "structural", "boolean_coercion": "structural",
     "nullable": "structural", "max_length": "structural",
+    "field_names_from_sample": "structural", "field_types_from_sample": "structural",
     "column_missing": "table", "pk_uniqueness": "table", "fk_existence": "table",
     "allowed_values": "field", "pattern": "field", "min_value": "field",
     "max_value": "field", "format": "field", "unique": "field",
@@ -284,6 +285,8 @@ def test_global_checks_block_must_list_every_check(tmp_path: Path):
             type_coercion: true
             boolean_coercion: true
             max_length: true
+            field_names_from_sample: false
+            field_types_from_sample: false
           table:
             pk_uniqueness: false
             column_missing: true
@@ -349,6 +352,10 @@ def _build_epic_with_dup_pk(tmp_path: Path) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     (tmp_path / "configs" / "types.yaml").write_text(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "configs" / "parsers.yaml").write_text(
+        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     # `target:` is required in validation.yaml -- copy target YAMLs into tmp.
