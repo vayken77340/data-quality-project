@@ -29,9 +29,13 @@ class PkUniquenessCheck(TableCheck):
         pk_fields = contract.primary_key_fields()
         if not pk_fields:
             return None
-        import polars as pl
-
         pk_cols = [f.name for f in pk_fields]
+        # Defensive: skip when any PK column is absent from the data file.
+        # `column_missing` (its own check) is the place that flags the gap;
+        # uniqueness has nothing to verify against a column that doesn't exist.
+        if data_columns is not None and any(c not in data_columns for c in pk_cols):
+            return None
+        import polars as pl
 
         not_null_filter = None
         for col in pk_cols:

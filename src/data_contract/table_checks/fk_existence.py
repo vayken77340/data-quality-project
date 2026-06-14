@@ -61,10 +61,16 @@ class FkExistenceCheck(TableCheck):
     @staticmethod
     def run_for_field(child_frame, fk_col: str, parent_frame, parent_pk_col: str):
         """Return a Polars LazyFrame of rows whose FK value is non-null but
-        absent from the parent's PK column. Returns None when nothing dangles.
+        absent from the parent's PK column. Returns None when nothing dangles
+        OR when either column is absent from its frame (the `column_missing`
+        check is responsible for flagging schema gaps).
         """
         import polars as pl
 
+        child_schema = child_frame.collect_schema().names()
+        parent_schema = parent_frame.collect_schema().names()
+        if fk_col not in child_schema or parent_pk_col not in parent_schema:
+            return None
         parent_keys = {
             _canonical_str(v)
             for v in parent_frame.select(parent_pk_col).collect().to_series().to_list()

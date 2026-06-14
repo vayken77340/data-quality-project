@@ -41,8 +41,6 @@ tables:
     assert t.file_pattern == "project_*.csv"
     assert t.field_mapping == {}
     assert t.parser_overrides == {}
-    assert cfg.settings.extra_columns_severity == "warning"
-    assert cfg.settings.rejected_row_cap == 500
 
 
 def test_unknown_format_rejected(tmp_path):
@@ -85,7 +83,10 @@ tables:
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
-def test_invalid_settings_rejected(tmp_path):
+def test_settings_block_rejected_with_migration_hint(tmp_path):
+    """The `settings:` block moved to .env. Stale configs that still carry it
+    must fail loudly so the operator notices the migration, rather than
+    silently being ignored."""
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
@@ -93,9 +94,9 @@ tables:
     format: csv
     file_pattern: "x.csv"
 settings:
-  extra_columns_severity: catastrophic
+  rejected_row_cap: 100
 """)
-    with pytest.raises(ConfigError, match="extra_columns_severity"):
+    with pytest.raises(ConfigError, match="'settings:' block was removed"):
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 

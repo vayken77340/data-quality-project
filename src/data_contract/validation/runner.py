@@ -29,6 +29,7 @@ from data_contract.core.epic import InvalidEpicName, validate_epic_name
 from data_contract.core.yaml_io import load_yaml
 from data_contract.data_parsers import get_by_name
 from data_contract.errors import ConfigError
+from data_contract.settings import Settings, SettingsError, load_settings
 from data_contract.targets import load_target_config, resolve_target_path
 from data_contract.type_mapping import TypeRegistry, load_type_registry
 from data_contract.validation.config import (
@@ -99,6 +100,12 @@ def run_validate_data(
         return 1
 
     try:
+        settings = load_settings()
+    except SettingsError as e:
+        print(f"validate-data: {e}", file=sys.stderr)
+        return 1
+
+    try:
         type_registry = load_type_registry(types_path)
     except (ConfigError, OSError) as e:
         print(f"validate-data: failed to load type registry {types_path}: {e}", file=sys.stderr)
@@ -140,14 +147,24 @@ def run_validate_data(
         return 1
 
     validation_start = time.perf_counter()
-    table_frames, table_eager_frames, table_reports = _phase_a_load_and_check(
-        config=config,
-        table_configs=table_configs,
-        contracts_by_table=contracts_by_table,
-        input_dir=input_dir,
-        strict_columns=strict_columns,
-        type_registry=type_registry,
-    )
+    try:
+        table_frames, table_eager_frames, table_reports = _phase_a_load_and_check(
+            config=config,
+            table_configs=table_configs,
+            contracts_by_table=contracts_by_table,
+            input_dir=input_dir,
+            strict_columns=strict_columns,
+            type_registry=type_registry,
+            settings=settings,
+        )
+    except ConfigError as e:
+        # Config errors raised by per-table setup (field_mapping incompatible
+        # with positional mode, colliding positional rename, ...) are user
+        # misconfiguration -- exit 1 with a friendly message rather than a
+        # traceback. Runtime data errors are still routed through Violations
+        # by each phase / check, so they don't land here.
+        print(f"validate-data: {e}", file=sys.stderr)
+        return 1
     _phase_b_cross_table_fk(
         table_reports=table_reports,
         table_frames=table_frames,
@@ -159,7 +176,7 @@ def run_validate_data(
         table_configs=table_configs,
         table_eager_frames=table_eager_frames,
         contracts_by_table=contracts_by_table,
-        config=config,
+        settings=settings,
         type_registry=type_registry,
         target_config=target_config,
     )
@@ -175,7 +192,7 @@ def run_validate_data(
 
     final_report = ValidationReport(
         epic=epic, generated_at=generated_at, table_reports=table_reports,
-        settings=config.settings, run_metadata=run_metadata,
+        settings=settings, run_metadata=run_metadata,
     )
 
     from data_contract.validation.report.writer import write_all
@@ -204,6 +221,7 @@ def _phase_a_load_and_check(
     input_dir: Path,
     strict_columns: bool,
     type_registry: TypeRegistry,
+    settings: Settings,
 ) -> tuple[dict[str, Any], dict[str, Any], list[TableReport]]:
     table_frames: dict[str, Any] = {}
     table_eager_frames: dict[str, Any] = {}
@@ -221,6 +239,7 @@ def _phase_a_load_and_check(
             config=config, table_cfg=table_cfg, contract=contract,
             input_dir=input_dir, report=report,
             strict_columns=strict_columns, type_registry=type_registry,
+            settings=settings,
         )
         if frame is not None:
             table_frames[table_name] = frame
@@ -238,6 +257,7 @@ def _validate_one_table(
     report: TableReport,
     strict_columns: bool,
     type_registry: TypeRegistry,
+    settings: Settings,
 ) -> Any:
     """Load + per-table checks. Returns the unified LazyFrame on success, or
     None when the table couldn't even be loaded.
@@ -272,8 +292,36 @@ def _validate_one_table(
     report.source_schemas = parsed.per_file_schemas
     report.parser_cls = parser_cls
 
-    if table_cfg.field_mapping:
-        frame = frame.rename(dict(table_cfg.field_mapping))
+    # Column-naming strategy. `field_names_from_sample` is the toggle:
+    #   * gate OFF (default) -- POSITIONAL mode: header text is ignored; the
+    #     i-th data column is renamed to the i-th contract field. The CSV
+    #     can have any header (or a stale one) and validation still works as
+    #     long as the column order matches contract field order.
+    #   * gate ON  -- NAME-BASED mode: header text is authoritative; columns
+    #     are kept as-is and `field_mapping` (if set) does an explicit
+    #     header-to-contract rename. The source-schema drift check fires
+    #     and flags mismatches.
+    if table_cfg.checks.is_enabled("field_names_from_sample"):
+        if table_cfg.field_mapping:
+            # Defensive: skip mapping entries whose source column isn't present.
+            present_cols = set(frame.collect_schema().names())
+            applicable = {
+                src: dst for src, dst in table_cfg.field_mapping.items()
+                if src in present_cols
+            }
+            if applicable:
+                frame = frame.rename(applicable)
+    else:
+        if table_cfg.field_mapping:
+            raise ConfigError(
+                f"table {contract.table!r}: 'field_mapping' is only valid when "
+                f"'checks.structural.field_names_from_sample' is true (name-based mode). "
+                f"In the default positional mode columns are renamed by index to the "
+                f"contract field order, so an explicit header-to-contract mapping is "
+                f"meaningless. Either remove 'field_mapping' or set "
+                f"'field_names_from_sample: true' for this table."
+            )
+        frame = _rename_columns_positionally(frame, contract)
 
     df = frame.collect()
     report.total_rows = df.height
@@ -294,7 +342,7 @@ def _validate_one_table(
         contract=contract, report=report, parser=parser, gates=checks,
     )
 
-    extra_severity = "error" if strict_columns else config.settings.extra_columns_severity
+    extra_severity = "error" if strict_columns else settings.extra_columns_severity
     if extra_severity != "ignore":
         for cname in sorted(data_columns - contract_field_names):
             report.violations.append(Violation(
@@ -318,6 +366,50 @@ def _validate_one_table(
     populate_metrics(report, df, contract, table_cfg.metrics, type_registry)
 
     return df.lazy()
+
+
+_TRACKING_COLS = frozenset({"__source_file__", "__row_index__"})
+
+
+def _rename_columns_positionally(frame, contract: Contract):
+    """Rename the i-th data column to the i-th contract field name.
+
+    Used in positional mode (the default, gate
+    `checks.structural.field_names_from_sample` is off). Only the first
+    `min(N_data_cols, N_contract_fields)` columns are renamed; any extras
+    on either side are surfaced by the `extra_column` / `column_missing`
+    checks downstream.
+
+    No-op when each data column already carries its contract name (i.e.
+    the existing test fixtures with name-aligned headers stay byte-for-byte
+    identical through this call).
+    """
+    existing = frame.collect_schema().names()
+    data_cols = [c for c in existing if c not in _TRACKING_COLS]
+    contract_names = [f.name for f in contract.fields]
+    rename_map = {
+        data_cols[i]: contract_names[i]
+        for i in range(min(len(data_cols), len(contract_names)))
+        if data_cols[i] != contract_names[i]
+    }
+    if not rename_map:
+        return frame
+    # Polars `rename` requires unique target names. If the contract has a
+    # field whose name collides with an existing data column further down,
+    # the rename would silently duplicate -- bail with a clear error.
+    duplicate_targets = sorted(
+        set(rename_map.values()) & (set(existing) - set(rename_map.keys()))
+    )
+    if duplicate_targets:
+        raise ConfigError(
+            f"table {contract.table!r}: positional rename would create duplicate "
+            f"columns {duplicate_targets}. The data file already has columns with "
+            f"these names AT DIFFERENT POSITIONS than the contract declares. "
+            f"Either reorder the file, set "
+            f"'checks.structural.field_names_from_sample: true' for this table, "
+            f"or rename the colliding contract fields."
+        )
+    return frame.rename(rename_map)
 
 
 def _run_source_schema_drift(
@@ -429,7 +521,7 @@ def _finalize_reports(
     table_configs: dict[str, TableValidationConfig],
     table_eager_frames: dict[str, Any],
     contracts_by_table: dict[str, Contract],
-    config: ValidationConfig,
+    settings: Settings,
     type_registry: TypeRegistry,
     target_config,
 ) -> None:
@@ -447,7 +539,7 @@ def _finalize_reports(
         if eager is not None:
             build_rejected_rows(
                 tr=tr, eager_df=eager, contract=contract,
-                cap=config.settings.rejected_row_cap, type_registry=type_registry,
+                cap=settings.rejected_row_cap, type_registry=type_registry,
             )
         # Re-compute by_check now that cross-table FK violations are stitched
         # in. `_validate_one_table` populated it once for per-table checks; FK

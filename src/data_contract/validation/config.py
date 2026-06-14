@@ -48,9 +48,25 @@ YAML shape (top level):
           field:
             duplicate_pct: false
 
-    settings:                                  # optional
-      extra_columns_severity: warning
-      rejected_row_cap: 500
+Operator toggles (`rejected_row_cap`, `extra_columns_severity`) used to
+live under a `settings:` block here but moved to `.env` so they can vary
+by environment (CI vs dev) without editing the YAML. See `settings.py`.
+
+Column-naming strategy
+----------------------
+`checks.structural.field_names_from_sample` doubles as the toggle between
+two modes:
+
+  * **off (default)** -- POSITIONAL mode. The i-th data column is renamed
+    to the i-th contract field. Header text is not consulted at all, so a
+    CSV with a stale or wrong header still validates as long as columns
+    are in contract field order. `field_mapping` is disallowed here
+    (positional rename makes it meaningless; a stale block raises a
+    ConfigError pointing the operator at the toggle).
+  * **on** -- NAME-BASED mode. Header text is authoritative. Columns keep
+    their original names; `field_mapping` (if any) renames them. The
+    source-schema drift check fires and emits a violation when contract
+    field names disagree with header names.
 
 Tier-keyed parsing lives in `core/gates.py`. This module wires the
 validation-specific tier definitions (which names belong to which
@@ -159,14 +175,6 @@ class TableValidationConfig:
     metrics: Gates = field(default_factory=Gates)
 
 
-@dataclass(frozen=True)
-class ValidationSettings:
-    extra_columns_severity: str = "warning"
-    rejected_row_cap: int = 500
-
-
-_VALID_EXTRA_COLUMN_SEVERITIES = frozenset({"error", "warning", "info", "ignore"})
-
 _DEFAULTS_ALLOWED = frozenset({"format", "file_pattern", "parser_overrides"})
 
 
@@ -179,7 +187,6 @@ class _DefaultsBlock:
 
 @dataclass(frozen=True)
 class ValidationConfig:
-    settings: ValidationSettings
     parser_yaml_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     contracts_folder: Path | None = None
     defaults: _DefaultsBlock = field(default_factory=_DefaultsBlock)
@@ -259,21 +266,17 @@ class ValidationConfig:
                 global_metrics=global_metrics,
             )
 
-        settings_raw = raw.get("settings", {}) or {}
-        if not isinstance(settings_raw, dict):
-            raise ConfigError(f"{validation_yaml}: 'settings' must be a mapping")
-        extra_sev = settings_raw.get("extra_columns_severity", "warning")
-        if extra_sev not in _VALID_EXTRA_COLUMN_SEVERITIES:
+        # `settings:` used to live here but moved to .env (see settings.py).
+        # Reject the block so a stale config fails loudly instead of silently
+        # being ignored when an operator forgets to migrate.
+        if "settings" in raw:
             raise ConfigError(
-                f"{validation_yaml}: settings.extra_columns_severity must be one of "
-                f"{sorted(_VALID_EXTRA_COLUMN_SEVERITIES)}; got {extra_sev!r}"
+                f"{validation_yaml}: the 'settings:' block was removed -- move "
+                f"'rejected_row_cap' and 'extra_columns_severity' to .env "
+                f"(top-level keys). See settings.py for the supported variables."
             )
-        cap = int(settings_raw.get("rejected_row_cap", 500))
-        if cap < 1:
-            raise ConfigError(f"{validation_yaml}: settings.rejected_row_cap must be >= 1")
 
         return cls(
-            settings=ValidationSettings(extra_columns_severity=extra_sev, rejected_row_cap=cap),
             parser_yaml_overrides=parser_yaml_overrides,
             contracts_folder=contracts_folder,
             defaults=defaults_block,

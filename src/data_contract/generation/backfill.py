@@ -119,6 +119,7 @@ def backfill_missing_history(
                 result = enrich_with_keys(
                     result, keys_data, pk_index,
                     fk_allow_violations=settings.allow_foreign_key_violation,
+                    allow_missing_primary_keys=settings.allow_missing_primary_keys,
                 )
                 result = check_duplicate_table(result, selector.table_name, seen_tables)
                 if isinstance(result, Rejection):

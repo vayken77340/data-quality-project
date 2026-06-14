@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from data_contract.validation.config import ValidationSettings
+from data_contract.settings import Settings
 from data_contract.violations import Violation
 
 
@@ -98,7 +98,7 @@ class ValidationReport:
     epic: str
     generated_at: str
     table_reports: list[TableReport]
-    settings: ValidationSettings
+    settings: Settings                             # global Settings -- carries rejected_row_cap, etc.
     run_metadata: RunMetadata | None = None        # built by run_validate_data
 
     @property

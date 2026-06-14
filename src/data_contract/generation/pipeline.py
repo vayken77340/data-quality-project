@@ -180,6 +180,7 @@ def process_epic(
             result = enrich_with_keys(
                 result, keys_data, pk_index,
                 fk_allow_violations=settings.allow_foreign_key_violation,
+                allow_missing_primary_keys=settings.allow_missing_primary_keys,
             )
             result = check_duplicate_table(result, sheet_name, seen_tables)
             if isinstance(result, Contract):
@@ -260,6 +261,7 @@ def enrich_with_keys(
     pk_index: dict[str, set[str]],
     *,
     fk_allow_violations: bool = False,
+    allow_missing_primary_keys: bool = False,
 ) -> Contract | Rejection:
     """Apply keys-sheet PK/FK enrichment to a fresh build result.
 
@@ -268,7 +270,10 @@ def enrich_with_keys(
     - If `result` is a Contract and the keys-sheet had structural errors:
       convert to a Rejection carrying those errors.
     - If `result` is a Contract and the table has no row in the keys sheet:
-      convert to a Rejection (keys_missing_table).
+      * `allow_missing_primary_keys=True` -> return the contract unchanged
+        (no PK enrichment; pk_uniqueness will have nothing to check, so
+        duplicates in the sample become tolerated).
+      * Otherwise -> Rejection (keys_missing_table).
     - Otherwise: enrich in place; convert to Rejection only if enrichment
       collects any errors.
     """
@@ -288,6 +293,14 @@ def enrich_with_keys(
 
     rows_for_table = keys_data.rows_for_table(contract.table)
     if not rows_for_table:
+        if allow_missing_primary_keys:
+            print(
+                f"[WARN] {contract.table}: no row in the keys sheet; "
+                f"emitting the contract without a primary key "
+                f"(allow_missing_primary_keys=true)",
+                file=sys.stderr,
+            )
+            return contract
         return Rejection(
             version=contract.version, epic=contract.epic,
             generated_at=contract.generated_at,
@@ -297,7 +310,8 @@ def enrich_with_keys(
                 kind="keys_missing_table", field="table_name", value=contract.table,
                 message=(
                     f"keys sheet has no row for table {contract.table!r}; "
-                    f"every generated table must have an entry in the keys sheet"
+                    f"every generated table must have an entry in the keys sheet "
+                    f"(set allow_missing_primary_keys=true in .env to relax)"
                 ),
             )],
         )
