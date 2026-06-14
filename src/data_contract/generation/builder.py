@@ -54,23 +54,36 @@ def _check_mandatory_blank(
     *,
     field_name: str,
     sheet_row: int,
-) -> tuple[str | None, RejectionError | None]:
-    """Shared 'is this cell blank, and is that ok?' check.
+) -> tuple[Any, RejectionError | None]:
+    """Shared 'is this cell blank, and what do we substitute?' check.
 
-    Returns (trimmed string, None) if a value is present.
-    Returns (None, missing_mandatory error) if blank and `col.value_required`.
-    Returns (None, None) if blank and optional.
+    Returns `(trimmed string, None)` when a value is present.
+
+    When the cell is blank:
+      * If `col.has_default` -> returns `(col.default_value, None)`.
+        The default can be any YAML value (string, number, list, null);
+        it's substituted as-is without going through the per-field
+        constraint's typed parser.
+      * If `col.has_default` is False -> returns
+        `(None, missing_mandatory rejection)`. The spec author must
+        declare `default_value` in specs_parsing.yaml to make a column
+        optional.
     """
     if raw is None or str(raw).strip() == "":
-        if col.value_required:
-            return None, RejectionError(
-                kind="missing_mandatory",
-                sheet_row=sheet_row,
-                column=col.spec_name,
-                field=field_name,
-                message=f"field {field_name!r} (column {col.spec_name!r}) requires a value but the cell is empty",
-            )
-        return None, None
+        if col.has_default:
+            return col.default_value, None
+        return None, RejectionError(
+            kind="missing_mandatory",
+            sheet_row=sheet_row,
+            column=col.spec_name,
+            field=field_name,
+            message=(
+                f"field {field_name!r} (column {col.spec_name!r}) requires "
+                f"a value but the cell is empty. Declare `default_value` "
+                f"on this column in specs_parsing.yaml to make blanks "
+                f"acceptable."
+            ),
+        )
     return str(raw).strip(), None
 
 

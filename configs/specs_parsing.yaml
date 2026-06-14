@@ -1,20 +1,36 @@
+# Global spec-parsing configuration.
+#
+# Per-column policy:
+#   * Every column is value-required by default. A blank cell in a non-empty
+#     data row produces a `missing_mandatory` rejection.
+#   * Declare `default_value` (any YAML value, including `null`) to opt the
+#     column out of "required". Blank cells are then silently replaced with
+#     that default.
+#       - `default_value: null`  -> blank yields Python None; the field
+#                                   omits the corresponding key in the
+#                                   generated contract.
+#       - `default_value: ""`    -> blank yields the empty string; the
+#                                   field's key is emitted with `""`.
+#       - `default_value: 0`     -> blank yields 0. (Or any literal.)
+#   * `column_required: false` REQUIRES `default_value` to be declared,
+#     because every row in a missing column would otherwise error.
+
 fields:
   column_mapping:
     name:
       spec_name: Champ dans extract
-      value_required: true
     type:
       spec_name: Type
-      value_required: true
     description:
       spec_name: Description
       column_required: false
+      default_value: ""
     table:
       spec_name: Table
       column_required: false
+      default_value: null
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non", "no", "false", "0", "n"]
         "false": ["oui", "yes", "true", "1", "o", "y"]
@@ -24,41 +40,39 @@ keys:
   column_mapping:
     table_name:
       spec_name: "Table"
-      value_required: true
     primary_key:
       spec_name: "Clé primaire"
-      value_required: true
       separator: "&"
     foreign_key:
       spec_name: "Clé étrangère"
       separator: ","
+      default_value: null
     comments:
       spec_name: "Commentaires"
       column_required: false
+      default_value: ""
 
 joins:
   sheet_name: "Clés de jointure"
   column_mapping:
     source_table:
       spec_name: "Table Source"
-      value_required: true
     target_table:
       spec_name: "Table Cible"
-      value_required: true
     source_column:
       spec_name: "Clé Jointure Source"
-      value_required: true
     target_column:
       spec_name: "Clé Jointure Cible"
-      value_required: true
     join_type:
       spec_name: "Type de Jointure"
-      value_required: true
     cardinality:
       spec_name: "Cardinalité"
+      default_value: null
     comment:
       spec_name: "Commentaire"
       column_required: false
+      default_value: ""
     description:
       spec_name: "Description / règle métier"
       column_required: false
+      default_value: ""

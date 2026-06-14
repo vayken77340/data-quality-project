@@ -43,10 +43,10 @@ from tests.conftest import add_keys_sheet, minimal_defaults_yaml, minimal_keys_b
 _DEFAULT_KEYS_SPEC_YAML = """
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, value_required: true }
-  primary_key: { spec_name: PK, value_required: true, separator: "|" }
-  foreign_key: { spec_name: FK, value_required: false, separator: "|" }
-  comments:    { spec_name: Comments, value_required: false }
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: "|" }
+  foreign_key: { spec_name: FK, default_value: null, separator: "|" }
+  comments:    { spec_name: Comments, default_value: null }
 """
 
 
@@ -141,8 +141,8 @@ def test_keys_optional_columns_absent():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, value_required: true }
-  primary_key: { spec_name: PK, value_required: true, separator: "|" }
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: "|" }
 """)
     result = read_keys_sheet(wb, spec)
     assert not result.errors
@@ -200,8 +200,8 @@ def test_custom_separator():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, value_required: true }
-  primary_key: { spec_name: PK, value_required: true, separator: "," }
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: "," }
 """)
     wb = Workbook()
     ws = wb.create_sheet("Keys")
@@ -391,7 +391,7 @@ def test_enrich_pk_with_nullable_false_ok():
 
 
 def test_enrich_pk_with_nullable_none_ok():
-    """nullable=None means `value_required: false` on the source column with a blank
+    """nullable=None means `default_value: null` on the source column with a blank
     cell — no explicit declaration. The PK+nullable rule only fires on
     nullable=True (explicit `is nullable`), not on absence."""
     fields = [FieldContract(name="user_id", type=Type.INT64, nullable=None, description=None)]
@@ -467,12 +467,11 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
 _VALID_COLUMN_MAPPING_YAML = """
 fields:
   column_mapping:
-    name:        { spec_name: N, value_required: true }
-    type:        { spec_name: T, value_required: true }
-    description: { spec_name: D, value_required: false }
+    name:        { spec_name: N }
+    type:        { spec_name: T }
+    description: { spec_name: D, default_value: null }
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non"]
         "false": ["oui"]
@@ -491,8 +490,8 @@ def test_keys_block_missing_sheet_name_raises_config_error(tmp_path):
     p.write_text(_VALID_COLUMN_MAPPING_YAML + """
 keys:
   column_mapping:
-    table_name:  { spec_name: Table, value_required: true }
-    primary_key: { spec_name: PK, value_required: true, separator: "|" }
+    table_name:  { spec_name: Table }
+    primary_key: { spec_name: PK, separator: "|" }
 """, encoding="utf-8")
     with pytest.raises(ConfigError, match="sheet_name"):
         Defaults.from_yaml(p)
@@ -502,8 +501,8 @@ def test_keys_block_partial_columns_only_required_two():
     spec = _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, value_required: true }
-  primary_key: { spec_name: PK, value_required: true, separator: "|" }
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: "|" }
 """)
     assert spec.column_mapping.foreign_key is None
     assert spec.column_mapping.comments is None
@@ -514,8 +513,8 @@ def test_keys_separator_required_non_empty():
         _spec("""
 sheet_name: Keys
 column_mapping:
-  table_name:  { spec_name: Table, value_required: true }
-  primary_key: { spec_name: PK, value_required: true, separator: "" }
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: "" }
 """)
 
 
@@ -592,12 +591,11 @@ def _bootstrap_keys_epic(
         """
 fields:
   column_mapping:
-    name:        { spec_name: Champ dans extract, value_required: true }
-    type:        { spec_name: Type, value_required: true }
-    description: { spec_name: Description, value_required: false }
+    name:        { spec_name: Champ dans extract }
+    type:        { spec_name: Type }
+    description: { spec_name: Description, default_value: null }
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non"]
         "false": ["oui"]

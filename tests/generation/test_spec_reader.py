@@ -10,12 +10,11 @@ from data_contract.generation.spec_reader import (
 
 
 COLUMN_MAPPING_RAW = {
-    "name": {"spec_name": "Champ dans extract", "value_required": True},
-    "type": {"spec_name": "Type", "value_required": True},
-    "description": {"spec_name": "Description", "value_required": False},
+    "name": {"spec_name": "Champ dans extract"},
+    "type": {"spec_name": "Type"},
+    "description": {"spec_name": "Description", "default_value": None},
     "nullable": {
         "spec_name": "Obligatoire",
-        "value_required": True,
         "values": {"true": ["non"], "false": ["oui"]},
     },
 }

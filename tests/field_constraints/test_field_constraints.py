@@ -194,15 +194,14 @@ def test_unknown_constraint_in_column_mapping_is_config_error():
     from data_contract.errors import ConfigError
     with pytest.raises(ConfigError):
         ColumnMapping.from_dict({
-            "name": {"spec_name": "N", "value_required": True},
-            "type": {"spec_name": "T", "value_required": True},
-            "description": {"spec_name": "D", "value_required": False},
+            "name": {"spec_name": "N"},
+            "type": {"spec_name": "T"},
+            "description": {"spec_name": "D", "default_value": None},
             "nullable": {
                 "spec_name": "Obligatoire",
-                "value_required": True,
                 "values": {"true": ["non"], "false": ["oui"]},
             },
-            "no_such_constraint_zzz": {"spec_name": "X", "value_required": False},
+            "no_such_constraint_zzz": {"spec_name": "X", "default_value": None},
         })
 
 
@@ -239,15 +238,14 @@ def test_extensibility_register_custom_constraint(tmp_path):
     field_constraints.register(StartsWithConstraint)
     try:
         cm = ColumnMapping.from_dict({
-            "name": {"spec_name": "Field Name", "value_required": True},
-            "type": {"spec_name": "Type", "value_required": True},
-            "description": {"spec_name": "Description", "value_required": False},
+            "name": {"spec_name": "Field Name"},
+            "type": {"spec_name": "Type"},
+            "description": {"spec_name": "Description", "default_value": None},
             "nullable": {
                 "spec_name": "Obligatoire",
-                "value_required": True,
                 "values": {"true": ["non"], "false": ["oui"]},
             },
-            "starts_with": {"spec_name": "Prefix", "value_required": False},
+            "starts_with": {"spec_name": "Prefix", "default_value": None},
         })
         assert "starts_with" in cm.constraints
     finally:
@@ -440,14 +438,27 @@ def test_default_value_string_length():
 
 
 def test_default_value_blank_cell_emits_nothing():
-    c = DefaultValueConstraint.from_config({"spec_name": "Default"})
+    # The constraint's column block declares `default_value: null` to opt
+    # into "blank means omit the constraint from the contract"; without
+    # that declaration the new spec-parsing model treats blanks as required.
+    c = DefaultValueConstraint.from_config({"spec_name": "Default", "default_value": None})
     v, err = c.parse_cell("", _ctx(Type.INT64))
     assert v is None and err is None
+
+
+def test_default_value_blank_without_column_default_errors():
+    """Mirror of the above: when the constraint's column block does NOT
+    declare `default_value`, blanks now produce missing_mandatory."""
+    c = DefaultValueConstraint.from_config({"spec_name": "Default"})
+    v, err = c.parse_cell("", _ctx(Type.INT64))
+    assert v is None
+    assert err is not None and err.kind == "missing_mandatory"
 
 
 def test_default_value_null_token_treated_as_blank():
     c = DefaultValueConstraint.from_config({
         "spec_name": "Default",
+        "default_value": None,
         "spec_parsing": {"null_tokens": ["-", "n/a", "none"]},
     })
     for token in ("-", "n/a", "N/A", "NONE"):
@@ -622,27 +633,26 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
     """Build a contract from synthetic spec rows that exercise allowed_values + pattern,
     confirm the contract carries the expected shape per field."""
     cm = ColumnMapping.from_dict({
-        "name": {"spec_name": "Field Name", "value_required": True},
-        "type": {"spec_name": "Type", "value_required": True},
-        "description": {"spec_name": "Description", "value_required": False},
+        "name": {"spec_name": "Field Name"},
+        "type": {"spec_name": "Type"},
+        "description": {"spec_name": "Description", "default_value": None},
         "nullable": {
             "spec_name": "Obligatoire",
-            "value_required": True,
             "values": {"true": ["non"], "false": ["oui"]},
         },
         "allowed_values": {
             "spec_name": "Values",
-            "value_required": False,
+            "default_value": None,
             "spec_parsing": {"separator": ","},
         },
-        "pattern": {"spec_name": "Pattern", "value_required": False},
+        "pattern": {"spec_name": "Pattern", "default_value": None},
     })
     from data_contract.generation.config import KeysSpec, MergedConfig, TableSelector
     keys = KeysSpec.from_dict({
         "sheet_name": "Keys",
         "column_mapping": {
-            "table_name":  {"spec_name": "Table", "value_required": True},
-            "primary_key": {"spec_name": "PK", "value_required": True, "separator": "|"},
+            "table_name":  {"spec_name": "Table"},
+            "primary_key": {"spec_name": "PK", "separator": "|"},
         },
     })
     merged = MergedConfig(

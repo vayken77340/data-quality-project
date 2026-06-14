@@ -11,13 +11,12 @@ from data_contract.type_mapping import load_type_registry
 
 def _mapping():
     return ColumnMapping.from_dict({
-        "name": {"spec_name": "Champ dans extract", "value_required": True},
-        "type": {"spec_name": "Type", "value_required": True},
-        "description": {"spec_name": "Description", "value_required": False},
-        "table": {"spec_name": "Table", "value_required": False},
+        "name": {"spec_name": "Champ dans extract"},
+        "type": {"spec_name": "Type"},
+        "description": {"spec_name": "Description", "default_value": None},
+        "table": {"spec_name": "Table", "default_value": None},
         "nullable": {
             "spec_name": "Obligatoire",
-            "value_required": True,
             "values": {"true": ["non"], "false": ["oui"]},
         },
     })
@@ -27,8 +26,8 @@ def _keys_spec():
     return KeysSpec.from_dict({
         "sheet_name": "Keys",
         "column_mapping": {
-            "table_name":  {"spec_name": "Table", "value_required": True},
-            "primary_key": {"spec_name": "PK", "value_required": True, "separator": "|"},
+            "table_name":  {"spec_name": "Table"},
+            "primary_key": {"spec_name": "PK", "separator": "|"},
         },
     })
 

@@ -155,9 +155,9 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
         pk_raw = _cell(row, pk_idx)
         fk_raw = _cell(row, fk_idx) if fk_idx is not None else None
 
-        # table_name (value_required honored)
+        # table_name: blank rejected unless `default_value` declared.
         if table_raw is None or str(table_raw).strip() == "":
-            if cm.table_name.value_required:
+            if not cm.table_name.has_default:
                 out.errors.append(RejectionError(
                     kind="missing_mandatory",
                     sheet_row=row_idx,
@@ -171,10 +171,10 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
             continue
         table_name = str(table_raw).strip()
 
-        # primary_key (must yield >=1 after split when value_required)
+        # primary_key: must yield >=1 after split unless `default_value` declared.
         primary_keys = split_separated(pk_raw, cm.primary_key.separator)
         if not primary_keys:
-            if cm.primary_key.value_required:
+            if not cm.primary_key.has_default:
                 out.errors.append(RejectionError(
                     kind="missing_mandatory",
                     sheet_row=row_idx,

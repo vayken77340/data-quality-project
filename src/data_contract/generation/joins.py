@@ -293,17 +293,18 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
         trimmed: dict[str, str] = {}
         skip_row = False
 
-        # Per-row checks for each conceptually-required column. Blank cells in
-        # a `value_required: true` column produce a rejection; blank cells in
-        # a `value_required: false` column silently skip the row (we can't
-        # build a join without all five values).
+        # Per-row checks for each conceptually-required column. Blank cells
+        # in a column WITHOUT `default_value` produce a rejection; blank
+        # cells in a column WITH `default_value` silently skip the row
+        # (we can't build a join without all five values, but the spec
+        # author opted into "blanks are tolerable here").
         for key, col in required_columns.items():
             if indices[key] is None:
-                skip_row = True  # column header was absent (required=false)
+                skip_row = True  # column header was absent (column_required=false)
                 continue
             value = raw_cells[key]
             if value is None or str(value).strip() == "":
-                if col.value_required:
+                if not col.has_default:
                     row_errors.append(RejectionError(
                         kind="missing_mandatory",
                         sheet_row=row_idx,

@@ -20,16 +20,13 @@ fields:
   column_mapping:
     name:
       spec_name: Champ dans extract
-      value_required: true
     type:
       spec_name: Type
-      value_required: true
     description:
       spec_name: Description
-      value_required: false
+      default_value: null
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non"]
         "false": ["oui"]
@@ -53,8 +50,10 @@ def test_defaults_loads(tmp_path):
     defaults = Defaults.from_yaml(cfgs / "specs_parsing.yaml")
     assert defaults.column_mapping is not None
     assert defaults.column_mapping.name.spec_name == "Champ dans extract"
-    assert defaults.column_mapping.name.value_required is True
-    assert defaults.column_mapping.description.value_required is False
+    # `name` has no `default_value` declared -> required.
+    assert defaults.column_mapping.name.has_default is False
+    # `description` declares `default_value` -> optional.
+    assert defaults.column_mapping.description.has_default is True
 
 
 def test_defaults_missing_file_returns_empty(tmp_path):
@@ -179,18 +178,17 @@ def test_merge_preserves_defaults_constraints_when_overriding_unrelated_field(tm
     _write(cfgs / "specs_parsing.yaml", """
 fields:
   column_mapping:
-    name:        { spec_name: Champ dans extract, value_required: true }
-    type:        { spec_name: Type, value_required: true }
-    description: { spec_name: Description, value_required: false }
+    name:        { spec_name: Champ dans extract }
+    type:        { spec_name: Type }
+    description: { spec_name: Description, default_value: null }
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non"]
         "false": ["oui"]
     unique:
       spec_name: Unique
-      value_required: false
+      default_value: null
 """ + minimal_keys_block_yaml())
     override_yaml = (
         "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n"

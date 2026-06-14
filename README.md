@@ -79,23 +79,30 @@ See [docs/constraints.md](docs/constraints.md) for the full catalog, sub-block c
 
 Constraints with `contract_params` emit a structured value (`{value: ..., <params>}`); constraints without emit flat.
 
-Example `defaults.yaml`:
+Example `specs_parsing.yaml`:
 
 ```yaml
 fields:
   column_mapping:
-    name:        { spec_name: Field, value_required: true }
-    type:        { spec_name: Type, value_required: true }
-    description: { spec_name: Description, column_required: false }
+    # Every column is value-required by default. Declare `default_value`
+    # (any YAML value, including null) to make blanks tolerable; the
+    # default is substituted in. `column_required: false` REQUIRES
+    # `default_value` to be declared.
+    name:        { spec_name: Field }
+    type:        { spec_name: Type }
+    description:
+      spec_name: Description
+      column_required: false
+      default_value: ""           # blank -> empty string
     nullable:
       spec_name: Obligatoire
-      value_required: true
       values:
         "true":  ["non"]
         "false": ["oui"]
     allowed_values:
       spec_name: "Allowed Values"
       column_required: false
+      default_value: null         # blank -> omit the constraint
       spec_parsing:
         separator: ","          # generator-only: how to split the spec cell
     min_value:

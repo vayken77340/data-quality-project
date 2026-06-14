@@ -7,7 +7,6 @@ from data_contract.generation.nullable import NullableMapping, parse_nullable
 def mapping_mandatory():
     return NullableMapping.from_dict({
         "spec_name": "Obligatoire",
-        "value_required": True,
         "values": {
             "true": ["non", "no", "false", "0", "n"],
             "false": ["oui", "yes", "true", "1", "o", "y"],
@@ -19,7 +18,7 @@ def mapping_mandatory():
 def mapping_optional():
     return NullableMapping.from_dict({
         "spec_name": "Obligatoire",
-        "value_required": False,
+        "default_value": None,
         "values": {
             "true": ["non"],
             "false": ["oui"],
@@ -63,6 +62,5 @@ def test_overlap_raises():
     with pytest.raises(Exception):
         NullableMapping.from_dict({
             "spec_name": "X",
-            "value_required": True,
             "values": {"true": ["a"], "false": ["a"]},
         })

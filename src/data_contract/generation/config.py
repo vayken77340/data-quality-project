@@ -25,45 +25,67 @@ VALIDATION_FILENAME = "validation.yaml"
 _NON_VERSION_FILENAMES = frozenset({SPECS_PARSING_FILENAME, VALIDATION_FILENAME})
 
 
+# Sentinel meaning "no default_value declared". Distinguishes "the spec
+# author didn't set a default" (cell-blank -> missing_mandatory error) from
+# "the spec author set the default to YAML null" (cell-blank -> Python None).
+_UNSET: Any = object()
+
+
 @dataclass(frozen=True)
 class ColumnSpec:
     """A spec-column lookup.
 
-    `column_required` controls whether the column header must exist in the workbook
-    sheet (default True). When False, a missing header is tolerated and the
-    column is simply skipped — values won't be read for it.
+    `column_required` controls whether the column header must exist in the
+    workbook sheet (default True). When False, a missing header is
+    tolerated and a `default_value` MUST be declared (so every row gets
+    the default).
 
-    `value_required` controls whether every non-empty data row must have a
-    non-empty value in the column (default False). When True, a blank cell
-    in a non-empty row produces a `missing_mandatory` rejection.
+    `default_value` controls the cell-blank policy. When declared (any
+    YAML value, including null), a blank cell is silently replaced with
+    that value. When NOT declared (the `_UNSET` sentinel), every row
+    must have a non-empty value or a `missing_mandatory` rejection is
+    emitted.
 
-    Logical rule enforced at YAML parse time: `column_required=False + value_required=True`
-    is contradictory and raises ConfigError.
+    Logical rule enforced at YAML parse time: `column_required=False`
+    REQUIRES `default_value` to be declared (otherwise every row in a
+    missing column would error).
     """
     spec_name: str
     column_required: bool = True
-    value_required: bool = False
+    default_value: Any = _UNSET
 
-
-def _check_required_value_required(key: str, column_required: bool, value_required: bool) -> None:
-    if not column_required and value_required:
-        raise ConfigError(
-            f"{key}: column has `column_required: false` but `value_required: true`. "
-            f"A column whose existence is optional cannot also require values per row."
-        )
+    @property
+    def has_default(self) -> bool:
+        """True iff the spec author declared `default_value` (regardless
+        of its value -- YAML null counts as a declared default of None)."""
+        return self.default_value is not _UNSET
 
 
 def _parse_column_block(prefix: str, key: str, block: dict) -> ColumnSpec:
-    """Shared parsing for a `{spec_name, column_required, value_required}` block."""
+    """Shared parsing for a `{spec_name, column_required, default_value}` block."""
     if not isinstance(block, dict):
-        raise ConfigError(f"{prefix}.{key} must be a mapping with 'spec_name', 'required', 'value_required'")
+        raise ConfigError(
+            f"{prefix}.{key} must be a mapping with 'spec_name' "
+            f"(and optionally 'column_required', 'default_value')"
+        )
     spec_name = block.get("spec_name")
     if not isinstance(spec_name, str) or not spec_name:
         raise ConfigError(f"{prefix}.{key}.spec_name must be a non-empty string")
-    column_required=bool(block.get("column_required", True))
-    value_required = bool(block.get("value_required", False))
-    _check_required_value_required(f"{prefix}.{key}", column_required, value_required)
-    return ColumnSpec(spec_name=spec_name, column_required=column_required, value_required=value_required)
+    column_required = bool(block.get("column_required", True))
+    # Key presence -> declared (the value is the default, including yaml null).
+    default_value: Any = block["default_value"] if "default_value" in block else _UNSET
+    if not column_required and default_value is _UNSET:
+        raise ConfigError(
+            f"{prefix}.{key}: `column_required: false` requires `default_value` "
+            f"to be declared. Otherwise every row in a missing column would "
+            f"emit a `missing_mandatory` rejection. Set `default_value: null` "
+            f"if the field should be omitted from the contract on blanks."
+        )
+    return ColumnSpec(
+        spec_name=spec_name,
+        column_required=column_required,
+        default_value=default_value,
+    )
 
 
 _CORE_KEYS = frozenset({"name", "type", "description", "nullable", "table"})
@@ -126,7 +148,7 @@ class ColumnMapping:
 class SplitColumnSpec:
     """A column whose cell contains a list of items joined by a separator.
 
-    `column_required` / `value_required` mirror ColumnSpec semantics.
+    `column_required` / `default_value` mirror ColumnSpec semantics.
 
     FK violation tolerance is no longer carried here — it's read from the
     project-root `.env` (`allow_foreign_key_violation`) at CLI time.
@@ -134,7 +156,11 @@ class SplitColumnSpec:
     spec_name: str
     separator: str
     column_required: bool = True
-    value_required: bool = False
+    default_value: Any = _UNSET
+
+    @property
+    def has_default(self) -> bool:
+        return self.default_value is not _UNSET
 
 
 @dataclass(frozen=True)
@@ -164,12 +190,17 @@ class KeysColumnMapping:
             separator = block.get("separator", "|")
             if not isinstance(separator, str) or not separator:
                 raise ConfigError(f"keys.column_mapping.{key}.separator must be a non-empty string")
-            column_required=bool(block.get("column_required", True))
-            value_required = bool(block.get("value_required", False))
-            _check_required_value_required(f"keys.column_mapping.{key}", column_required, value_required)
+            column_required = bool(block.get("column_required", True))
+            default_value: Any = block["default_value"] if "default_value" in block else _UNSET
+            if not column_required and default_value is _UNSET:
+                raise ConfigError(
+                    f"keys.column_mapping.{key}: `column_required: false` requires "
+                    f"`default_value` to be declared (set to null for omit-on-blank)."
+                )
             return SplitColumnSpec(
                 spec_name=spec_name,
-                column_required=column_required, value_required=value_required,
+                column_required=column_required,
+                default_value=default_value,
                 separator=separator,
             )
 
@@ -206,12 +237,16 @@ class CardinalityColumnSpec:
     `1 -> n` with separator `->`). When None, the parser falls back to its
     default permissive set (`:`, `->`, ` to `).
 
-    `column_required` / `value_required` mirror ColumnSpec semantics.
+    `column_required` / `default_value` mirror ColumnSpec semantics.
     """
     spec_name: str
     separator: str | None = None
     column_required: bool = True
-    value_required: bool = False
+    default_value: Any = _UNSET
+
+    @property
+    def has_default(self) -> bool:
+        return self.default_value is not _UNSET
 
 
 @dataclass(frozen=True)
@@ -242,13 +277,19 @@ class JoinsColumnMapping:
             separator = block.get("separator")
             if separator is not None and (not isinstance(separator, str) or not separator):
                 raise ConfigError("joins.column_mapping.cardinality.separator, if set, must be a non-empty string")
-            column_required=bool(block.get("column_required", True))
-            value_required = bool(block.get("value_required", False))
-            _check_required_value_required("joins.column_mapping.cardinality", column_required, value_required)
+            column_required = bool(block.get("column_required", True))
+            default_value: Any = block["default_value"] if "default_value" in block else _UNSET
+            if not column_required and default_value is _UNSET:
+                raise ConfigError(
+                    "joins.column_mapping.cardinality: `column_required: false` "
+                    "requires `default_value` to be declared (set to null for "
+                    "omit-on-blank)."
+                )
             return CardinalityColumnSpec(
                 spec_name=spec_name,
                 separator=separator,
-                column_required=column_required, value_required=value_required,
+                column_required=column_required,
+                default_value=default_value,
             )
 
         cardinality_block = raw.get("cardinality")
@@ -501,28 +542,32 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
 
 
 def _column_spec_to_raw(c: ColumnSpec) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "spec_name": c.spec_name,
         "column_required": c.column_required,
-        "value_required": c.value_required,
     }
+    if c.has_default:
+        out["default_value"] = c.default_value
+    return out
 
 
 def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
     """Render a ColumnMapping back into the raw-dict shape so a partial override can be merged in."""
+    nullable_raw: dict[str, Any] = {
+        "spec_name": cm.nullable.spec_name,
+        "required": cm.nullable.column_required,
+        "values": {
+            "true": sorted(cm.nullable.true_values),
+            "false": sorted(cm.nullable.false_values),
+        },
+    }
+    if cm.nullable.has_default:
+        nullable_raw["default_value"] = cm.nullable.default_value
     out: dict[str, Any] = {
         "name": _column_spec_to_raw(cm.name),
         "type": _column_spec_to_raw(cm.type),
         "description": _column_spec_to_raw(cm.description),
-        "nullable": {
-            "spec_name": cm.nullable.spec_name,
-            "required": cm.nullable.column_required,
-            "value_required": cm.nullable.value_required,
-            "values": {
-                "true": sorted(cm.nullable.true_values),
-                "false": sorted(cm.nullable.false_values),
-            },
-        },
+        "nullable": nullable_raw,
     }
     if cm.table is not None:
         out["table"] = _column_spec_to_raw(cm.table)

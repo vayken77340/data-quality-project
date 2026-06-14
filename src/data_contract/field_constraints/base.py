@@ -36,16 +36,30 @@ class DriftChange:
         return out
 
 
+# Sentinel meaning "no default_value declared". Same shape as
+# `generation.config._UNSET`; duplicated here so the constraint side can
+# stay decoupled from generation.
+_UNSET: Any = object()
+
+
 @dataclass
 class ConstraintColumnRef:
     """The spec-column lookup info shared by every constraint.
 
     `column_required` (default True): the column header must exist in the sheet.
-    `value_required` (default False): every non-empty row must have a value.
+    `default_value`: when declared (any value, including YAML null), blank
+        cells in this column are silently replaced with the default.
+        When NOT declared (the `_UNSET` sentinel), blank cells produce a
+        `missing_mandatory` rejection. Logical rule: `column_required=False`
+        REQUIRES `default_value` to be declared.
     """
     spec_name: str
     column_required: bool = True
-    value_required: bool = False
+    default_value: Any = _UNSET
+
+    @property
+    def has_default(self) -> bool:
+        return self.default_value is not _UNSET
 
 
 # ---------------------------------------------------------------------------
@@ -57,14 +71,19 @@ def parse_column_ref(raw: dict, *, name: str) -> ConstraintColumnRef:
     spec_name = raw.get("spec_name")
     if not isinstance(spec_name, str) or not spec_name:
         raise ConfigError(f"column_mapping.{name}.spec_name must be a non-empty string")
-    column_required=bool(raw.get("column_required", True))
-    value_required = bool(raw.get("value_required", False))
-    if not column_required and value_required:
+    column_required = bool(raw.get("column_required", True))
+    default_value: Any = raw["default_value"] if "default_value" in raw else _UNSET
+    if not column_required and default_value is _UNSET:
         raise ConfigError(
-            f"column_mapping.{name}: cannot have `column_required: false` with `value_required: true`. "
-            f"A column whose existence is optional cannot also require values per row."
+            f"column_mapping.{name}: `column_required: false` requires "
+            f"`default_value` to be declared. Set `default_value: null` if "
+            f"the constraint should be omitted from the contract on blanks."
         )
-    return ConstraintColumnRef(spec_name=spec_name, column_required=column_required, value_required=value_required)
+    return ConstraintColumnRef(
+        spec_name=spec_name,
+        column_required=column_required,
+        default_value=default_value,
+    )
 
 
 def _parse_sub_block(
@@ -320,14 +339,20 @@ class FieldConstraint(ABC):
     ) -> tuple[Any | None, RejectionError | None]:
         """Template method: every constraint shares the same blank-cell handling.
 
-        Blank + value_required  -> missing_mandatory rejection.
-        Blank + optional        -> (None, None); the field omits this key in the contract.
-        Otherwise               -> dispatches to `_parse_non_empty` with the trimmed string.
+        Blank cell behaviour:
+          * `column.has_default` -> `(column.default_value, None)`. The
+            default is used as-is; it does NOT go through `_parse_non_empty`
+            (the spec author is declaring the canonical value they want).
+          * No default declared   -> `(None, missing_mandatory)`. The spec
+            author must add `default_value` in specs_parsing.yaml to make
+            the column optional.
+
+        Non-blank cells dispatch to `_parse_non_empty` with the trimmed string.
         """
         if raw is None or str(raw).strip() == "":
-            if self.column.value_required:
-                return None, self._missing_mandatory(ctx)
-            return None, None
+            if self.column.has_default:
+                return self.column.default_value, None
+            return None, self._missing_mandatory(ctx)
         return self._parse_non_empty(str(raw).strip(), raw, ctx)
 
     @abstractmethod

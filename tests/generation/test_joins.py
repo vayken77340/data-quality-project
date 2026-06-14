@@ -44,14 +44,14 @@ from tests.conftest import add_keys_sheet, minimal_defaults_yaml
 _DEFAULT_JOINS_SPEC_YAML = """
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, value_required: true }
-  target_table:  { spec_name: Target Table, value_required: true }
-  source_column: { spec_name: Source Col,   value_required: true }
-  target_column: { spec_name: Target Col,   value_required: true }
-  join_type:     { spec_name: Type,         value_required: true }
-  cardinality:   { spec_name: Card,         value_required: false }
-  comment:       { spec_name: Comment,      value_required: false }
-  description:   { spec_name: Description,  value_required: false }
+  source_table:  { spec_name: Source Table }
+  target_table:  { spec_name: Target Table }
+  source_column: { spec_name: Source Col }
+  target_column: { spec_name: Target Col }
+  join_type:     { spec_name: Type }
+  cardinality:   { spec_name: Card,         default_value: null }
+  comment:       { spec_name: Comment,      default_value: null }
+  description:   { spec_name: Description,  default_value: null }
 """
 
 
@@ -135,11 +135,11 @@ def test_joins_optional_columns_absent_ok():
     spec = _spec("""
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, value_required: true }
-  target_table:  { spec_name: Target Table, value_required: true }
-  source_column: { spec_name: Source Col,   value_required: true }
-  target_column: { spec_name: Target Col,   value_required: true }
-  join_type:     { spec_name: Type,         value_required: true }
+  source_table:  { spec_name: Source Table }
+  target_table:  { spec_name: Target Table }
+  source_column: { spec_name: Source Col }
+  target_column: { spec_name: Target Col }
+  join_type:     { spec_name: Type }
 """)
     wb = Workbook()
     ws = wb.create_sheet("Joins")
@@ -440,13 +440,13 @@ def _bootstrap_joins_epic(
 joins:
   sheet_name: Joins
   column_mapping:
-    source_table:  { spec_name: Source Table, value_required: true }
-    target_table:  { spec_name: Target Table, value_required: true }
-    source_column: { spec_name: Source Col,   value_required: true }
-    target_column: { spec_name: Target Col,   value_required: true }
-    join_type:     { spec_name: Type,         value_required: true }
-    cardinality:   { spec_name: Card,         value_required: false }
-    description:   { spec_name: Description,  value_required: false }
+    source_table:  { spec_name: Source Table }
+    target_table:  { spec_name: Target Table }
+    source_column: { spec_name: Source Col }
+    target_column: { spec_name: Target Col }
+    join_type:     { spec_name: Type }
+    cardinality:   { spec_name: Card,         default_value: null }
+    description:   { spec_name: Description,  default_value: null }
 """
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults, encoding="utf-8")
     (edir / "configs" / "v1.0.yaml").write_text(
@@ -558,12 +558,12 @@ def test_cardinality_separator_flows_from_config_through_reader():
     spec_strict = _spec("""
 sheet_name: Joins
 column_mapping:
-  source_table:  { spec_name: Source Table, value_required: true }
-  target_table:  { spec_name: Target Table, value_required: true }
-  source_column: { spec_name: Source Col,   value_required: true }
-  target_column: { spec_name: Target Col,   value_required: true }
-  join_type:     { spec_name: Type,         value_required: true }
-  cardinality:   { spec_name: Card,         value_required: false, separator: "->" }
+  source_table:  { spec_name: Source Table }
+  target_table:  { spec_name: Target Table }
+  source_column: { spec_name: Source Col }
+  target_column: { spec_name: Target Col }
+  join_type:     { spec_name: Type }
+  cardinality:   { spec_name: Card,         default_value: null, separator: "->" }
 """)
     # Spec uses the declared separator -> parses cleanly.
     wb_ok = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", "1 -> n")])
