@@ -120,6 +120,14 @@ def render_markdown(report: ValidationReport) -> str:
                 f"- **{ti.severity.upper()}** `{ti.table}` - {check}"
                 f"{field_str}: {ti.expected}"
             )
+            if ti.offending_value not in (None, ""):
+                lines.append(f"  - Details: {ti.offending_value}")
+            try:
+                ti_hint = hint_for(ti.kind)
+            except KeyError:
+                ti_hint = ""
+            if ti_hint:
+                lines.append(f"  - Hint: {ti_hint}")
         lines.append("")
 
     # Top issues with hints + offending-value context.
@@ -265,6 +273,7 @@ class _TableIssue:
     severity: str
     field: str | None
     expected: str
+    offending_value: Any = None
 
 
 _SEV_RANK_MD = {"error": 0, "warning": 1, "info": 2}
@@ -281,6 +290,7 @@ def _table_level_issues(report: ValidationReport) -> list[_TableIssue]:
             out.append(_TableIssue(
                 table=v.table or "", kind=v.kind, severity=v.severity or "",
                 field=v.field, expected=v.expected or "",
+                offending_value=v.offending_value,
             ))
     out.sort(key=lambda i: (
         _SEV_RANK_MD.get(i.severity, 9), i.table, i.kind, i.field or "",

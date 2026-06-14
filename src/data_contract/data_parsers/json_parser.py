@@ -3,17 +3,24 @@
 The expected shape (overridable via `header_path` / `rows_path`):
 
     {
-      "data": {
-        "report_header": {
-          "c1": {"name": "column 1", "type": "java.lang.String"},
-          "c2": {"name": "column 2", "type": "..."}
-        },
-        "report_row": [
-          {"c1": "value 1", "c2": "value 2"},
-          ...
-        ]
-      }
+      "data": [
+        {
+          "report_header": {
+            "c1": {"name": "column 1", "type": "java.lang.String"},
+            "c2": {"name": "column 2", "type": "..."}
+          },
+          "report_row": [
+            {"c1": "value 1", "c2": "value 2"},
+            ...
+          ]
+        }
+      ]
     }
+
+`data` is a list of report objects -- the default paths
+`data[0].report_header` / `data[0].report_row` pick the first one. To
+read a later element (e.g. one report per table in a single file), set
+per-table overrides in validation.yaml's `parser_overrides:`.
 
 `report_header` is a dict of column-code -> metadata. The parser pulls
 the contract-facing name from `metadata[name_key]` (default `"name"`)
@@ -21,6 +28,12 @@ and renames every row's keys before yielding them. The `"type"` field
 in the header IS surfaced via `ParserSchema.column_types` so the
 optional `field_types_from_sample` drift check can compare each declared
 source type against the contract.
+
+Path syntax for `header_path` / `rows_path` (see `_walk_path` below):
+
+  * `.` separates dict keys:        `a.b.c`
+  * `[N]` indexes into a list:      `data[0].report_header`,
+                                    `result.batches[2].rows`
 
 Why this lives in `json_parser.py` rather than `json.py`: the latter
 shadows the stdlib `json` module, breaking `from data_contract.data_parsers
@@ -41,11 +54,18 @@ class JsonParser(FileParser):
     """Read one self-describing JSON export into rows + a ParserSchema.
 
     Spec params:    encoding, header_path, rows_path, name_key, null_tokens.
+                    `header_path` and `rows_path` accept dotted paths with
+                    `[N]` list indexers, e.g. `data[0].report_header`. See
+                    the module docstring for the expected JSON shape.
     Reads via:      stdlib `json.loads`. Returns an iterable of stringified
                     row dicts via `ParsedFile.rows`; the framework wraps
                     them into a `pl.String` LazyFrame and attaches the
                     tracking columns.
-    Multi-file:     handled by `FileParser.read()`.
+    Multi-file:     handled by `FileParser.read()` -- one report per file
+                    is the default. To read N reports out of a single
+                    file (e.g. one report per contract table), point
+                    `header_path` / `rows_path` at the right `[N]` index
+                    per-table via `parser_overrides:` in validation.yaml.
 
     Schema:         column_names from `report_header[...][name_key]`.
                     column_types from `report_header[...]["type"]` when
