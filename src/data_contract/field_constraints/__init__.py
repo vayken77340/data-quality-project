@@ -1,6 +1,7 @@
 """Field-constraint registry.
 
 Adding a new constraint:
+
 1. Drop a new module here defining a subclass of `FieldConstraint`.
 2. Register it in `_BUILTIN_MODULES` below (or rely on `register` being called manually).
 3. Reference its `name` in an epic's `defaults.yaml` under `column_mapping`.
@@ -8,8 +9,7 @@ Adding a new constraint:
 
 from __future__ import annotations
 
-from importlib import import_module
-
+from data_contract.core.registry import BaseRegistry, IndexSpec, RegistrySpec
 from data_contract.errors import ConfigError
 from data_contract.field_constraints.base import (
     ConstraintColumnRef,
@@ -23,82 +23,6 @@ from data_contract.field_constraints.base import (
 )
 
 
-REGISTRY: dict[str, type[FieldConstraint]] = {}
-_CONTRACT_KEY_INDEX: dict[str, type[FieldConstraint]] = {}
-
-
-def constraint_for_contract_key(contract_key: str) -> type[FieldConstraint] | None:
-    """Reverse-lookup a constraint class by its contract_key.
-
-    The contract YAML stores constraints keyed by `contract_key` (e.g. `default`
-    for the `default_value` constraint), but the registry indexes by `name`.
-    This helper bridges the two without re-scanning REGISTRY on every call.
-
-    Defensively rechecks the primary REGISTRY so tests that pop entries out by
-    name don't leave stale reverse-index hits.
-    """
-    cls = _CONTRACT_KEY_INDEX.get(contract_key)
-    if cls is None:
-        return None
-    if REGISTRY.get(cls.name) is not cls:
-        _CONTRACT_KEY_INDEX.pop(contract_key, None)
-        return None
-    return cls
-
-
-_REQUIRED_DOCSTRING_HEADERS = ("Spec cell:", "Contract output:", "Drift:")
-
-
-def register(cls: type[FieldConstraint]) -> type[FieldConstraint]:
-    if not isinstance(cls.name, str) or not cls.name:
-        raise ConfigError(f"FieldConstraint {cls.__qualname__} must declare a non-empty `name`")
-    if not isinstance(cls.contract_key, str) or not cls.contract_key:
-        raise ConfigError(f"FieldConstraint {cls.__qualname__} must declare a non-empty `contract_key`")
-    if cls.name in REGISTRY and REGISTRY[cls.name] is not cls:
-        raise ConfigError(
-            f"FieldConstraint name {cls.name!r} already registered by {REGISTRY[cls.name].__qualname__}"
-        )
-    for existing_name, existing_cls in REGISTRY.items():
-        if existing_cls is cls:
-            continue
-        if existing_cls.contract_key == cls.contract_key:
-            raise ConfigError(
-                f"FieldConstraint {cls.__qualname__} contract_key {cls.contract_key!r} "
-                f"is already used by {existing_cls.__qualname__} (name={existing_name!r}); "
-                f"two constraints sharing a contract_key would corrupt the drift index"
-            )
-    doc = (cls.__doc__ or "").strip()
-    if not doc:
-        raise ConfigError(
-            f"FieldConstraint {cls.__qualname__} must have a non-empty docstring; "
-            f"document its spec cell shape, contract output shape, and drift severity policy"
-        )
-    missing_headers = [h for h in _REQUIRED_DOCSTRING_HEADERS if h not in doc]
-    if missing_headers:
-        raise ConfigError(
-            f"FieldConstraint {cls.__qualname__} docstring must include the headers "
-            f"{list(_REQUIRED_DOCSTRING_HEADERS)}; missing: {missing_headers}"
-        )
-    # Data-side check sanity: if the class overrides check_data, it must declare VIOLATION_KIND.
-    base_check = FieldConstraint.check_data
-    own_check = cls.__dict__.get("check_data")
-    if own_check is not None and own_check is not base_check:
-        if not isinstance(cls.VIOLATION_KIND, str) or not cls.VIOLATION_KIND:
-            raise ConfigError(
-                f"FieldConstraint {cls.__qualname__} overrides `check_data` but does not "
-                f"declare a non-empty `VIOLATION_KIND` class attribute"
-            )
-    REGISTRY[cls.name] = cls
-    _CONTRACT_KEY_INDEX[cls.contract_key] = cls
-    return cls
-
-
-def get(name: str) -> type[FieldConstraint]:
-    if name not in REGISTRY:
-        raise ConfigError(f"unknown field constraint {name!r}; registered: {sorted(REGISTRY)}")
-    return REGISTRY[name]
-
-
 _BUILTIN_MODULES = (
     "data_contract.field_constraints.unique",
     "data_contract.field_constraints.allowed_values",
@@ -110,16 +34,47 @@ _BUILTIN_MODULES = (
 )
 
 
-def _load_builtins() -> None:
-    for module_path in _BUILTIN_MODULES:
-        mod = import_module(module_path)
-        for cls in vars(mod).values():
-            if isinstance(cls, type) and issubclass(cls, FieldConstraint) and cls is not FieldConstraint:
-                if cls.name and cls.name not in REGISTRY:
-                    register(cls)
+def _validate_check_data_kind(cls: type[FieldConstraint]) -> None:
+    """If a subclass overrides `check_data`, `VIOLATION_KIND` must be set.
+
+    Constraints without a data-side check (e.g. default_value) may leave
+    VIOLATION_KIND empty -- they're contract-only.
+    """
+    base_check = FieldConstraint.check_data
+    own_check = cls.__dict__.get("check_data")
+    if own_check is not None and own_check is not base_check:
+        if not isinstance(cls.VIOLATION_KIND, str) or not cls.VIOLATION_KIND:
+            raise ConfigError(
+                f"FieldConstraint {cls.__qualname__} overrides `check_data` "
+                f"but does not declare a non-empty `VIOLATION_KIND` class attribute"
+            )
 
 
-_load_builtins()
+_R: BaseRegistry[FieldConstraint] = BaseRegistry(RegistrySpec(
+    base_class=FieldConstraint,
+    builtin_modules=_BUILTIN_MODULES,
+    required_class_attrs=("name", "contract_key"),
+    required_doc_headers=("Spec cell:", "Contract output:", "Drift:"),
+    secondary_indexes=(
+        IndexSpec(name="contract_key", attr="contract_key", unit="scalar"),
+    ),
+    extra_validator=_validate_check_data_kind,
+))
+_R.load_builtins()
+
+REGISTRY = _R.REGISTRY
+register = _R.register
+get = _R.get
+
+
+def constraint_for_contract_key(contract_key: str) -> type[FieldConstraint] | None:
+    """Reverse-lookup a constraint class by its contract_key.
+
+    The contract YAML stores constraints keyed by `contract_key` (e.g. `default`
+    for the `default_value` constraint), but the registry indexes by `name`.
+    This helper bridges the two.
+    """
+    return _R.get_by("contract_key", contract_key)
 
 
 __all__ = [

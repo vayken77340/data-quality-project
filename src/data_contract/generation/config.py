@@ -4,8 +4,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from data_contract.core.column_ref import (
+    UNSET as _UNSET,
+    CardinalityColumnRef,
+    ColumnRef,
+    SeparatedColumnRef,
+    parse_cardinality_column_ref,
+    parse_column_ref,
+    parse_separated_column_ref,
+)
+from data_contract.core.yaml_io import load_yaml, load_yaml_mapping
 from data_contract.errors import ConfigError
 from data_contract.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
 from data_contract.field_constraints.base import FieldConstraint
@@ -13,79 +21,17 @@ from data_contract.generation.nullable import NullableMapping
 
 
 ALL_TABLES = "__ALL__"
-# Spec-parsing defaults (column mapping, keys/joins sheet shape, etc.) live
-# globally at configs/specs_parsing.yaml. The file used to live per-
-# epic as defaults.yaml but the spec format is universal, so it's a global
-# config now.
 SPECS_PARSING_FILENAME = "specs_parsing.yaml"
-# Back-compat aliases so any external imports of the old constants still resolve.
-DEFAULT_SPEC_CONFIGS_FILENAME = SPECS_PARSING_FILENAME
-DEFAULTS_FILENAME = SPECS_PARSING_FILENAME
 VALIDATION_FILENAME = "validation.yaml"
 _NON_VERSION_FILENAMES = frozenset({SPECS_PARSING_FILENAME, VALIDATION_FILENAME})
 
 
-# Sentinel meaning "no default_value declared". Distinguishes "the spec
-# author didn't set a default" (cell-blank -> missing_mandatory error) from
-# "the spec author set the default to YAML null" (cell-blank -> Python None).
-_UNSET: Any = object()
-
-
-@dataclass(frozen=True)
-class ColumnSpec:
-    """A spec-column lookup.
-
-    `column_required` controls whether the column header must exist in the
-    workbook sheet (default True). When False, a missing header is
-    tolerated and a `default_value` MUST be declared (so every row gets
-    the default).
-
-    `default_value` controls the cell-blank policy. When declared (any
-    YAML value, including null), a blank cell is silently replaced with
-    that value. When NOT declared (the `_UNSET` sentinel), every row
-    must have a non-empty value or a `missing_mandatory` rejection is
-    emitted.
-
-    Logical rule enforced at YAML parse time: `column_required=False`
-    REQUIRES `default_value` to be declared (otherwise every row in a
-    missing column would error).
-    """
-    spec_name: str
-    column_required: bool = True
-    default_value: Any = _UNSET
-
-    @property
-    def has_default(self) -> bool:
-        """True iff the spec author declared `default_value` (regardless
-        of its value -- YAML null counts as a declared default of None)."""
-        return self.default_value is not _UNSET
-
-
-def _parse_column_block(prefix: str, key: str, block: dict) -> ColumnSpec:
-    """Shared parsing for a `{spec_name, column_required, default_value}` block."""
-    if not isinstance(block, dict):
-        raise ConfigError(
-            f"{prefix}.{key} must be a mapping with 'spec_name' "
-            f"(and optionally 'column_required', 'default_value')"
-        )
-    spec_name = block.get("spec_name")
-    if not isinstance(spec_name, str) or not spec_name:
-        raise ConfigError(f"{prefix}.{key}.spec_name must be a non-empty string")
-    column_required = bool(block.get("column_required", True))
-    # Key presence -> declared (the value is the default, including yaml null).
-    default_value: Any = block["default_value"] if "default_value" in block else _UNSET
-    if not column_required and default_value is _UNSET:
-        raise ConfigError(
-            f"{prefix}.{key}: `column_required: false` requires `default_value` "
-            f"to be declared. Otherwise every row in a missing column would "
-            f"emit a `missing_mandatory` rejection. Set `default_value: null` "
-            f"if the field should be omitted from the contract on blanks."
-        )
-    return ColumnSpec(
-        spec_name=spec_name,
-        column_required=column_required,
-        default_value=default_value,
-    )
+# Back-compat aliases so existing imports / external code keep resolving.
+# `ColumnSpec` etc. used to be three near-identical local dataclasses --
+# they're now thin re-exports of the shared `core.column_ref` types.
+ColumnSpec = ColumnRef
+SplitColumnSpec = SeparatedColumnRef
+CardinalityColumnSpec = CardinalityColumnRef
 
 
 _CORE_KEYS = frozenset({"name", "type", "description", "nullable", "table"})
@@ -93,11 +39,11 @@ _CORE_KEYS = frozenset({"name", "type", "description", "nullable", "table"})
 
 @dataclass(frozen=True)
 class ColumnMapping:
-    name: ColumnSpec
-    type: ColumnSpec
-    description: ColumnSpec
+    name: ColumnRef
+    type: ColumnRef
+    description: ColumnRef
     nullable: NullableMapping
-    table: ColumnSpec | None = None
+    table: ColumnRef | None = None
     constraints: dict[str, FieldConstraint] = field(default_factory=dict)
 
     @classmethod
@@ -107,8 +53,8 @@ class ColumnMapping:
         if missing:
             raise ConfigError(f"column_mapping missing required entries: {sorted(missing)}")
 
-        def col(key: str) -> ColumnSpec:
-            return _parse_column_block("column_mapping", key, raw.get(key))
+        def col(key: str) -> ColumnRef:
+            return parse_column_ref(raw.get(key) or {}, prefix="column_mapping", key=key)
 
         nullable_block = raw.get("nullable")
         if not isinstance(nullable_block, dict):
@@ -119,7 +65,7 @@ class ColumnMapping:
         if table_block is None:
             table = None
         else:
-            table = _parse_column_block("column_mapping", "table", table_block)
+            table = parse_column_ref(table_block, prefix="column_mapping", key="table")
 
         constraints: dict[str, FieldConstraint] = {}
         for key, value in raw.items():
@@ -145,30 +91,11 @@ class ColumnMapping:
 
 
 @dataclass(frozen=True)
-class SplitColumnSpec:
-    """A column whose cell contains a list of items joined by a separator.
-
-    `column_required` / `default_value` mirror ColumnSpec semantics.
-
-    FK violation tolerance is no longer carried here — it's read from the
-    project-root `.env` (`allow_foreign_key_violation`) at CLI time.
-    """
-    spec_name: str
-    separator: str
-    column_required: bool = True
-    default_value: Any = _UNSET
-
-    @property
-    def has_default(self) -> bool:
-        return self.default_value is not _UNSET
-
-
-@dataclass(frozen=True)
 class KeysColumnMapping:
-    table_name: ColumnSpec
-    primary_key: SplitColumnSpec
-    foreign_key: SplitColumnSpec | None = None
-    comments: ColumnSpec | None = None
+    table_name: ColumnRef
+    primary_key: SeparatedColumnRef
+    foreign_key: SeparatedColumnRef | None = None
+    comments: ColumnRef | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "KeysColumnMapping":
@@ -177,31 +104,12 @@ class KeysColumnMapping:
         if missing:
             raise ConfigError(f"keys.column_mapping missing required entries: {sorted(missing)}")
 
-        def _col(key: str) -> ColumnSpec:
-            return _parse_column_block("keys.column_mapping", key, raw.get(key))
+        def _col(key: str) -> ColumnRef:
+            return parse_column_ref(raw.get(key) or {}, prefix="keys.column_mapping", key=key)
 
-        def _split_col(key: str) -> SplitColumnSpec:
-            block = raw.get(key)
-            if not isinstance(block, dict):
-                raise ConfigError(f"keys.column_mapping.{key} must be a mapping")
-            spec_name = block.get("spec_name")
-            if not isinstance(spec_name, str) or not spec_name:
-                raise ConfigError(f"keys.column_mapping.{key}.spec_name must be a non-empty string")
-            separator = block.get("separator", "|")
-            if not isinstance(separator, str) or not separator:
-                raise ConfigError(f"keys.column_mapping.{key}.separator must be a non-empty string")
-            column_required = bool(block.get("column_required", True))
-            default_value: Any = block["default_value"] if "default_value" in block else _UNSET
-            if not column_required and default_value is _UNSET:
-                raise ConfigError(
-                    f"keys.column_mapping.{key}: `column_required: false` requires "
-                    f"`default_value` to be declared (set to null for omit-on-blank)."
-                )
-            return SplitColumnSpec(
-                spec_name=spec_name,
-                column_required=column_required,
-                default_value=default_value,
-                separator=separator,
+        def _split_col(key: str) -> SeparatedColumnRef:
+            return parse_separated_column_ref(
+                raw.get(key) or {}, prefix="keys.column_mapping", key=key,
             )
 
         return cls(
@@ -231,34 +139,15 @@ class KeysSpec:
 
 
 @dataclass(frozen=True)
-class CardinalityColumnSpec:
-    """Cardinality column. The optional `separator` constrains what divider
-    the parser accepts between the two sides of the cardinality value (e.g.
-    `1 -> n` with separator `->`). When None, the parser falls back to its
-    default permissive set (`:`, `->`, ` to `).
-
-    `column_required` / `default_value` mirror ColumnSpec semantics.
-    """
-    spec_name: str
-    separator: str | None = None
-    column_required: bool = True
-    default_value: Any = _UNSET
-
-    @property
-    def has_default(self) -> bool:
-        return self.default_value is not _UNSET
-
-
-@dataclass(frozen=True)
 class JoinsColumnMapping:
-    source_table: ColumnSpec
-    target_table: ColumnSpec
-    source_column: ColumnSpec
-    target_column: ColumnSpec
-    join_type: ColumnSpec
-    cardinality: CardinalityColumnSpec | None = None
-    comment: ColumnSpec | None = None
-    description: ColumnSpec | None = None
+    source_table: ColumnRef
+    target_table: ColumnRef
+    source_column: ColumnRef
+    target_column: ColumnRef
+    join_type: ColumnRef
+    cardinality: CardinalityColumnRef | None = None
+    comment: ColumnRef | None = None
+    description: ColumnRef | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "JoinsColumnMapping":
@@ -267,37 +156,17 @@ class JoinsColumnMapping:
         if missing:
             raise ConfigError(f"joins.column_mapping missing required entries: {sorted(missing)}")
 
-        def _col(key: str) -> ColumnSpec:
-            return _parse_column_block("joins.column_mapping", key, raw.get(key))
-
-        def _cardinality_col(block: dict) -> CardinalityColumnSpec:
-            spec_name = block.get("spec_name")
-            if not isinstance(spec_name, str) or not spec_name:
-                raise ConfigError("joins.column_mapping.cardinality.spec_name must be a non-empty string")
-            separator = block.get("separator")
-            if separator is not None and (not isinstance(separator, str) or not separator):
-                raise ConfigError("joins.column_mapping.cardinality.separator, if set, must be a non-empty string")
-            column_required = bool(block.get("column_required", True))
-            default_value: Any = block["default_value"] if "default_value" in block else _UNSET
-            if not column_required and default_value is _UNSET:
-                raise ConfigError(
-                    "joins.column_mapping.cardinality: `column_required: false` "
-                    "requires `default_value` to be declared (set to null for "
-                    "omit-on-blank)."
-                )
-            return CardinalityColumnSpec(
-                spec_name=spec_name,
-                separator=separator,
-                column_required=column_required,
-                default_value=default_value,
-            )
+        def _col(key: str) -> ColumnRef:
+            return parse_column_ref(raw.get(key) or {}, prefix="joins.column_mapping", key=key)
 
         cardinality_block = raw.get("cardinality")
-        cardinality_spec: CardinalityColumnSpec | None = None
+        cardinality_spec: CardinalityColumnRef | None = None
         if cardinality_block is not None:
             if not isinstance(cardinality_block, dict):
                 raise ConfigError("joins.column_mapping.cardinality must be a mapping")
-            cardinality_spec = _cardinality_col(cardinality_block)
+            cardinality_spec = parse_cardinality_column_ref(
+                cardinality_block, prefix="joins.column_mapping", key="cardinality",
+            )
 
         return cls(
             source_table=_col("source_table"),
@@ -339,7 +208,7 @@ class Defaults:
     def from_yaml(cls, path: Path) -> "Defaults":
         if not path.exists():
             return cls()
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        raw = load_yaml(path)
         fields_raw = raw.get("fields")
         column_mapping = None
         if fields_raw is not None:
@@ -381,9 +250,7 @@ class EpicConfig:
 
     @classmethod
     def from_yaml(cls, path: Path) -> "EpicConfig":
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if not isinstance(raw, dict):
-            raise ConfigError(f"{path}: top-level YAML must be a mapping")
+        raw = load_yaml_mapping(path, what="epic config")
 
         epic = raw.get("epic")
         if epic is None:
@@ -448,9 +315,7 @@ def _normalize_version(v: Any) -> str:
     if isinstance(v, str):
         return v.strip()
     if isinstance(v, (int, float)):
-        s = str(v)
-        # Strip a trailing ".0" so int-typed 1.0 becomes "1.0" not "1.0"; pyyaml gives 1.0 as float
-        return s
+        return str(v)
     raise ConfigError(f"version must be a string or number, got {type(v).__name__}")
 
 
@@ -517,7 +382,9 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
         if cm is None:
             cm = ColumnMapping.from_dict(epic.column_mapping_override)
         else:
-            cm = ColumnMapping.from_dict(_deep_merge_column_mapping(cm, epic.column_mapping_override))
+            cm = ColumnMapping.from_dict(
+                _deep_merge(_column_mapping_to_raw(cm), epic.column_mapping_override)
+            )
 
     if cm is None:
         raise ConfigError(
@@ -541,7 +408,17 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
     )
 
 
-def _column_spec_to_raw(c: ColumnSpec) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Deep-merge plumbing for the version-config column_mapping override.
+#
+# An EpicConfig override is partial raw YAML; the base ColumnMapping is a
+# parsed dataclass. We re-render the base to its raw shape, deep-merge the
+# override on top, then re-parse. Two allocations is the cost; correctness
+# is one round-trip through the same `from_dict` the YAML parser uses.
+# ---------------------------------------------------------------------------
+
+
+def _column_ref_to_raw(c: ColumnRef) -> dict[str, Any]:
     out: dict[str, Any] = {
         "spec_name": c.spec_name,
         "column_required": c.column_required,
@@ -552,7 +429,6 @@ def _column_spec_to_raw(c: ColumnSpec) -> dict[str, Any]:
 
 
 def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
-    """Render a ColumnMapping back into the raw-dict shape so a partial override can be merged in."""
     nullable_raw: dict[str, Any] = {
         "spec_name": cm.nullable.spec_name,
         "required": cm.nullable.column_required,
@@ -564,22 +440,16 @@ def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
     if cm.nullable.has_default:
         nullable_raw["default_value"] = cm.nullable.default_value
     out: dict[str, Any] = {
-        "name": _column_spec_to_raw(cm.name),
-        "type": _column_spec_to_raw(cm.type),
-        "description": _column_spec_to_raw(cm.description),
+        "name": _column_ref_to_raw(cm.name),
+        "type": _column_ref_to_raw(cm.type),
+        "description": _column_ref_to_raw(cm.description),
         "nullable": nullable_raw,
     }
     if cm.table is not None:
-        out["table"] = _column_spec_to_raw(cm.table)
+        out["table"] = _column_ref_to_raw(cm.table)
     for name, constraint in cm.constraints.items():
         out[name] = dict(constraint.raw_config)
     return out
-
-
-def _deep_merge_column_mapping(base: ColumnMapping, override: dict[str, Any]) -> dict[str, Any]:
-    base_raw = _column_mapping_to_raw(base)
-    merged = _deep_merge(base_raw, override)
-    return merged
 
 
 def _deep_merge(a: Any, b: Any) -> Any:

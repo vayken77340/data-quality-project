@@ -15,7 +15,7 @@ def test_load_builtins_populates_expected_names():
 
 
 def test_get_unknown_raises_config_error():
-    with pytest.raises(ConfigError, match="unknown table check"):
+    with pytest.raises(ConfigError, match="unknown TableCheck"):
         get("not_a_check")
 
 

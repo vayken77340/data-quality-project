@@ -52,6 +52,10 @@ def _append(ws, row: list[Any]) -> None:
     ws.append([_safe_cell(v) for v in row])
 
 from data_contract.contract import Contract
+from data_contract.validation.report.aggregation import (
+    count_severity,
+    filtered_dimension_score,
+)
 from data_contract.validation.report.colors import hex_
 from data_contract.validation.report.dimensions import (
     compute_overall_score,
@@ -59,7 +63,7 @@ from data_contract.validation.report.dimensions import (
 )
 from data_contract.validation.report.hints import HINTS
 from data_contract.validation.report.strings import load_strings
-from data_contract.validation.runner import (
+from data_contract.validation.models import (
     RejectedRow,
     TableReport,
     ValidationReport,
@@ -174,22 +178,11 @@ _FK_CONSISTENCY_KINDS = frozenset({"fk_not_found"})
 
 
 def _filtered_score(violations, kinds: frozenset, total_rows: int) -> float:
-    """Score 0..100 considering only error-severity violations in `kinds`.
+    """Thin adapter so xlsx callers keep their positional-arg signature.
 
-    Same row-based formula as the overall score: distinct (source_file,
-    source_row) tuples with at least one matching error mark the row dirty.
-    Empty tables score 0.0 (no rows to be clean).
+    The shared formula lives in `aggregation.filtered_dimension_score`.
     """
-    if total_rows <= 0:
-        return 0.0
-    dirty: set[tuple] = set()
-    for v in violations:
-        if v.severity != "error" or v.kind not in kinds:
-            continue
-        if v.source_file is not None and v.source_row is not None:
-            dirty.add((v.source_file, v.source_row))
-    clean = max(total_rows - len(dirty), 0)
-    return round(clean / total_rows * 100, 2)
+    return filtered_dimension_score(violations, kinds=kinds, total_rows=total_rows)
 
 
 def _has_fk_check(report: ValidationReport) -> bool:

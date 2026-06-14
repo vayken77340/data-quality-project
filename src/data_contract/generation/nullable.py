@@ -3,12 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from data_contract.core.column_ref import UNSET
 from data_contract.errors import ConfigError, RejectionError
-
-
-# Sentinel meaning "no default_value declared" -- same shape as
-# `generation.config._UNSET` and `field_constraints.base._UNSET`.
-_UNSET: Any = object()
 
 
 @dataclass(frozen=True)
@@ -17,11 +13,11 @@ class NullableMapping:
     true_values: frozenset[str]
     false_values: frozenset[str]
     column_required: bool = True
-    default_value: Any = _UNSET
+    default_value: Any = UNSET
 
     @property
     def has_default(self) -> bool:
-        return self.default_value is not _UNSET
+        return self.default_value is not UNSET
 
     @classmethod
     def from_dict(cls, raw: dict) -> "NullableMapping":
@@ -29,8 +25,8 @@ class NullableMapping:
         if not isinstance(spec_name, str) or not spec_name:
             raise ConfigError("column_mapping.nullable.spec_name must be a non-empty string")
         column_required = bool(raw.get("column_required", True))
-        default_value: Any = raw["default_value"] if "default_value" in raw else _UNSET
-        if not column_required and default_value is _UNSET:
+        default_value: Any = raw["default_value"] if "default_value" in raw else UNSET
+        if not column_required and default_value is UNSET:
             raise ConfigError(
                 "column_mapping.nullable: `column_required: false` requires "
                 "`default_value` to be declared. Set `default_value: null` "

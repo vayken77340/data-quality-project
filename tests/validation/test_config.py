@@ -53,7 +53,7 @@ tables:
     format: parquet  # not registered
     file_pattern: "x.parquet"
 """)
-    with pytest.raises(ConfigError, match="unknown parser"):
+    with pytest.raises(ConfigError, match="unknown FileParser"):
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 

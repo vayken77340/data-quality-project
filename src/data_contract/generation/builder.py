@@ -22,16 +22,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable, Union
 
-from data_contract._util import dump_yaml, now_iso_z
+from data_contract._util import now_iso_z
 from data_contract.contract import (
     BuildResult,
     Contract,
     FieldContract,
     Rejection,
 )
+from data_contract.core.column_ref import ColumnRef
+from data_contract.core.yaml_io import dump_yaml
 from data_contract.errors import ErrorCollector, RejectionError
 from data_contract.field_constraints.base import ConstraintContext
-from data_contract.generation.config import ColumnSpec, MergedConfig
+from data_contract.generation.config import MergedConfig
 from data_contract.generation.nullable import parse_nullable
 from data_contract.generation.spec_reader import RawField, SheetSpec
 from data_contract.type_mapping import (
@@ -43,48 +45,20 @@ from data_contract.type_mapping import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared blank-cell handler
-# ---------------------------------------------------------------------------
-
-
 def _check_mandatory_blank(
     raw: object | None,
-    col: ColumnSpec,
+    col: ColumnRef,
     *,
     field_name: str,
     sheet_row: int,
 ) -> tuple[Any, RejectionError | None]:
-    """Shared 'is this cell blank, and what do we substitute?' check.
+    """Adapter that exposes `ColumnRef.read_cell` under the historical name.
 
-    Returns `(trimmed string, None)` when a value is present.
-
-    When the cell is blank:
-      * If `col.has_default` -> returns `(col.default_value, None)`.
-        The default can be any YAML value (string, number, list, null);
-        it's substituted as-is without going through the per-field
-        constraint's typed parser.
-      * If `col.has_default` is False -> returns
-        `(None, missing_mandatory rejection)`. The spec author must
-        declare `default_value` in specs_parsing.yaml to make a column
-        optional.
+    Kept as a thin wrapper so call sites stay terse; behaviour lives on
+    `ColumnRef` for symmetry with the constraint-side blank-handling
+    template (`FieldConstraint.parse_cell`).
     """
-    if raw is None or str(raw).strip() == "":
-        if col.has_default:
-            return col.default_value, None
-        return None, RejectionError(
-            kind="missing_mandatory",
-            sheet_row=sheet_row,
-            column=col.spec_name,
-            field=field_name,
-            message=(
-                f"field {field_name!r} (column {col.spec_name!r}) requires "
-                f"a value but the cell is empty. Declare `default_value` "
-                f"on this column in specs_parsing.yaml to make blanks "
-                f"acceptable."
-            ),
-        )
-    return str(raw).strip(), None
+    return col.read_cell(raw, sheet_row=sheet_row, field_name=field_name)
 
 
 # ---------------------------------------------------------------------------

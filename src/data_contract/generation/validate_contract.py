@@ -196,6 +196,8 @@ def _stats_for_table_payload(outcome: ValidationOutcome) -> str:
 
 
 def _discover_epics(epic_root: Path) -> list[str]:
+    """Epics for `validate-contract` need a `contracts/` subdir, not `configs/`,
+    so we can't reuse `core.epic.discover_epics` directly here."""
     if not epic_root.is_dir():
         return []
     return sorted(

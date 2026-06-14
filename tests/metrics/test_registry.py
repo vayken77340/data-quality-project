@@ -19,7 +19,7 @@ def test_load_builtins_populates_expected_names():
 
 
 def test_get_unknown_raises_config_error():
-    with pytest.raises(ConfigError, match="unknown metric"):
+    with pytest.raises(ConfigError, match="unknown TableMetric"):
         get("not_a_metric")
 
 

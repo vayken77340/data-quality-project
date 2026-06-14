@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from data_contract.errors import ConfigError
-from data_contract import data_parsers as parsers
 from data_contract.data_parsers import (
     REGISTRY,
     FileParser,
@@ -24,7 +23,7 @@ def test_get_by_name_returns_class():
 
 
 def test_get_by_name_unknown_raises():
-    with pytest.raises(ConfigError, match="unknown parser"):
+    with pytest.raises(ConfigError, match="unknown FileParser"):
         get_by_name("parquet")
 
 
@@ -139,8 +138,10 @@ def test_register_custom_parser_round_trip():
         assert get_by_name("jsonl_test") is JsonLinesParser
         assert get_by_extension(".jsonl_test") is JsonLinesParser
     finally:
+        # Popping from REGISTRY is enough; BaseRegistry rechecks the primary
+        # mapping when consulting secondary indexes, so extension lookups
+        # stop resolving once the name is gone.
         REGISTRY.pop("jsonl_test", None)
-        parsers._EXTENSION_INDEX.pop(".jsonl_test", None)
 
 
 def test_parser_init_rejects_unknown_param():

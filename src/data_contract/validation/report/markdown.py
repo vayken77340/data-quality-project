@@ -27,7 +27,7 @@ from data_contract.validation.report.dimensions import (
 )
 from data_contract.validation.report.hints import hint_for
 from data_contract.validation.report.strings import load_strings
-from data_contract.validation.runner import ValidationReport
+from data_contract.validation.models import ValidationReport
 from data_contract.violations import Violation
 
 

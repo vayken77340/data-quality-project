@@ -20,8 +20,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from data_contract.core.yaml_io import load_yaml_mapping
 from data_contract.errors import ConfigError
 from data_contract.type_mapping import Type
 
@@ -94,9 +93,7 @@ def resolve_target_path(
 
 
 def load_target_config(path: Path) -> TargetConfig:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict):
-        raise ConfigError(f"{path}: top-level YAML must be a mapping")
+    raw = load_yaml_mapping(path, what="target config")
 
     name = raw.get("name")
     if not isinstance(name, str) or not name:

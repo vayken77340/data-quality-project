@@ -4,6 +4,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field as dc_field
 from typing import Any, ClassVar
 
+from data_contract.core.column_ref import (
+    UNSET as _UNSET,
+    ColumnRef,
+    parse_column_ref as _parse_core_column_ref,
+)
 from data_contract.errors import ConfigError, RejectionError
 from data_contract.type_mapping import Type
 
@@ -36,30 +41,11 @@ class DriftChange:
         return out
 
 
-# Sentinel meaning "no default_value declared". Same shape as
-# `generation.config._UNSET`; duplicated here so the constraint side can
-# stay decoupled from generation.
-_UNSET: Any = object()
-
-
-@dataclass
-class ConstraintColumnRef:
-    """The spec-column lookup info shared by every constraint.
-
-    `column_required` (default True): the column header must exist in the sheet.
-    `default_value`: when declared (any value, including YAML null), blank
-        cells in this column are silently replaced with the default.
-        When NOT declared (the `_UNSET` sentinel), blank cells produce a
-        `missing_mandatory` rejection. Logical rule: `column_required=False`
-        REQUIRES `default_value` to be declared.
-    """
-    spec_name: str
-    column_required: bool = True
-    default_value: Any = _UNSET
-
-    @property
-    def has_default(self) -> bool:
-        return self.default_value is not _UNSET
+# `ConstraintColumnRef` was the constraint-side copy of `ColumnRef` carrying
+# the same three fields. Kept here as a back-compat alias so existing imports
+# (`from data_contract.field_constraints.base import ConstraintColumnRef`)
+# resolve, but the implementation is the shared `ColumnRef`.
+ConstraintColumnRef = ColumnRef
 
 
 # ---------------------------------------------------------------------------
@@ -67,23 +53,10 @@ class ConstraintColumnRef:
 # ---------------------------------------------------------------------------
 
 
-def parse_column_ref(raw: dict, *, name: str) -> ConstraintColumnRef:
-    spec_name = raw.get("spec_name")
-    if not isinstance(spec_name, str) or not spec_name:
-        raise ConfigError(f"column_mapping.{name}.spec_name must be a non-empty string")
-    column_required = bool(raw.get("column_required", True))
-    default_value: Any = raw["default_value"] if "default_value" in raw else _UNSET
-    if not column_required and default_value is _UNSET:
-        raise ConfigError(
-            f"column_mapping.{name}: `column_required: false` requires "
-            f"`default_value` to be declared. Set `default_value: null` if "
-            f"the constraint should be omitted from the contract on blanks."
-        )
-    return ConstraintColumnRef(
-        spec_name=spec_name,
-        column_required=column_required,
-        default_value=default_value,
-    )
+def parse_column_ref(raw: dict, *, name: str) -> ColumnRef:
+    """Constraint-side wrapper that adapts the shared core parser to the
+    `column_mapping.<name>` error-message prefix."""
+    return _parse_core_column_ref(raw, prefix="column_mapping", key=name)
 
 
 def _parse_sub_block(

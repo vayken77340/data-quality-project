@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import yaml
+from data_contract.core.yaml_io import load_yaml
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -51,5 +51,4 @@ class ReportStrings:
 @lru_cache(maxsize=1)
 def load_strings() -> ReportStrings:
     """Return the process-wide singleton, loading the YAML on first call."""
-    with _STRINGS_PATH.open("r", encoding="utf-8") as f:
-        return ReportStrings(yaml.safe_load(f))
+    return ReportStrings(load_yaml(_STRINGS_PATH))

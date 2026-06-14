@@ -52,19 +52,9 @@ YAML shape (top level):
       extra_columns_severity: warning
       rejected_row_cap: 500
 
-Layer interaction:
-- `parsers/<format>.yaml` provides parser defaults (encoding, delimiter, ...).
-- `defaults.parser_overrides` overrides those.
-- `tables.<T>.parser_overrides` further overrides defaults per-table.
-
-Tier-keyed parsing:
-- Each tier sub-block must be exhaustive at the top level (lists every
-  name registered in that tier).
-- Per-table overrides accept partial sub-blocks; placing a name in the
-  wrong tier raises a "wrong tier" ConfigError.
-- Internally, gates are FLATTENED into a single dict[name -> spec] plus
-  a tier_of[name -> tier] index. The runner only consults `is_enabled`,
-  unaware of the tier layout.
+Tier-keyed parsing lives in `core/gates.py`. This module wires the
+validation-specific tier definitions (which names belong to which
+tier) on top of that shared parser.
 """
 
 from __future__ import annotations
@@ -73,15 +63,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from data_contract.core.gates import Gates, GateSpec, parse_tier_gates
+from data_contract.core.yaml_io import load_yaml_mapping
+from data_contract.data_parsers import get_by_name, load_parser_yaml_overrides
 from data_contract.errors import ConfigError
-from data_contract.data_parsers import get_by_name
 
-
-# ---------------------------------------------------------------------------
-# Tier definitions
-# ---------------------------------------------------------------------------
 
 # Structural checks are derived from the contract type system; the set is
 # hard-coded (a "new structural check" really means a new Type in
@@ -90,13 +76,20 @@ _STRUCTURAL_CHECK_NAMES: frozenset[str] = frozenset({
     "type_coercion", "boolean_coercion", "nullable", "max_length",
     # Source-schema drift checks (default off). The parser may expose a
     # ParserSchema with column_names / column_types; these checks compare
-    # that against the contract and emit warnings on mismatch. Skipped
-    # silently when the parser doesn't report a schema (e.g. fixed-width).
+    # that against the contract and emit warnings on mismatch.
     "field_names_from_sample", "field_types_from_sample",
 })
 
 CHECK_TIER_KEYS: tuple[str, ...] = ("structural", "table", "field")
 METRIC_TIER_KEYS: tuple[str, ...] = ("field", "table")
+
+
+# Back-compat aliases: the gate dataclasses used to live here; the
+# implementation collapsed onto `core.gates` but the public surface stays.
+CheckGates = Gates
+CheckSpec = GateSpec
+MetricGates = Gates
+MetricSpec = GateSpec
 
 
 def _tier_check_names() -> dict[str, frozenset[str]]:
@@ -106,9 +99,8 @@ def _tier_check_names() -> dict[str, frozenset[str]]:
     up newly registered plugins. Structural is hard-coded.
 
     Field-tier names are filtered to constraints that actually emit a
-    violation (i.e. override `check_data`, signalled by a non-empty
-    VIOLATION_KIND); contract-only constraints like `default_value` have
-    no data-side check and shouldn't appear as a togglable gate.
+    violation; contract-only constraints (default_value) have no data-side
+    check and shouldn't appear as a togglable gate.
     """
     from data_contract import field_constraints as fc_pkg
     from data_contract import table_checks as tc_pkg
@@ -133,78 +125,27 @@ def _tier_metric_names() -> dict[str, frozenset[str]]:
     return {tier: frozenset(names) for tier, names in out.items()}
 
 
+def _parse_check_gates(raw: Any, *, ctx: str, require_complete: bool = False) -> Gates:
+    return parse_tier_gates(
+        raw, ctx=ctx, block_label="checks",
+        tier_keys=CHECK_TIER_KEYS,
+        tier_names=_tier_check_names(),
+        require_complete=require_complete,
+    )
+
+
+def _parse_metric_gates(raw: Any, *, ctx: str, require_complete: bool = False) -> Gates:
+    return parse_tier_gates(
+        raw, ctx=ctx, block_label="metrics",
+        tier_keys=METRIC_TIER_KEYS,
+        tier_names=_tier_metric_names(),
+        require_complete=require_complete,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Spec / gates dataclasses
+# Top-level dataclasses
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CheckSpec:
-    """Per-check spec carried in a CheckGates entry.
-
-    `enabled` is the on/off toggle. Descriptions live globally in
-    `configs/report_strings.yaml`.
-    """
-    enabled: bool
-
-
-@dataclass(frozen=True)
-class CheckGates:
-    """Flat per-check spec map plus a tier index.
-
-    `specs[name]` carries the CheckSpec for each check; `tier_of[name]`
-    records which tier the entry came from (`"structural"`, `"table"`,
-    `"field"`), used for "wrong tier" error messages on per-table
-    overrides. The runner only reads `specs` via `is_enabled(name)`.
-    """
-    specs: dict[str, CheckSpec] = field(default_factory=dict)
-    tier_of: dict[str, str] = field(default_factory=dict)
-
-    def is_enabled(self, name: str) -> bool:
-        spec = self.specs.get(name)
-        return spec.enabled if spec is not None else True
-
-    def with_overrides(self, override: "CheckGates") -> "CheckGates":
-        """Merge `override` on top of self. Per-table beats global key by key."""
-        merged_specs: dict[str, CheckSpec] = {**self.specs}
-        merged_tier: dict[str, str] = {**self.tier_of}
-        for name, child_spec in override.specs.items():
-            merged_specs[name] = child_spec
-        for name, tier in override.tier_of.items():
-            merged_tier[name] = tier
-        return CheckGates(specs=merged_specs, tier_of=merged_tier)
-
-    @property
-    def values(self) -> dict[str, bool]:
-        return {name: spec.enabled for name, spec in self.specs.items()}
-
-
-@dataclass(frozen=True)
-class MetricSpec:
-    enabled: bool
-
-
-@dataclass(frozen=True)
-class MetricGates:
-    specs: dict[str, MetricSpec] = field(default_factory=dict)
-    tier_of: dict[str, str] = field(default_factory=dict)
-
-    def is_enabled(self, name: str) -> bool:
-        spec = self.specs.get(name)
-        return spec.enabled if spec is not None else True
-
-    def with_overrides(self, override: "MetricGates") -> "MetricGates":
-        merged_specs: dict[str, MetricSpec] = {**self.specs}
-        merged_tier: dict[str, str] = {**self.tier_of}
-        for name, child_spec in override.specs.items():
-            merged_specs[name] = child_spec
-        for name, tier in override.tier_of.items():
-            merged_tier[name] = tier
-        return MetricGates(specs=merged_specs, tier_of=merged_tier)
-
-    @property
-    def values(self) -> dict[str, bool]:
-        return {name: spec.enabled for name, spec in self.specs.items()}
 
 
 @dataclass(frozen=True)
@@ -214,8 +155,8 @@ class TableValidationConfig:
     file_pattern: str
     parser_overrides: dict[str, Any] = field(default_factory=dict)
     field_mapping: dict[str, str] = field(default_factory=dict)
-    checks: CheckGates = field(default_factory=CheckGates)
-    metrics: MetricGates = field(default_factory=MetricGates)
+    checks: Gates = field(default_factory=Gates)
+    metrics: Gates = field(default_factory=Gates)
 
 
 @dataclass(frozen=True)
@@ -229,199 +170,6 @@ _VALID_EXTRA_COLUMN_SEVERITIES = frozenset({"error", "warning", "info", "ignore"
 _DEFAULTS_ALLOWED = frozenset({"format", "file_pattern", "parser_overrides"})
 
 
-# ---------------------------------------------------------------------------
-# Tier-keyed parsing (shared between checks and metrics)
-# ---------------------------------------------------------------------------
-
-
-def _parse_tier_gates(
-    raw: Any,
-    *,
-    ctx: str,
-    block_label: str,                    # "checks" or "metrics"
-    tier_keys: tuple[str, ...],          # CHECK_TIER_KEYS or METRIC_TIER_KEYS
-    tier_names: dict[str, frozenset[str]],
-    require_complete: bool,
-) -> tuple[dict[str, bool], dict[str, str]]:
-    """Parse a tier-keyed block and return (flat enabled-by-name, tier_of).
-
-    Top-level `require_complete=True`:
-      * every tier key must be present
-      * within each tier every registered name must be present
-    Per-table override `require_complete=False`:
-      * any tier may be omitted
-      * within a tier any name may be omitted
-      * names placed in the wrong tier raise with the correct tier named
-    """
-    if raw is None:
-        if require_complete:
-            blueprint = _format_tier_blueprint(tier_keys, tier_names)
-            raise ConfigError(
-                f"{ctx}: top-level '{block_label}' block is required and must list "
-                f"every tier with every registered name. Expected shape:\n{blueprint}"
-            )
-        return {}, {}
-
-    if not isinstance(raw, dict):
-        raise ConfigError(
-            f"{ctx}: '{block_label}' must be a tier-keyed mapping with tier keys "
-            f"{list(tier_keys)}; got {type(raw).__name__}"
-        )
-
-    unknown_tiers = sorted(set(raw) - set(tier_keys))
-    if unknown_tiers:
-        # If an unknown "tier" is actually a known name, suggest the right tier.
-        suggestions = []
-        for bad in unknown_tiers:
-            for tier, names in tier_names.items():
-                if bad in names:
-                    suggestions.append(f"{bad!r} belongs under '{block_label}.{tier}'")
-                    break
-        suggestion_str = ("; " + "; ".join(suggestions)) if suggestions else ""
-        raise ConfigError(
-            f"{ctx}: '{block_label}' has unknown tier keys {unknown_tiers}; "
-            f"accepted tiers: {list(tier_keys)}{suggestion_str}"
-        )
-
-    if require_complete:
-        missing_tiers = sorted(set(tier_keys) - set(raw))
-        if missing_tiers:
-            raise ConfigError(
-                f"{ctx}: top-level '{block_label}' is missing required tier keys "
-                f"{missing_tiers}; expected all of {list(tier_keys)}"
-            )
-
-    flat_enabled: dict[str, bool] = {}
-    tier_of: dict[str, str] = {}
-
-    for tier in tier_keys:
-        sub = raw.get(tier)
-        valid_names = tier_names.get(tier, frozenset())
-        if sub is None:
-            if require_complete and valid_names:
-                raise ConfigError(
-                    f"{ctx}: '{block_label}.{tier}' is required and must list every "
-                    f"registered name in this tier: {sorted(valid_names)}"
-                )
-            continue
-        if not isinstance(sub, dict):
-            raise ConfigError(
-                f"{ctx}: '{block_label}.{tier}' must be a mapping of name -> "
-                f"enabled-flag; got {type(sub).__name__}"
-            )
-
-        # Detect names placed in the wrong tier and report the right one.
-        for name in sub:
-            if name in valid_names:
-                continue
-            correct_tier = None
-            for other_tier, other_names in tier_names.items():
-                if other_tier == tier:
-                    continue
-                if name in other_names:
-                    correct_tier = other_tier
-                    break
-            if correct_tier is not None:
-                raise ConfigError(
-                    f"{ctx}: '{block_label}.{tier}.{name}' is in the wrong tier; "
-                    f"move it under '{block_label}.{correct_tier}.{name}'"
-                )
-            raise ConfigError(
-                f"{ctx}: '{block_label}.{tier}' has unknown name {name!r}; "
-                f"accepted: {sorted(valid_names)}"
-            )
-
-        if require_complete:
-            missing = sorted(valid_names - set(sub))
-            if missing:
-                raise ConfigError(
-                    f"{ctx}: '{block_label}.{tier}' must explicitly set every "
-                    f"registered name; missing: {missing}"
-                )
-
-        for name, body in sub.items():
-            flat_enabled[name] = _parse_bool_or_enabled(
-                body, name=f"{block_label}.{tier}.{name}", ctx=ctx,
-            )
-            tier_of[name] = tier
-
-    return flat_enabled, tier_of
-
-
-def _format_tier_blueprint(
-    tier_keys: tuple[str, ...], tier_names: dict[str, frozenset[str]],
-) -> str:
-    lines = []
-    for tier in tier_keys:
-        names = sorted(tier_names.get(tier, set()))
-        lines.append(f"  {tier}:")
-        for n in names:
-            lines.append(f"    {n}: true|false")
-    return "\n".join(lines)
-
-
-def _parse_bool_or_enabled(raw: Any, *, name: str, ctx: str) -> bool:
-    """Parse a leaf entry: either a bool or `{enabled: bool}`."""
-    if isinstance(raw, bool):
-        return raw
-    if not isinstance(raw, dict):
-        raise ConfigError(
-            f"{ctx}: '{name}' must be a boolean or a mapping with 'enabled'; "
-            f"got {type(raw).__name__}. Example: `{name}: true` or "
-            f"`{name}: {{ enabled: true }}`."
-        )
-    allowed = {"enabled"}
-    extras = sorted(set(raw) - allowed)
-    if extras:
-        raise ConfigError(
-            f"{ctx}: '{name}' has unknown keys {extras}; accepted: {sorted(allowed)}"
-        )
-    if "enabled" not in raw:
-        raise ConfigError(
-            f"{ctx}: '{name}' is missing required key 'enabled' (true | false)"
-        )
-    enabled = raw["enabled"]
-    if not isinstance(enabled, bool):
-        raise ConfigError(
-            f"{ctx}: '{name}.enabled' must be a boolean (true | false); got {enabled!r}"
-        )
-    return enabled
-
-
-def _parse_check_gates(
-    raw: Any, *, ctx: str, require_complete: bool = False,
-) -> CheckGates:
-    flat, tier_of = _parse_tier_gates(
-        raw,
-        ctx=ctx,
-        block_label="checks",
-        tier_keys=CHECK_TIER_KEYS,
-        tier_names=_tier_check_names(),
-        require_complete=require_complete,
-    )
-    return CheckGates(
-        specs={name: CheckSpec(enabled=enabled) for name, enabled in flat.items()},
-        tier_of=tier_of,
-    )
-
-
-def _parse_metric_gates(
-    raw: Any, *, ctx: str, require_complete: bool = False,
-) -> MetricGates:
-    flat, tier_of = _parse_tier_gates(
-        raw,
-        ctx=ctx,
-        block_label="metrics",
-        tier_keys=METRIC_TIER_KEYS,
-        tier_names=_tier_metric_names(),
-        require_complete=require_complete,
-    )
-    return MetricGates(
-        specs={name: MetricSpec(enabled=enabled) for name, enabled in flat.items()},
-        tier_of=tier_of,
-    )
-
-
 @dataclass(frozen=True)
 class _DefaultsBlock:
     format: str | None = None
@@ -432,18 +180,14 @@ class _DefaultsBlock:
 @dataclass(frozen=True)
 class ValidationConfig:
     settings: ValidationSettings
-    # Per-format parser defaults loaded once from `configs/parsers.yaml`.
-    # Empty dict when the file is missing -- the runner then falls through
-    # to validation.yaml overrides for every value. Stored already-parsed
-    # so the validation runner doesn't redo filesystem work per table.
     parser_yaml_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     contracts_folder: Path | None = None
     defaults: _DefaultsBlock = field(default_factory=_DefaultsBlock)
     tables: dict[str, TableValidationConfig] = field(default_factory=dict)
     declared_table_filter: tuple[str, ...] = ()
     target: str = ""
-    checks: CheckGates = field(default_factory=CheckGates)
-    metrics: MetricGates = field(default_factory=MetricGates)
+    checks: Gates = field(default_factory=Gates)
+    metrics: Gates = field(default_factory=Gates)
 
     @classmethod
     def from_yaml(
@@ -451,17 +195,10 @@ class ValidationConfig:
     ) -> "ValidationConfig":
         if not validation_yaml.is_file():
             raise ConfigError(f"validation config not found: {validation_yaml}")
-        raw = yaml.safe_load(validation_yaml.read_text(encoding="utf-8")) or {}
-        if not isinstance(raw, dict):
-            raise ConfigError(f"{validation_yaml}: top-level YAML must be a mapping")
+        raw = load_yaml_mapping(validation_yaml, what="validation config")
 
-        # --- per-format parser defaults (configs/parsers.yaml) ----------------
-        # Load once; the dict is then merged with validation.yaml-side overrides
-        # at `effective_parser_params` call time.
-        from data_contract.data_parsers import load_parser_yaml_overrides
         parser_yaml_overrides = load_parser_yaml_overrides(parsers_yaml_path)
 
-        # --- contracts_folder --------------------------------------------------
         contracts_folder_raw = raw.get("contracts_folder")
         contracts_folder: Path | None = None
         if contracts_folder_raw is not None:
@@ -471,7 +208,6 @@ class ValidationConfig:
                 )
             contracts_folder = Path(contracts_folder_raw)
 
-        # --- target ------------------------------------------------------------
         target_raw = raw.get("target")
         if target_raw is None:
             raise ConfigError(
@@ -483,19 +219,14 @@ class ValidationConfig:
             raise ConfigError(
                 f"{validation_yaml}: 'target' must be a non-empty string"
             )
-        target: str = target_raw
 
-        # --- checks (global, tier-keyed, exhaustive) --------------------------
         global_checks = _parse_check_gates(
             raw.get("checks"), ctx=str(validation_yaml), require_complete=True,
         )
-
-        # --- metrics (global, tier-keyed, exhaustive) -------------------------
         global_metrics = _parse_metric_gates(
             raw.get("metrics"), ctx=str(validation_yaml), require_complete=True,
         )
 
-        # --- defaults block ---------------------------------------------------
         defaults_raw = raw.get("defaults", {}) or {}
         if not isinstance(defaults_raw, dict):
             raise ConfigError(f"{validation_yaml}: 'defaults' must be a mapping")
@@ -507,7 +238,6 @@ class ValidationConfig:
             )
         defaults_block = _parse_defaults_block(defaults_raw, validation_yaml)
 
-        # --- tables block (optional) ------------------------------------------
         tables_raw = raw.get("tables")
         if tables_raw is None:
             tables_block: dict[str, dict | None] = {}
@@ -520,7 +250,7 @@ class ValidationConfig:
         declared_filter: list[str] = []
         for table_name, table_raw in tables_block.items():
             declared_filter.append(table_name)
-            entry = _resolve_table(
+            tables[table_name] = _resolve_table(
                 table_name=table_name,
                 table_raw=table_raw or {},
                 defaults=defaults_block,
@@ -528,9 +258,7 @@ class ValidationConfig:
                 global_checks=global_checks,
                 global_metrics=global_metrics,
             )
-            tables[table_name] = entry
 
-        # --- settings ---------------------------------------------------------
         settings_raw = raw.get("settings", {}) or {}
         if not isinstance(settings_raw, dict):
             raise ConfigError(f"{validation_yaml}: 'settings' must be a mapping")
@@ -551,7 +279,7 @@ class ValidationConfig:
             defaults=defaults_block,
             tables=tables,
             declared_table_filter=tuple(declared_filter),
-            target=target,
+            target=target_raw,
             checks=global_checks,
             metrics=global_metrics,
         )
@@ -616,8 +344,8 @@ def _resolve_table(
     table_raw: dict,
     defaults: _DefaultsBlock,
     validation_yaml: Path,
-    global_checks: CheckGates = CheckGates(),
-    global_metrics: MetricGates = MetricGates(),
+    global_checks: Gates = Gates(),
+    global_metrics: Gates = Gates(),
 ) -> TableValidationConfig:
     raw_fmt = table_raw.get("format")
     if raw_fmt is not None and (not isinstance(raw_fmt, str) or not raw_fmt):

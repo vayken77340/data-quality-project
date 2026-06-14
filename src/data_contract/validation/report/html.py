@@ -21,7 +21,7 @@ from pathlib import Path
 
 from data_contract.contract import Contract
 from data_contract.validation.report.json_report import render_json
-from data_contract.validation.runner import ValidationReport
+from data_contract.validation.models import ValidationReport
 
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"

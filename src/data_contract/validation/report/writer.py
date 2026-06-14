@@ -9,7 +9,7 @@ from data_contract.validation.report.html import write_html
 from data_contract.validation.report.json_report import write_json
 from data_contract.validation.report.markdown import write_markdown
 from data_contract.validation.report.xlsx import write_xlsx
-from data_contract.validation.runner import ValidationReport
+from data_contract.validation.models import ValidationReport
 
 
 def write_all(

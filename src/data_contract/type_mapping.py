@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-import yaml
 
+from data_contract.core.yaml_io import load_yaml
 from data_contract.errors import ConfigError, RejectionError
 
 
@@ -247,7 +247,7 @@ def load_type_registry(path: Path) -> TypeRegistry:
     The legacy list-of-entries shape (with `canonical:` as a field) is
     rejected with a migration hint.
     """
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = load_yaml(path)
     mappings = raw.get("mappings")
     if isinstance(mappings, list):
         raise ConfigError(
