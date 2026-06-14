@@ -29,6 +29,7 @@ import json` if anyone ever needs it.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -165,15 +166,43 @@ class JsonParser(FileParser):
 # ---------------------------------------------------------------------------
 
 
+# Path segments are either dict keys (no `.` or `[]`) or list indexers
+# like `[3]`. Used by `_walk_path` to tokenise dotted paths.
+_SEGMENT_RE = re.compile(r"[^.\[\]]+|\[\d+\]")
+
+
 def _walk_path(payload: Any, dotted_path: str, *, source: Path, allow_missing: bool = False) -> Any:
-    """Walk `payload` along `dotted_path` (segments separated by `.`).
+    """Walk `payload` along `dotted_path`.
+
+    Path syntax:
+      * dots separate dict keys: ``a.b.c``
+      * ``[N]`` indexes into a list: ``data[0].report_header``,
+        ``data[2].rows[1]``
 
     Raises `ConfigError` with the source file name on missing segments
-    unless `allow_missing` is True, in which case missing segments yield
-    `None`.
+    unless `allow_missing` is True (in which case missing segments yield
+    `None`).
     """
-    current = payload
-    for segment in dotted_path.split("."):
+    current: Any = payload
+    for segment in _SEGMENT_RE.findall(dotted_path):
+        # List indexer like "[0]" -- unwrap and validate.
+        if segment.startswith("["):
+            idx = int(segment[1:-1])
+            if not isinstance(current, list):
+                raise ConfigError(
+                    f"parser 'json': cannot resolve {dotted_path!r} in {source.name}; "
+                    f"segment {segment!r} expected a list, got {type(current).__name__}"
+                )
+            if idx < 0 or idx >= len(current):
+                if allow_missing:
+                    return None
+                raise ConfigError(
+                    f"parser 'json': path {dotted_path!r} not found in {source.name}; "
+                    f"index {segment} out of range (list has {len(current)} item(s))"
+                )
+            current = current[idx]
+            continue
+        # Dict key.
         if not isinstance(current, dict):
             raise ConfigError(
                 f"parser 'json': cannot resolve {dotted_path!r} in {source.name}; "

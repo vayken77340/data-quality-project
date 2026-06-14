@@ -25,11 +25,17 @@ excel:
 # Self-describing JSON: each file carries its own column code -> name map
 # under `report_header`, and the data rows live in `report_row`. The
 # parser uses `report_header[<code>][name_key]` to rename the row keys to
-# the contract field names. Override `header_path` / `rows_path` to point
-# at a different JSON-export shape.
+# the contract field names.
+#
+# Path syntax for `header_path` / `rows_path`:
+#   * dots separate dict keys: `a.b.c`
+#   * `[N]` indexes into a list: `data[0].report_header`
+#
+# Override `header_path` / `rows_path` to point at a different JSON-export
+# shape.
 json:
   encoding:    utf-8
-  header_path: "data.report_header"
-  rows_path:   "data.report_row"
+  header_path: "data[0].report_header"
+  rows_path:   "data[0].report_row"
   name_key:    "name"
   null_tokens: ["", "null", "NULL"]

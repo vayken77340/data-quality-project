@@ -60,13 +60,13 @@ def test_excel_parse_file_returns_parsed_file_with_column_names(tmp_path, excel_
 
 def test_json_parse_file_exposes_names_and_types(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {
                 "c1": {"name": "column 1", "type": "java.lang.String"},
                 "c2": {"name": "column 2", "type": "java.lang.Integer"},
             },
             "report_row": [{"c1": "alpha", "c2": "1"}],
-        }
+        }]
     }
     p = tmp_path / "a.json"
     p.write_text(json.dumps(payload), encoding="utf-8")

@@ -25,7 +25,8 @@ def _write_json(path: Path, payload: dict) -> Path:
 
 def _default_payload(rows: list[dict] | None = None) -> dict:
     """A minimal example of the report_header / report_row shape the
-    parser was built for."""
+    parser was built for. `data` is a single-element list of report
+    objects (matches the real upstream export shape)."""
     if rows is None:
         rows = [
             {"c1": "alpha", "c2": "1"},
@@ -33,13 +34,13 @@ def _default_payload(rows: list[dict] | None = None) -> dict:
             {"c1": "gamma", "c2": "3"},
         ]
     return {
-        "data": {
+        "data": [{
             "report_header": {
                 "c1": {"name": "column 1", "type": "java.lang.String"},
                 "c2": {"name": "column 2", "type": "java.lang.String"},
             },
             "report_row": rows,
-        }
+        }]
     }
 
 
@@ -66,13 +67,13 @@ def test_json_multi_file_concat_diagonal(tmp_path, json_params):
     # File A has columns 1 + 2; file B has columns 1 + 3 (different code maps).
     a = _write_json(tmp_path / "a.json", _default_payload(rows=[{"c1": "a", "c2": "1"}]))
     b_payload = {
-        "data": {
+        "data": [{
             "report_header": {
                 "c1": {"name": "column 1"},
                 "c3": {"name": "column 3"},
             },
             "report_row": [{"c1": "b", "c3": "x"}],
-        }
+        }]
     }
     b = _write_json(tmp_path / "b.json", b_payload)
     parser = JsonParser(json_params())
@@ -105,10 +106,10 @@ def test_json_empty_report_row_yields_zero_rows_with_header_columns(tmp_path, js
 
 def test_json_missing_rows_path_treated_as_empty(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "column 1"}},
             # report_row deliberately absent
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -132,14 +133,14 @@ def test_json_all_data_columns_are_string_dtype(tmp_path, json_params):
 
 def test_json_bool_and_number_scalars_stringify(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {
                 "c1": {"name": "flag"},
                 "c2": {"name": "amount"},
                 "c3": {"name": "tally"},
             },
             "report_row": [{"c1": True, "c2": 12.5, "c3": 42}],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -151,10 +152,10 @@ def test_json_bool_and_number_scalars_stringify(tmp_path, json_params):
 
 def test_json_nested_value_stringified_via_json_dumps(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "nested"}},
             "report_row": [{"c1": {"foo": 1, "bar": [2, 3]}}],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -165,10 +166,10 @@ def test_json_nested_value_stringified_via_json_dumps(tmp_path, json_params):
 
 def test_json_null_value_preserved_as_none(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "n"}},
             "report_row": [{"c1": None}, {"c1": "kept"}],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -177,7 +178,7 @@ def test_json_null_value_preserved_as_none(tmp_path, json_params):
 
 def test_json_null_tokens_become_nulls(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "n"}},
             "report_row": [
                 {"c1": "NULL"},
@@ -185,7 +186,7 @@ def test_json_null_tokens_become_nulls(tmp_path, json_params):
                 {"c1": ""},
                 {"c1": "kept"},
             ],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -202,10 +203,10 @@ def test_json_row_with_unmapped_code_passes_through_as_code(tmp_path, json_param
     -- that's the right behaviour, so the parser should pass through rather
     than error."""
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "column 1"}},
             "report_row": [{"c1": "a", "c99": "extra"}],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -216,13 +217,13 @@ def test_json_row_with_unmapped_code_passes_through_as_code(tmp_path, json_param
 
 def test_json_header_entry_without_name_key_falls_back_to_code(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {
                 "c1": {"name": "column 1"},
                 "c2": {"type": "string"},   # no `name`
             },
             "report_row": [{"c1": "a", "c2": "b"}],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     df = JsonParser(json_params()).read([p]).frame.collect()
@@ -263,7 +264,7 @@ def test_json_custom_header_and_rows_paths(tmp_path, json_params):
 
 
 def test_json_missing_header_path_raises(tmp_path, json_params):
-    payload = {"data": {"report_row": []}}   # no report_header
+    payload = {"data": [{"report_row": []}]}   # no report_header
     p = _write_json(tmp_path / "a.json", payload)
     # Error names the offending segment AND the keys actually present at that
     # depth so the user can fix either the YAML or the JSON.
@@ -272,7 +273,7 @@ def test_json_missing_header_path_raises(tmp_path, json_params):
 
 
 def test_json_header_path_wrong_type_raises(tmp_path, json_params):
-    payload = {"data": {"report_header": ["not", "a", "dict"], "report_row": []}}
+    payload = {"data": [{"report_header": ["not", "a", "dict"], "report_row": []}]}
     p = _write_json(tmp_path / "a.json", payload)
     with pytest.raises(ConfigError, match="expected a dict"):
         JsonParser(json_params()).read([p]).frame
@@ -280,10 +281,10 @@ def test_json_header_path_wrong_type_raises(tmp_path, json_params):
 
 def test_json_rows_path_wrong_type_raises(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "n"}},
             "report_row": {"not": "a list"},
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     with pytest.raises(ConfigError, match="expected a list"):
@@ -292,10 +293,10 @@ def test_json_rows_path_wrong_type_raises(tmp_path, json_params):
 
 def test_json_row_not_an_object_raises(tmp_path, json_params):
     payload = {
-        "data": {
+        "data": [{
             "report_header": {"c1": {"name": "n"}},
             "report_row": ["not-a-dict"],
-        }
+        }]
     }
     p = _write_json(tmp_path / "a.json", payload)
     with pytest.raises(ConfigError, match="must be an object"):
@@ -307,3 +308,52 @@ def test_json_missing_required_param_raises_with_clear_hint(tmp_path):
     p = _write_json(tmp_path / "a.json", _default_payload())
     with pytest.raises(ConfigError, match="header_path.*rows_path"):
         JsonParser({}).read([p]).frame
+
+
+# ---------------------------------------------------------------------------
+# Path syntax: list indexing via `[N]`
+# ---------------------------------------------------------------------------
+
+
+def test_json_indexes_into_non_first_list_element(tmp_path, json_params):
+    """`[N]` segments index into lists. The default `data[0]...` paths
+    are exercised by every test above; this asserts non-zero indices
+    also resolve correctly."""
+    payload = {
+        "data": [
+            {"junk": True},   # idx 0 -- skipped
+            {                 # idx 1 -- the real report
+                "report_header": {"c1": {"name": "x"}},
+                "report_row": [{"c1": "ok"}],
+            },
+        ]
+    }
+    p = _write_json(tmp_path / "a.json", payload)
+    parser = JsonParser(json_params(
+        header_path="data[1].report_header",
+        rows_path="data[1].report_row",
+    ))
+    df = parser.read([p]).frame.collect()
+    assert df["x"].to_list() == ["ok"]
+
+
+def test_json_list_indexer_against_non_list_raises(tmp_path, json_params):
+    """`[0]` segment hitting a dict instead of a list -> clear error."""
+    p = _write_json(tmp_path / "a.json", _default_payload())
+    parser = JsonParser(json_params(
+        header_path="data[0].report_header[0]",   # report_header is a dict, not a list
+        rows_path="data[0].report_row",
+    ))
+    with pytest.raises(ConfigError, match="expected a list"):
+        parser.read([p]).frame
+
+
+def test_json_list_index_out_of_range_raises(tmp_path, json_params):
+    """Indexing past the end of the list -> clear error."""
+    p = _write_json(tmp_path / "a.json", _default_payload())
+    parser = JsonParser(json_params(
+        header_path="data[5].report_header",   # only one element
+        rows_path="data[0].report_row",
+    ))
+    with pytest.raises(ConfigError, match="index .* out of range"):
+        parser.read([p]).frame
