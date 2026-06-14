@@ -455,7 +455,7 @@ def _process_epic(
                     table=sheet_name,
                     errors=keys_data.errors + [read.error],
                 )
-                _emit_result(rejection, contracts_dir, outcome, write=write)
+                _emit_result(rejection, contracts_dir, outcome, write=write, settings=settings)
                 continue
 
             sheet_spec = read.spec
