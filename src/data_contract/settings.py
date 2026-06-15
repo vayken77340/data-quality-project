@@ -52,6 +52,13 @@ class Settings:
     # Validation-side
     rejected_row_cap: int = 500
     extra_columns_severity: str = "warning"
+    # Global similarity threshold used by parsers whose `field_matching_policy`
+    # is "similarity". One value across all parsers (csv, excel, ...) so the
+    # operator tunes it in one place; per-parser tuning was deliberately
+    # rejected as a footgun. Range: 0..1; 0.8 strikes a reasonable balance
+    # between catching typos / case / spacing variants and avoiding false
+    # matches across genuinely-different columns.
+    similarity_threshold: float = 0.8
 
 
 class SettingsError(ValueError):
@@ -77,6 +84,18 @@ def _parse_int(value: str | None, default: int, *, key: str, minimum: int = 1) -
         raise SettingsError(f"{_ENV_FILENAME}: {key}={value!r} must be an integer") from e
     if parsed < minimum:
         raise SettingsError(f"{_ENV_FILENAME}: {key}={parsed} must be >= {minimum}")
+    return parsed
+
+
+def _parse_float_in_unit_range(value: str | None, default: float, *, key: str) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(_strip_quotes(value))
+    except ValueError as e:
+        raise SettingsError(f"{_ENV_FILENAME}: {key}={value!r} must be a number") from e
+    if not 0.0 <= parsed <= 1.0:
+        raise SettingsError(f"{_ENV_FILENAME}: {key}={parsed} must be in [0, 1]")
     return parsed
 
 
@@ -152,5 +171,9 @@ def load_settings(start_dir: Path | None = None) -> Settings:
         extra_columns_severity=_parse_choice(
             values.get("extra_columns_severity"), defaults.extra_columns_severity,
             key="extra_columns_severity", choices=_VALID_EXTRA_COLUMN_SEVERITIES,
+        ),
+        similarity_threshold=_parse_float_in_unit_range(
+            values.get("similarity_threshold"), defaults.similarity_threshold,
+            key="similarity_threshold",
         ),
     )

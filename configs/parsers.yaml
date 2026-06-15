@@ -1,48 +1,81 @@
 # Per-format parser defaults. Top-level keys must match a registered
 # parser name (see src/data_contract/data_parsers/); each block's keys
-# must match that parser's PARSER_PARAMS allowlist. Both are validated
-# at load time.
+# must match that parser's PARSER_PARAMS allowlist (plus the generic
+# `field_matching_policy` that every parser supports). Both are
+# validated at load time.
 #
 # This is the sole source of per-format default values. Per-validation
 # and per-table overrides go in each epic's validation.yaml under
-# defaults.parser_overrides: / tables.<T>.parser_overrides: -- those win
-# over the defaults declared here.
+# `defaults.parser_overrides:` / `tables.<T>.parser_overrides:` -- those
+# win over the defaults declared here.
+#
+# Recognized params
+# -----------------
+#
+# Generic (available on every parser, validated by the FileParser base):
+#   field_matching_policy   "positional" | "exact" | "similarity"
+#                           How the parser-emitted column names bind to
+#                           contract field names per file:
+#                             positional -- i-th data column = i-th
+#                                contract field. Header text is ignored.
+#                             exact      -- column whose name equals a
+#                                contract field name binds; rest are
+#                                surfaced via column_missing/extra_column.
+#                             similarity -- fuzzy match against contract
+#                                field names with the global
+#                                similarity_threshold (.env). Handles
+#                                case/whitespace/punctuation/word-order
+#                                variants; NOT semantic equivalents
+#                                (use validation.yaml `field_mapping:`
+#                                for those).
+#
+# csv:
+#   encoding         file encoding ("utf-8" or "utf8-lossy")
+#   delimiter        single character (default ",")
+#   header_row       1-based row to treat as header (default 1)
+#   null_tokens      list of strings replaced with None per cell
+#   quote_char       single character (default '"')
+#
+# excel:
+#   header_row       1-based row to treat as header (default 1)
+#   null_tokens      list of strings replaced with None per cell
+#   sheet_name       explicit sheet name (else: table_name_hint, then
+#                    the first sheet)
+#
+# json:
+#   encoding         file encoding
+#   header_path      dotted path to the report_header dict (supports
+#                    `[N]` list indexers, e.g. `data[0].report_header`)
+#   rows_path        dotted path to the report_row list
+#   name_key         metadata key inside header[code] yielding the
+#                    contract-facing column name (default "name")
+#   null_tokens      list of strings replaced with None
+#
+# Tunable globally via .env:
+#   similarity_threshold     float in [0, 1], default 0.8. Used only
+#                            when a parser's field_matching_policy is
+#                            "similarity".
 #
 # Adding a new parser? Drop a module under data_parsers/, then add a
 # block here with its defaults.
 
 csv:
-  encoding:     utf-8
-  delimiter:    ","
-  header_row:   1
-  null_tokens:  ["", "NULL"]
-  quote_char:   '"'
-  # `match_header: false` (default) -- ignore CSV header text and bind data
-  # columns to contract fields positionally. Per-file, so multi-file reads
-  # with disagreeing headers still concat under contract names. Set true
-  # per-table when the CSV's header is authoritative AND its column order
-  # may differ from the contract.
-  match_header: false
+  encoding:              utf-8
+  delimiter:             ","
+  header_row:            1
+  null_tokens:           ["", "NULL"]
+  quote_char:            '"'
+  field_matching_policy: positional
 
 excel:
-  header_row:   1
-  null_tokens:  ["", "NULL"]
-  match_header: false
+  header_row:            1
+  null_tokens:           ["", "NULL"]
+  field_matching_policy: positional
 
-# Self-describing JSON: each file carries its own column code -> name map
-# under `report_header`, and the data rows live in `report_row`. The
-# parser uses `report_header[<code>][name_key]` to rename the row keys to
-# the contract field names.
-#
-# Path syntax for `header_path` / `rows_path`:
-#   * dots separate dict keys: `a.b.c`
-#   * `[N]` indexes into a list: `data[0].report_header`
-#
-# Override `header_path` / `rows_path` to point at a different JSON-export
-# shape.
 json:
-  encoding:    utf-8
-  header_path: "data[0].report_header"
-  rows_path:   "data[0].report_row"
-  name_key:    "name"
-  null_tokens: ["", "null", "NULL"]
+  encoding:              utf-8
+  header_path:           "data[0].report_header"
+  rows_path:             "data[0].report_row"
+  name_key:              "name"
+  null_tokens:           ["", "null", "NULL"]
+  field_matching_policy: exact

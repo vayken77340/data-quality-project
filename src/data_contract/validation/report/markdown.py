@@ -151,7 +151,6 @@ def render_markdown(report: ValidationReport) -> str:
                 count=issue.count, kind_label=kind_label,
                 field=issue.field or "", hint=hint, detail=detail,
             ))
-    lines.append("")
     lines.append(S.get("markdown", "footer"))
 
     return "\n".join(lines) + "\n"

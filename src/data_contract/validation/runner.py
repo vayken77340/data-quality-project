@@ -279,12 +279,14 @@ def _validate_one_table(
     parser_cls = get_by_name(table_cfg.format)
     parser_params = config.effective_parser_params(table_cfg)
     parser = parser_cls(parser_params)
-    # Hand the contract's field-name list to the parser as side context.
-    # Parsers that don't need it (JSON, ...) ignore the attribute; CSV and
-    # Excel consult it when their `match_header` is False to bind data
-    # columns positionally. NOT a generic parsing knob -- just context the
-    # parser may use.
+    # Side context consumed by `FileParser._apply_field_matching`. The
+    # parser's `field_matching_policy` (per-parser / per-table) and the
+    # global `similarity_threshold` (.env) together drive how the i-th data
+    # column binds to the i-th contract field. Parsers ignore the attributes
+    # when they don't need them. Not a generic "how to parse" knob -- just
+    # context the matching layer reads.
     parser.contract_field_names = [f.name for f in contract.fields]
+    parser.similarity_threshold = settings.similarity_threshold
 
     try:
         parsed = parser.read(paths, table_name_hint=contract.table)

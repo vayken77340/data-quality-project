@@ -41,6 +41,12 @@ YAML shape (top level):
     tables:                                    # optional
       PROJECT:
       CALENDAR:
+        format: csv                            # overrides defaults.format
+        file_pattern: "calendar*.csv"          # overrides defaults.file_pattern
+        parser_overrides:                      # per-format parser params,
+          field_matching_policy: similarity    #   allowlist enforced per parser
+        field_mapping:                         # explicit source -> contract
+          "Report No.": "Record Number"        #   rename after the policy
         checks:                                # partial override allowed
           field:
             unique: true
@@ -48,23 +54,45 @@ YAML shape (top level):
           field:
             duplicate_pct: false
 
-Operator toggles (`rejected_row_cap`, `extra_columns_severity`) used to
-live under a `settings:` block here but moved to `.env` so they can vary
-by environment (CI vs dev) without editing the YAML. See `settings.py`.
+Per-table keys recognized under `tables.<T>:`:
+
+  format            -- parser name; overrides defaults.format.
+  file_pattern      -- glob; overrides defaults.file_pattern.
+  parser_overrides  -- per-format parser params (allowlist enforced by
+                       each parser's PARSER_PARAMS). The generic
+                       `field_matching_policy` ("positional" | "exact" |
+                       "similarity") is added automatically by the
+                       FileParser base; the global similarity_threshold
+                       comes from .env.
+  field_mapping     -- explicit source-name -> contract-field rename
+                       applied AFTER the parser's policy-driven rename.
+                       Use this for genuine semantic mappings the
+                       policy can't infer (e.g. "Report No." ->
+                       "Record Number"). For typos / case / spacing /
+                       word-order variants, the "similarity" policy
+                       handles it without listing each one here.
+  checks            -- per-tier partial overrides on the global gates.
+  metrics           -- same shape as checks.
+
+Operator toggles (`rejected_row_cap`, `extra_columns_severity`,
+`similarity_threshold`) live in `.env` so they can vary by environment
+(CI vs dev) without editing this YAML. See `settings.py`.
 
 Column-binding strategy
 -----------------------
-How data columns bind to contract fields is owned by each parser, not
-the runner. CSV and Excel expose a `match_header` parser param
-(default false in `configs/parsers.yaml`):
-  * `match_header: false` -- POSITIONAL binding. The i-th data column is
-    the i-th contract field. The rename happens inside the parser, per
-    file, before the framework's multi-file concat.
-  * `match_header: true` -- NAME-BASED binding. The parser keeps the
-    file's header names; `field_mapping` (if any) does an explicit
-    header-to-contract rename at the runner level.
-Self-describing formats (JSON) do their own code -> name translation
-and have no `match_header` param.
+Owned by each parser via the generic `field_matching_policy` param
+(in `parser_overrides`):
+  * `positional` (CSV / Excel default) -- the i-th data column is the
+    i-th contract field. Header text is ignored. Rename happens per
+    file inside `FileParser._apply_field_matching`, before multi-file
+    concat, so CSVs with disagreeing headers still align.
+  * `exact` (JSON default) -- columns whose names already equal a
+    contract field name bind by string equality. Mismatched columns
+    surface via `column_missing` / `extra_column`.
+  * `similarity` -- fuzzy match against contract field names with the
+    global `similarity_threshold` (.env). Catches typos / case /
+    spacing / punctuation / word-order variants; does NOT catch
+    semantic equivalents -- use `field_mapping` above for those.
 
 `checks.structural.field_names_from_sample` and
 `checks.structural.field_types_from_sample` are pure DRIFT checks: each
@@ -385,11 +413,14 @@ def _resolve_table(
             f"{validation_yaml}: tables.{table_name}.parser_overrides must be a mapping"
         )
     merged_keys = set(defaults.parser_overrides) | set(table_overrides_raw)
-    unknown = sorted(merged_keys - set(parser_cls.PARSER_PARAMS))
+    # Include the base-class generic params (e.g. field_matching_policy)
+    # so per-table overrides match what the FileParser `__init__` accepts.
+    accepted = set(parser_cls.PARSER_PARAMS) | set(parser_cls._BASE_PARSER_PARAMS)
+    unknown = sorted(merged_keys - accepted)
     if unknown:
         raise ConfigError(
             f"{validation_yaml}: tables.{table_name} parser_overrides include unknown keys "
-            f"{unknown}; accepted for {fmt!r}: {list(parser_cls.PARSER_PARAMS)}"
+            f"{unknown}; accepted for {fmt!r}: {sorted(accepted)}"
         )
 
     mapping_raw = table_raw.get("field_mapping", {}) or {}

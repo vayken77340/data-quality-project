@@ -19,8 +19,10 @@ the class declares behavior, the YAML declares values.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, ClassVar, Iterable
 
@@ -80,6 +82,47 @@ class ReadResult:
 
 
 # ---------------------------------------------------------------------------
+# Field-matching policy
+# ---------------------------------------------------------------------------
+
+
+_VALID_FIELD_MATCHING_POLICIES = frozenset({"positional", "exact", "similarity"})
+
+# Collapse runs of non-alphanumeric characters into a single space so
+# "User_ID", "User ID", "user-id" all normalize to "user id".
+_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_for_matching(s: str) -> str:
+    return _NORMALIZE_RE.sub(" ", s.lower()).strip()
+
+
+def _similarity_score(a: str, b: str) -> float:
+    """Compute the matching score between two column names.
+
+    Score is `max(char_ratio, token_jaccard)` over the normalized form:
+      * `char_ratio` -- difflib.SequenceMatcher.ratio() on the normalized
+        strings. Catches typos and tight character-level variation.
+      * `token_jaccard` -- |A∩B| / |A∪B| over the whitespace-split token
+        sets. Catches reordered tokens ("user id" vs "id user") and partial
+        overlap.
+    Taking the max means either signal can validate a match. This works
+    well for case / spacing / punctuation / word-order variants
+    ("User ID" <-> "user_id") but will NOT match genuine semantic
+    equivalents like "Record Number" <-> "Report No." -- use the
+    runner-level `field_mapping` for those.
+    """
+    na, nb = _normalize_for_matching(a), _normalize_for_matching(b)
+    char_ratio = SequenceMatcher(None, na, nb).ratio()
+    ta, tb = set(na.split()), set(nb.split())
+    if ta or tb:
+        jaccard = len(ta & tb) / len(ta | tb)
+    else:
+        jaccard = 1.0
+    return max(char_ratio, jaccard)
+
+
+# ---------------------------------------------------------------------------
 # FileParser ABC
 # ---------------------------------------------------------------------------
 
@@ -117,22 +160,39 @@ class FileParser(ABC):
     PARSER_PARAMS: ClassVar[tuple[str, ...]] = ()
     SOURCE_TYPE_ALIASES: ClassVar[dict[str, str]] = {}
 
+    # Generic params every parser supports without redeclaring. Merged with
+    # `PARSER_PARAMS` for typo-gate validation in `__init__`.
+    _BASE_PARSER_PARAMS: ClassVar[tuple[str, ...]] = ("field_matching_policy",)
+
+    # Each parser's default policy. Subclasses override to match their format's
+    # natural semantic: CSV/Excel default to "positional" (header text is
+    # potentially stale); JSON defaults to "exact" (the parser already does
+    # `code -> name` translation that produces authoritatively-named columns).
+    default_field_matching_policy: ClassVar[str] = "positional"
+
     params: dict[str, Any]
-    # The runner sets this on the instance before calling `read()` so
-    # contract-aware parsers (CSV / Excel, when `match_header` is False)
-    # can rename data columns to contract field names per file. Parsers
-    # that don't need it just ignore the attribute. NOT a generic
-    # "how to parse" knob -- it's only context.
+    # Set by the runner before `read()`. `_apply_field_matching` reads them.
+    # Both have sensible no-op fallbacks so the parser works standalone too
+    # (tests, ad-hoc use) without runner cooperation.
     contract_field_names: list[str] | None = None
+    similarity_threshold: float = 0.8
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         raw = dict(params or {})
-        unknown = sorted(set(raw) - set(self.PARSER_PARAMS))
+        accepted = set(self.PARSER_PARAMS) | set(self._BASE_PARSER_PARAMS)
+        unknown = sorted(set(raw) - accepted)
         if unknown:
             raise ConfigError(
                 f"parser {self.name!r}: unknown config keys {unknown}; "
-                f"accepted: {list(self.PARSER_PARAMS)}"
+                f"accepted: {sorted(accepted)}"
             )
+        if "field_matching_policy" in raw:
+            policy = raw["field_matching_policy"]
+            if policy not in _VALID_FIELD_MATCHING_POLICIES:
+                raise ConfigError(
+                    f"parser {self.name!r}: field_matching_policy={policy!r} must be "
+                    f"one of {sorted(_VALID_FIELD_MATCHING_POLICIES)}"
+                )
         self.params = raw
 
     # ------------------------------------------------------------------
@@ -200,6 +260,12 @@ class FileParser(ABC):
         for path in paths:
             parsed = self.parse_file(path, table_name_hint=table_name_hint)
             lf = self._materialise(parsed, pl)
+            # Apply the field-matching policy per file, BEFORE tracking
+            # columns + concat so each file's columns bind to contract
+            # field names independently. Multi-file reads with disagreeing
+            # headers (CSV) or disagreeing `report_header` translations
+            # (JSON) still unify cleanly after concat-by-name.
+            lf = self._apply_field_matching(lf, path)
             lf = self._attach_tracking(lf, path, pl)
             per_file_lf.append(lf)
             per_file_schemas.append((path.name, parsed.schema))
@@ -255,6 +321,118 @@ class FileParser(ABC):
         else:
             df = pl_module.DataFrame({c: [] for c in declared_cols}, schema=schema)
         return df.lazy()
+
+    # ------------------------------------------------------------------
+    # Field-matching policy
+    # ------------------------------------------------------------------
+
+    def _apply_field_matching(self, lf: Any, path: Path) -> Any:
+        """Rename the per-file frame's columns to contract field names per the
+        configured policy. No-op when `contract_field_names` is unset (parser
+        used standalone) or when the chosen policy produces no rename.
+
+        Per-file by construction: called inside `read()`'s loop before the
+        multi-file concat, so two files whose parser-emitted column names
+        disagree still concat cleanly under contract field names.
+        """
+        if not self.contract_field_names:
+            return lf
+        existing = lf.collect_schema().names()
+        policy = self.params.get("field_matching_policy", self.default_field_matching_policy)
+        if policy == "positional":
+            rename_map = self._positional_match_map(existing, self.contract_field_names, path)
+        elif policy == "exact":
+            # Exact = no rename; columns whose names already equal a contract
+            # field stay as-is, the rest are surfaced by `column_missing` and
+            # `extra_column` downstream.
+            return lf
+        elif policy == "similarity":
+            rename_map = self._similarity_match_map(
+                existing, self.contract_field_names, self.similarity_threshold,
+            )
+        else:
+            # Already validated in __init__; defensive.
+            raise ConfigError(
+                f"parser {self.name!r}: unknown field_matching_policy {policy!r}"
+            )
+        if not rename_map:
+            return lf
+        return lf.rename(rename_map)
+
+    def _positional_match_map(
+        self, existing: list[str], contract_field_names: list[str], path: Path,
+    ) -> dict[str, str]:
+        """Build a `{existing_name: contract_name}` map for positional mode.
+
+        The i-th existing data column becomes the i-th contract field. Only
+        the first `min(N_existing, N_contract)` columns are renamed; any
+        extras on either side are surfaced by `column_missing` / `extra_column`
+        downstream. No-op renames (existing already equals contract) are
+        skipped.
+
+        Raises `ConfigError` when a contract name to be assigned at position i
+        collides with an existing column at position j >= len(contract). Polars
+        would silently produce duplicates otherwise; this protects the user
+        from a silent value scramble.
+        """
+        n = min(len(existing), len(contract_field_names))
+        rename_map = {
+            existing[i]: contract_field_names[i]
+            for i in range(n)
+            if existing[i] != contract_field_names[i]
+        }
+        duplicate_targets = sorted(
+            set(contract_field_names[:n]) & set(existing[n:])
+        )
+        if duplicate_targets:
+            raise ConfigError(
+                f"parser {self.name!r}: positional rename in {path.name} would "
+                f"create duplicate columns {duplicate_targets}. The file has "
+                f"columns with these names AT DIFFERENT POSITIONS than the "
+                f"contract declares. Either reorder the file, switch to "
+                f"`field_matching_policy: exact` for this table, or rename "
+                f"the colliding contract fields."
+            )
+        return rename_map
+
+    def _similarity_match_map(
+        self,
+        existing: list[str],
+        contract_field_names: list[str],
+        threshold: float,
+    ) -> dict[str, str]:
+        """Build a `{existing_name: contract_name}` map for similarity mode.
+
+        Greedy assignment: iterate existing columns in order, find each one's
+        best-scoring contract field above `threshold`, claim it exclusively.
+        Exact matches short-circuit (no scoring needed). Mismatches that
+        can't clear the threshold stay as-is; downstream `column_missing` /
+        `extra_column` surface them.
+        """
+        contract_set = set(contract_field_names)
+        used: set[str] = set()
+        rename_map: dict[str, str] = {}
+        for col in existing:
+            if col in contract_set:
+                used.add(col)
+                continue
+            best: str | None = None
+            best_score = threshold
+            for cn in contract_field_names:
+                if cn in used:
+                    continue
+                score = _similarity_score(col, cn)
+                if score >= best_score:
+                    best_score = score
+                    best = cn
+            if best is not None:
+                rename_map[col] = best
+                used.add(best)
+        return rename_map
+
+    # ------------------------------------------------------------------
+    # Bookkeeping helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _attach_tracking(lf: Any, path: Path, pl_module) -> Any:

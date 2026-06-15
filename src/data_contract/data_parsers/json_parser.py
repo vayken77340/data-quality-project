@@ -82,6 +82,12 @@ class JsonParser(FileParser):
         "name_key",
         "null_tokens",
     )
+    # JSON's `code -> name` translation produces semantically-named columns;
+    # exact match against contract field names is the natural binding. With
+    # the default policy in place, a name in `report_header` that doesn't
+    # exactly equal a contract field will surface as `column_missing` /
+    # `extra_column` (instead of silently scrambling under positional rename).
+    default_field_matching_policy = "exact"
     # No DEFAULTS classvar -- per-format defaults live in `configs/parsers.yaml`.
 
     # Java-style type strings -> contract Type values (canonical strings in
