@@ -52,21 +52,25 @@ Operator toggles (`rejected_row_cap`, `extra_columns_severity`) used to
 live under a `settings:` block here but moved to `.env` so they can vary
 by environment (CI vs dev) without editing the YAML. See `settings.py`.
 
-Column-naming strategy
-----------------------
-`checks.structural.field_names_from_sample` doubles as the toggle between
-two modes:
+Column-binding strategy
+-----------------------
+How data columns bind to contract fields is owned by each parser, not
+the runner. CSV and Excel expose a `match_header` parser param
+(default false in `configs/parsers.yaml`):
+  * `match_header: false` -- POSITIONAL binding. The i-th data column is
+    the i-th contract field. The rename happens inside the parser, per
+    file, before the framework's multi-file concat.
+  * `match_header: true` -- NAME-BASED binding. The parser keeps the
+    file's header names; `field_mapping` (if any) does an explicit
+    header-to-contract rename at the runner level.
+Self-describing formats (JSON) do their own code -> name translation
+and have no `match_header` param.
 
-  * **off (default)** -- POSITIONAL mode. The i-th data column is renamed
-    to the i-th contract field. Header text is not consulted at all, so a
-    CSV with a stale or wrong header still validates as long as columns
-    are in contract field order. `field_mapping` is disallowed here
-    (positional rename makes it meaningless; a stale block raises a
-    ConfigError pointing the operator at the toggle).
-  * **on** -- NAME-BASED mode. Header text is authoritative. Columns keep
-    their original names; `field_mapping` (if any) renames them. The
-    source-schema drift check fires and emits a violation when contract
-    field names disagree with header names.
+`checks.structural.field_names_from_sample` and
+`checks.structural.field_types_from_sample` are pure DRIFT checks: each
+parser still records the file's original header text in its
+`ParserSchema`, and the runner compares that against the contract when
+either gate is enabled. They do NOT drive parsing.
 
 Tier-keyed parsing lives in `core/gates.py`. This module wires the
 validation-specific tier definitions (which names belong to which

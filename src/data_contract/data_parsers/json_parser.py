@@ -102,7 +102,7 @@ class JsonParser(FileParser):
     }
 
     def parse_file(
-        self, path: Path, *, table_name_hint: str | None = None
+        self, path: Path, *, table_name_hint: str | None = None,
     ) -> ParsedFile:
         import json as _json
 

@@ -279,6 +279,13 @@ def _validate_one_table(
     parser_cls = get_by_name(table_cfg.format)
     parser_params = config.effective_parser_params(table_cfg)
     parser = parser_cls(parser_params)
+    # Hand the contract's field-name list to the parser as side context.
+    # Parsers that don't need it (JSON, ...) ignore the attribute; CSV and
+    # Excel consult it when their `match_header` is False to bind data
+    # columns positionally. NOT a generic parsing knob -- just context the
+    # parser may use.
+    parser.contract_field_names = [f.name for f in contract.fields]
+
     try:
         parsed = parser.read(paths, table_name_hint=contract.table)
     except Exception as e:
@@ -292,36 +299,19 @@ def _validate_one_table(
     report.source_schemas = parsed.per_file_schemas
     report.parser_cls = parser_cls
 
-    # Column-naming strategy. `field_names_from_sample` is the toggle:
-    #   * gate OFF (default) -- POSITIONAL mode: header text is ignored; the
-    #     i-th data column is renamed to the i-th contract field. The CSV
-    #     can have any header (or a stale one) and validation still works as
-    #     long as the column order matches contract field order.
-    #   * gate ON  -- NAME-BASED mode: header text is authoritative; columns
-    #     are kept as-is and `field_mapping` (if set) does an explicit
-    #     header-to-contract rename. The source-schema drift check fires
-    #     and flags mismatches.
-    if table_cfg.checks.is_enabled("field_names_from_sample"):
-        if table_cfg.field_mapping:
-            # Defensive: skip mapping entries whose source column isn't present.
-            present_cols = set(frame.collect_schema().names())
-            applicable = {
-                src: dst for src, dst in table_cfg.field_mapping.items()
-                if src in present_cols
-            }
-            if applicable:
-                frame = frame.rename(applicable)
-    else:
-        if table_cfg.field_mapping:
-            raise ConfigError(
-                f"table {contract.table!r}: 'field_mapping' is only valid when "
-                f"'checks.structural.field_names_from_sample' is true (name-based mode). "
-                f"In the default positional mode columns are renamed by index to the "
-                f"contract field order, so an explicit header-to-contract mapping is "
-                f"meaningless. Either remove 'field_mapping' or set "
-                f"'field_names_from_sample: true' for this table."
-            )
-        frame = _rename_columns_positionally(frame, contract)
+    if table_cfg.field_mapping:
+        # `field_mapping` does a header-to-contract rename at the runner
+        # level. In positional mode the parser has already renamed
+        # columns to contract names; mappings whose source isn't present
+        # are silently skipped (the defensive guard) and `column_missing`
+        # surfaces any underlying gap.
+        present_cols = set(frame.collect_schema().names())
+        applicable = {
+            src: dst for src, dst in table_cfg.field_mapping.items()
+            if src in present_cols
+        }
+        if applicable:
+            frame = frame.rename(applicable)
 
     df = frame.collect()
     report.total_rows = df.height
@@ -366,50 +356,6 @@ def _validate_one_table(
     populate_metrics(report, df, contract, table_cfg.metrics, type_registry)
 
     return df.lazy()
-
-
-_TRACKING_COLS = frozenset({"__source_file__", "__row_index__"})
-
-
-def _rename_columns_positionally(frame, contract: Contract):
-    """Rename the i-th data column to the i-th contract field name.
-
-    Used in positional mode (the default, gate
-    `checks.structural.field_names_from_sample` is off). Only the first
-    `min(N_data_cols, N_contract_fields)` columns are renamed; any extras
-    on either side are surfaced by the `extra_column` / `column_missing`
-    checks downstream.
-
-    No-op when each data column already carries its contract name (i.e.
-    the existing test fixtures with name-aligned headers stay byte-for-byte
-    identical through this call).
-    """
-    existing = frame.collect_schema().names()
-    data_cols = [c for c in existing if c not in _TRACKING_COLS]
-    contract_names = [f.name for f in contract.fields]
-    rename_map = {
-        data_cols[i]: contract_names[i]
-        for i in range(min(len(data_cols), len(contract_names)))
-        if data_cols[i] != contract_names[i]
-    }
-    if not rename_map:
-        return frame
-    # Polars `rename` requires unique target names. If the contract has a
-    # field whose name collides with an existing data column further down,
-    # the rename would silently duplicate -- bail with a clear error.
-    duplicate_targets = sorted(
-        set(rename_map.values()) & (set(existing) - set(rename_map.keys()))
-    )
-    if duplicate_targets:
-        raise ConfigError(
-            f"table {contract.table!r}: positional rename would create duplicate "
-            f"columns {duplicate_targets}. The data file already has columns with "
-            f"these names AT DIFFERENT POSITIONS than the contract declares. "
-            f"Either reorder the file, set "
-            f"'checks.structural.field_names_from_sample: true' for this table, "
-            f"or rename the colliding contract fields."
-        )
-    return frame.rename(rename_map)
 
 
 def _run_source_schema_drift(

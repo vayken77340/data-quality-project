@@ -118,6 +118,12 @@ class FileParser(ABC):
     SOURCE_TYPE_ALIASES: ClassVar[dict[str, str]] = {}
 
     params: dict[str, Any]
+    # The runner sets this on the instance before calling `read()` so
+    # contract-aware parsers (CSV / Excel, when `match_header` is False)
+    # can rename data columns to contract field names per file. Parsers
+    # that don't need it just ignore the attribute. NOT a generic
+    # "how to parse" knob -- it's only context.
+    contract_field_names: list[str] | None = None
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         raw = dict(params or {})
@@ -135,11 +141,13 @@ class FileParser(ABC):
 
     @abstractmethod
     def parse_file(
-        self, path: Path, *, table_name_hint: str | None = None
+        self, path: Path, *, table_name_hint: str | None = None,
     ) -> ParsedFile:
         """Read ONE source file. Return a `ParsedFile` carrying rows and
         an optional `ParserSchema`. The framework's `read()` handles
-        everything else.
+        everything else (tracking columns, multi-file concat, pl.String
+        coercion). What "rows" and "column names" mean inside a `ParsedFile`
+        is owned by the concrete parser.
 
         `table_name_hint` is the contract's table key, supplied so parsers
         that have a notion of "section within the file" (e.g. Excel
@@ -167,7 +175,7 @@ class FileParser(ABC):
     # ------------------------------------------------------------------
 
     def read(
-        self, paths: list[Path], *, table_name_hint: str | None = None
+        self, paths: list[Path], *, table_name_hint: str | None = None,
     ) -> ReadResult:
         """Read all `paths` and return a unified LazyFrame plus the
         per-file schemas.

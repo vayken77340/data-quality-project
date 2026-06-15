@@ -12,15 +12,22 @@
 # block here with its defaults.
 
 csv:
-  encoding:    utf-8
-  delimiter:   ","
-  header_row:  1
-  null_tokens: ["", "NULL"]
-  quote_char:  '"'
+  encoding:     utf-8
+  delimiter:    ","
+  header_row:   1
+  null_tokens:  ["", "NULL"]
+  quote_char:   '"'
+  # `match_header: false` (default) -- ignore CSV header text and bind data
+  # columns to contract fields positionally. Per-file, so multi-file reads
+  # with disagreeing headers still concat under contract names. Set true
+  # per-table when the CSV's header is authoritative AND its column order
+  # may differ from the contract.
+  match_header: false
 
 excel:
-  header_row:  1
-  null_tokens: ["", "NULL"]
+  header_row:   1
+  null_tokens:  ["", "NULL"]
+  match_header: false
 
 # Self-describing JSON: each file carries its own column code -> name map
 # under `report_header`, and the data rows live in `report_row`. The
