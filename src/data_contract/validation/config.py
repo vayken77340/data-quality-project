@@ -412,16 +412,10 @@ def _resolve_table(
         raise ConfigError(
             f"{validation_yaml}: tables.{table_name}.parser_overrides must be a mapping"
         )
-    merged_keys = set(defaults.parser_overrides) | set(table_overrides_raw)
-    # Include the base-class generic params (e.g. field_matching_policy)
-    # so per-table overrides match what the FileParser `__init__` accepts.
-    accepted = set(parser_cls.PARSER_PARAMS) | set(parser_cls._BASE_PARSER_PARAMS)
-    unknown = sorted(merged_keys - accepted)
-    if unknown:
-        raise ConfigError(
-            f"{validation_yaml}: tables.{table_name} parser_overrides include unknown keys "
-            f"{unknown}; accepted for {fmt!r}: {sorted(accepted)}"
-        )
+    merged = {**defaults.parser_overrides, **table_overrides_raw}
+    parser_cls.validate_params(
+        merged, ctx=f"{validation_yaml}: tables.{table_name} parser_overrides",
+    )
 
     mapping_raw = table_raw.get("field_mapping", {}) or {}
     if not isinstance(mapping_raw, dict):

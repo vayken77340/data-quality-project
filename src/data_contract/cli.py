@@ -47,6 +47,13 @@ DEFAULT_TYPES_PATH = Path("configs/types.yaml")
 DEFAULT_EPIC_ROOT = Path("epics")
 
 
+def _fail(label: str, e: Exception) -> int:
+    """Canonical 'config error / regen-docs / schema export error / ...' line
+    written to stderr. Returns 1 so the caller can `return _fail(...)`."""
+    print(f"{label}: {e}", file=sys.stderr)
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -226,8 +233,7 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     try:
         registry = load_type_registry(Path(args.types))
     except ConfigError as e:
-        print(f"config error: {e}", file=sys.stderr)
-        return 1
+        return _fail("config error", e)
 
     if args.epic is not None:
         epics = [args.epic]
@@ -293,11 +299,9 @@ def _cmd_regen_docs(args: argparse.Namespace) -> int:
     try:
         changed = regen_constraint_doc(path)
     except FileNotFoundError:
-        print(f"regen-docs: {path} not found", file=sys.stderr)
-        return 1
+        return _fail("regen-docs", FileNotFoundError(f"{path} not found"))
     except OSError as e:
-        print(f"regen-docs: {e}", file=sys.stderr)
-        return 1
+        return _fail("regen-docs", e)
     print(f"[REGEN] {path}{' (updated)' if changed else ' (unchanged)'}")
     return 0
 
@@ -307,8 +311,7 @@ def _cmd_export_schema(args: argparse.Namespace) -> int:
     try:
         changed = write_contract_json_schema(out)
     except OSError as e:
-        print(f"schema export error: {e}", file=sys.stderr)
-        return 1
+        return _fail("schema export error", e)
     if changed:
         print(f"[SCHEMA] wrote {out}")
     else:
@@ -363,8 +366,7 @@ def _cmd_drift(args: argparse.Namespace) -> int:
         old_contract = Contract.load(from_file)
         new_contract = Contract.load(to_file)
     except Exception as e:
-        print(f"failed to load history: {e}", file=sys.stderr)
-        return 1
+        return _fail("failed to load history", e)
     report = diff_contracts(old_contract, new_contract)
     print_drift_summary(args.table, args.from_version, args.to_version, report)
     if args.write and not report.is_empty():

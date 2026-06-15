@@ -23,7 +23,13 @@ from data_contract.generation.config import KeysSpec
 from data_contract.contract import FieldContract
 from data_contract.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
-from data_contract.generation.spec_reader import HEADER_SEARCH_DEPTH, find_sheet_by_name
+from data_contract.generation.sheet_io import (
+    HEADER_SEARCH_DEPTH,
+    cell as _cell,
+    locate_header_row,
+    row_is_empty as _row_is_empty,
+)
+from data_contract.generation.spec_reader import find_sheet_by_name
 
 
 # ---------------------------------------------------------------------------
@@ -99,14 +105,7 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
 
     # Locate header row (depth-N scan, matching the table-sheet behavior).
     required_norm = {normalize(cm.table_name.spec_name), normalize(cm.primary_key.spec_name)}
-    located: tuple[int, list[str | None]] | None = None
-    for row_idx, row in enumerate(
-        ws.iter_rows(min_row=1, max_row=HEADER_SEARCH_DEPTH, values_only=True), start=1
-    ):
-        present = {normalize(c) for c in row if c is not None}
-        if required_norm.issubset(present):
-            located = row_idx, [None if c is None else str(c) for c in row]
-            break
+    located = locate_header_row(ws, required_norm)
 
     if located is None:
         out.errors.append(RejectionError(
@@ -309,20 +308,3 @@ def enrich_field_contract_list(
     return fields, errors, fk_warnings
 
 
-# ---------------------------------------------------------------------------
-# Local helpers
-# ---------------------------------------------------------------------------
-
-
-def _cell(row: tuple, idx: int | None) -> object | None:
-    if idx is None or idx >= len(row):
-        return None
-    return row[idx]
-
-
-def _row_is_empty(row: tuple, indices: list[int]) -> bool:
-    for i in indices:
-        v = _cell(row, i)
-        if v is not None and str(v).strip() != "":
-            return False
-    return True

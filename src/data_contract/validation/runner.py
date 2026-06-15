@@ -24,10 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from data_contract._util import now_iso_z
-from data_contract.contract import Contract, FieldContract
+from data_contract.contract import Contract
 from data_contract.core.epic import InvalidEpicName, validate_epic_name
 from data_contract.core.yaml_io import load_yaml
-from data_contract.data_parsers import get_by_name
 from data_contract.errors import ConfigError
 from data_contract.settings import Settings, SettingsError, load_settings
 from data_contract.targets import load_target_config, resolve_target_path
@@ -36,6 +35,9 @@ from data_contract.validation.config import (
     TableValidationConfig,
     ValidationConfig,
 )
+from data_contract.validation.emit import emit_from_lazy
+from data_contract.validation.fk_pass import run_cross_table_fk
+from data_contract.validation.load_table import load_table
 from data_contract.validation.models import (
     TableReport,
     ValidationReport,
@@ -44,15 +46,42 @@ from data_contract.validation.phases import PHASES, PhaseContext
 from data_contract.validation.post import (
     build_rejected_rows,
     build_run_metadata,
-    diagnose_missing_inputs,
     populate_by_check,
     populate_metrics,
 )
-from data_contract.table_checks.fk_existence import FkExistenceCheck as _FkCheckCls
-from data_contract.violations import Violation
 
 
 DEFAULT_OUTPUT_SUBDIR = "validations"
+
+
+# ---------------------------------------------------------------------------
+# Setup-step exit-code helper
+# ---------------------------------------------------------------------------
+#
+# Five "try/except (ConfigError, OSError, SettingsError) -> print + return 1"
+# blocks at the top of `run_validate_data` collapse onto one `_step()` helper.
+# Setup helpers raise `_AbortRun` after printing; the top-level `try/except` in
+# `run_validate_data` catches and returns the carried exit code.
+
+
+class _AbortRun(Exception):
+    """Bail out of `run_validate_data` early with a fixed exit code. Raised by
+    `_step()` once it has printed the user-facing error to stderr."""
+
+    def __init__(self, exit_code: int = 1) -> None:
+        self.exit_code = exit_code
+
+
+def _step(label: str, fn):
+    """Run `fn()`; on `ConfigError | OSError | SettingsError`, print the message
+    with `label` as prefix and abort the run with exit code 1. `label` may
+    optionally end with ": " for "verb the noun: <error>" framings (e.g.
+    "failed to load type registry {p}: ")."""
+    try:
+        return fn()
+    except (ConfigError, OSError, SettingsError) as e:
+        print(f"validate-data: {label}{e}", file=sys.stderr)
+        raise _AbortRun() from e
 
 
 # ---------------------------------------------------------------------------
@@ -94,40 +123,28 @@ def run_validate_data(
     out_dir = _resolve_epic_path(output_dir, epic_dir, default_subdir=DEFAULT_OUTPUT_SUBDIR)
 
     try:
-        config = ValidationConfig.from_yaml(validation_yaml, parsers_yaml_path)
-    except (ConfigError, OSError) as e:
-        print(f"validate-data: {e}", file=sys.stderr)
-        return 1
-
-    try:
-        settings = load_settings()
-    except SettingsError as e:
-        print(f"validate-data: {e}", file=sys.stderr)
-        return 1
-
-    try:
-        type_registry = load_type_registry(types_path)
-    except (ConfigError, OSError) as e:
-        print(f"validate-data: failed to load type registry {types_path}: {e}", file=sys.stderr)
-        return 1
-
-    try:
-        target_path = resolve_target_path(
-            config.target, repo_root=types_path.parent.parent, epic_dir=epic_dir,
+        config = _step("", lambda: ValidationConfig.from_yaml(validation_yaml, parsers_yaml_path))
+        settings = _step("", load_settings)
+        type_registry = _step(
+            f"failed to load type registry {types_path}: ",
+            lambda: load_type_registry(types_path),
         )
-        target_config = load_target_config(target_path)
-    except (ConfigError, OSError) as e:
-        print(f"validate-data: {e}", file=sys.stderr)
-        return 1
-    type_registry = type_registry.with_target(target_config)
 
-    contracts_dir = config.contracts_folder if config.contracts_folder else (epic_dir / "contracts")
+        def _load_target():
+            target_path = resolve_target_path(
+                config.target, repo_root=types_path.parent.parent, epic_dir=epic_dir,
+            )
+            return load_target_config(target_path)
+        target_config = _step("", _load_target)
+        type_registry = type_registry.with_target(target_config)
 
-    try:
-        contracts_by_table = _load_contracts(contracts_dir)
-    except (ConfigError, OSError) as e:
-        print(f"validate-data: failed to load contracts under {contracts_dir}: {e}", file=sys.stderr)
-        return 1
+        contracts_dir = config.contracts_folder if config.contracts_folder else (epic_dir / "contracts")
+        contracts_by_table = _step(
+            f"failed to load contracts under {contracts_dir}: ",
+            lambda: _load_contracts(contracts_dir),
+        )
+    except _AbortRun as e:
+        return e.exit_code
 
     if not input_dir.is_dir():
         print(f"validate-data: input directory not found: {input_dir}", file=sys.stderr)
@@ -165,7 +182,7 @@ def run_validate_data(
         # by each phase / check, so they don't land here.
         print(f"validate-data: {e}", file=sys.stderr)
         return 1
-    _phase_b_cross_table_fk(
+    run_cross_table_fk(
         table_reports=table_reports,
         table_frames=table_frames,
         table_configs=table_configs,
@@ -262,200 +279,29 @@ def _validate_one_table(
     """Load + per-table checks. Returns the unified LazyFrame on success, or
     None when the table couldn't even be loaded.
     """
-    resolved_pattern = table_cfg.file_pattern.replace("{table}", contract.table)
-    paths = sorted(input_dir.glob(resolved_pattern))
-    if not paths:
-        diagnostic = diagnose_missing_inputs(
-            input_dir=input_dir, file_pattern=table_cfg.file_pattern,
-            resolved_pattern=resolved_pattern,
-        )
-        report.violations.append(Violation(
-            kind="no_input_files", severity="error", table=contract.table,
-            expected=diagnostic["expected"],
-            offending_value=diagnostic["offending_value"],
-        ))
-        return None
-
-    parser_cls = get_by_name(table_cfg.format)
-    parser_params = config.effective_parser_params(table_cfg)
-    parser = parser_cls(parser_params)
-    # Side context consumed by `FileParser._apply_field_matching`. The
-    # parser's `field_matching_policy` (per-parser / per-table) and the
-    # global `similarity_threshold` (.env) together drive how the i-th data
-    # column binds to the i-th contract field. Parsers ignore the attributes
-    # when they don't need them. Not a generic "how to parse" knob -- just
-    # context the matching layer reads.
-    parser.contract_field_names = [f.name for f in contract.fields]
-    parser.similarity_threshold = settings.similarity_threshold
-
-    try:
-        parsed = parser.read(paths, table_name_hint=contract.table)
-    except Exception as e:
-        report.violations.append(Violation(
-            kind="parser_failure", severity="error", table=contract.table,
-            expected=f"file readable by {table_cfg.format!r} parser",
-            offending_value=str(e),
-        ))
-        return None
-    frame = parsed.frame
-    report.source_schemas = parsed.per_file_schemas
-    report.parser_cls = parser_cls
-
-    if table_cfg.field_mapping:
-        # `field_mapping` does a header-to-contract rename at the runner
-        # level. In positional mode the parser has already renamed
-        # columns to contract names; mappings whose source isn't present
-        # are silently skipped (the defensive guard) and `column_missing`
-        # surfaces any underlying gap.
-        present_cols = set(frame.collect_schema().names())
-        applicable = {
-            src: dst for src, dst in table_cfg.field_mapping.items()
-            if src in present_cols
-        }
-        if applicable:
-            frame = frame.rename(applicable)
-
-    df = frame.collect()
-    report.total_rows = df.height
-    if "__source_file__" in df.columns:
-        per_file = (
-            df.group_by("__source_file__").len()
-              .to_dict(as_series=False)
-        )
-        for fname, cnt in zip(per_file["__source_file__"], per_file["len"]):
-            matched = next((p for p in paths if p.name == fname), Path(fname))
-            report.input_files.append((matched, cnt))
-
-    contract_field_names = contract.field_name_set()
-    data_columns = {c for c in df.columns if c not in {"__source_file__", "__row_index__"}}
-    checks = table_cfg.checks
-
-    _run_source_schema_drift(
-        contract=contract, report=report, parser=parser, gates=checks,
+    loaded = load_table(
+        config=config, table_cfg=table_cfg, contract=contract,
+        input_dir=input_dir, report=report,
+        strict_columns=strict_columns, settings=settings,
     )
-
-    extra_severity = "error" if strict_columns else settings.extra_columns_severity
-    if extra_severity != "ignore":
-        for cname in sorted(data_columns - contract_field_names):
-            report.violations.append(Violation(
-                kind="extra_column", severity=extra_severity,
-                table=contract.table, field=cname,
-                expected=f"contract declares no field {cname!r}",
-            ))
+    if loaded is None:
+        return None
 
     pk_cols = [f.name for f in contract.primary_key_fields()]
     ctx = PhaseContext(
-        df=df, contract=contract, gates=checks,
+        df=loaded.df, contract=contract, gates=table_cfg.checks,
         type_registry=type_registry, report=report,
-        data_columns=data_columns, pk_cols=pk_cols,
-        emit=_emit_from_lazy,
+        data_columns=loaded.data_columns, pk_cols=pk_cols,
+        emit=emit_from_lazy,
     )
     for phase in PHASES:
         phase(ctx)
     df = ctx.df
 
-    populate_by_check(report, checks)
+    populate_by_check(report, table_cfg.checks)
     populate_metrics(report, df, contract, table_cfg.metrics, type_registry)
 
     return df.lazy()
-
-
-def _run_source_schema_drift(
-    *, contract: Contract, report: TableReport, parser, gates,
-) -> None:
-    """Optional source-schema drift checks. Both default off, both emit warnings.
-
-    Each skips silently when no source file in this run reported the
-    relevant schema component (e.g. CSV runs never trigger
-    `field_types_from_sample` because CSV has no type info).
-    """
-    if not report.source_schemas:
-        return
-    if gates.is_enabled("field_names_from_sample"):
-        from data_contract.validation.checks.sample_field_drift import (
-            check_field_names_from_sample,
-        )
-        report.violations.extend(check_field_names_from_sample(
-            table=contract.table,
-            per_file_schemas=report.source_schemas,
-            contract=contract,
-        ))
-    if gates.is_enabled("field_types_from_sample"):
-        from data_contract.validation.checks.sample_field_drift import (
-            check_field_types_from_sample,
-        )
-        report.violations.extend(check_field_types_from_sample(
-            table=contract.table,
-            per_file_schemas=report.source_schemas,
-            contract=contract,
-            parser=parser,
-        ))
-
-
-# ---------------------------------------------------------------------------
-# Phase B: cross-table FK existence
-# ---------------------------------------------------------------------------
-
-
-def _phase_b_cross_table_fk(
-    *,
-    table_reports: list[TableReport],
-    table_frames: dict[str, Any],
-    table_configs: dict[str, TableValidationConfig],
-    contracts_by_table: dict[str, Contract],
-) -> None:
-    """Cross-table FK checks. Gated per-CHILD-table, so a table opting out
-    of `fk_existence` skips its own FK columns regardless of what the parent
-    table opts into."""
-    for tr in table_reports:
-        contract = contracts_by_table[tr.table]
-        frame = table_frames.get(tr.table)
-        if frame is None:
-            continue
-        child_cfg = table_configs.get(tr.table)
-        if child_cfg is not None and not child_cfg.checks.is_enabled("fk_existence"):
-            continue
-        for fk_field in contract.foreign_key_fields():
-            _run_fk_check(
-                child_table=tr.table, child_frame=frame, fk_field=fk_field,
-                contracts_by_table=contracts_by_table, table_frames=table_frames,
-                report=tr,
-            )
-
-
-def _run_fk_check(
-    *,
-    child_table: str,
-    child_frame: Any,
-    fk_field: FieldContract,
-    contracts_by_table: dict[str, Contract],
-    table_frames: dict[str, Any],
-    report: TableReport,
-) -> None:
-    if fk_field.foreign_key is None:
-        return
-    target_table = fk_field.foreign_key.get("table")
-    target_column = fk_field.foreign_key.get("column")
-    target_contract = contracts_by_table.get(target_table)
-    target_frame = table_frames.get(target_table)
-    if target_contract is None or target_frame is None:
-        report.violations.append(Violation(
-            kind="fk_target_table_not_loaded", severity="warning",
-            table=child_table, field=fk_field.name,
-            expected=f"target table {target_table!r} included in this run",
-        ))
-        return
-    violating = _FkCheckCls.run_for_field(
-        child_frame, fk_field.name, target_frame, target_column,
-    )
-    pk_cols = [f.name for f in contracts_by_table[child_table].primary_key_fields()]
-    _emit_from_lazy(
-        violating,
-        kind=_FkCheckCls.VIOLATION_KIND, severity=_FkCheckCls.VIOLATION_SEVERITY,
-        table=child_table, field=fk_field, pk_cols=pk_cols,
-        expected=f"exists in {target_table}.{target_column}",
-        report=report,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -552,42 +398,8 @@ def _resolve_table_configs(
 
 
 # ---------------------------------------------------------------------------
-# Violation emit + console summary
+# Console summary
 # ---------------------------------------------------------------------------
-
-
-def _emit_from_lazy(
-    lazy_or_none,
-    *,
-    kind: str,
-    severity: str,
-    table: str,
-    field: FieldContract | None,
-    pk_cols: list[str],
-    expected: str,
-    report: TableReport,
-    pk_violation: bool = False,
-) -> None:
-    if lazy_or_none is None:
-        return
-    rows = lazy_or_none.collect().to_dicts()
-    field_name = field.name if isinstance(field, FieldContract) else None
-    for row in rows:
-        pk_values = _extract_pk_values(row, pk_cols)
-        offending = row.get(field_name) if field_name else None
-        report.violations.append(Violation(
-            kind=kind, severity=severity, table=table,
-            field=field_name if field_name else None,
-            source_file=row.get("__source_file__"),
-            source_row=int(row["__row_index__"]) if row.get("__row_index__") is not None else None,
-            pk_values=pk_values, offending_value=offending, expected=expected,
-        ))
-
-
-def _extract_pk_values(row: dict[str, Any], pk_cols: list[str]) -> dict[str, Any] | None:
-    if not pk_cols:
-        return None
-    return {c: row.get(c) for c in pk_cols}
 
 
 def _print_console_summary(report: ValidationReport, out_dir: Path) -> None:

@@ -147,7 +147,7 @@ def test_register_custom_parser_round_trip():
 def test_parser_init_rejects_unknown_param():
     from data_contract.data_parsers.csv import CsvParser
 
-    with pytest.raises(ConfigError, match="unknown config keys"):
+    with pytest.raises(ConfigError, match="unknown keys"):
         CsvParser({"bogus_key": "value"})
 
 
@@ -166,5 +166,5 @@ def test_parser_init_rejects_unknown_param_without_defaults():
     bogus keys still raise even though no DEFAULTS is consulted."""
     from data_contract.data_parsers.csv import CsvParser
 
-    with pytest.raises(ConfigError, match="unknown config keys"):
+    with pytest.raises(ConfigError, match="unknown keys"):
         CsvParser({"bogus_key": "value"})

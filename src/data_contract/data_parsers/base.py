@@ -171,29 +171,44 @@ class FileParser(ABC):
     default_field_matching_policy: ClassVar[str] = "positional"
 
     params: dict[str, Any]
-    # Set by the runner before `read()`. `_apply_field_matching` reads them.
-    # Both have sensible no-op fallbacks so the parser works standalone too
-    # (tests, ad-hoc use) without runner cooperation.
-    contract_field_names: list[str] | None = None
-    similarity_threshold: float = 0.8
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         raw = dict(params or {})
-        accepted = set(self.PARSER_PARAMS) | set(self._BASE_PARSER_PARAMS)
-        unknown = sorted(set(raw) - accepted)
+        type(self).validate_params(raw, ctx=f"parser {self.name!r}")
+        self.params = raw
+
+    # ------------------------------------------------------------------
+    # Param-allowlist gate (one canonical home; called from __init__ and
+    # from every YAML loader that builds a params dict for a parser).
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def accepted_params(cls) -> frozenset[str]:
+        """Union of the parser's declared params plus the base-class generic
+        params (field_matching_policy). Used by the typo gate."""
+        return frozenset(cls.PARSER_PARAMS) | frozenset(cls._BASE_PARSER_PARAMS)
+
+    @classmethod
+    def validate_params(cls, params: dict[str, Any], *, ctx: str) -> None:
+        """Raise `ConfigError` if `params` carries unknown keys or an invalid
+        `field_matching_policy`. `ctx` prefixes the error so the caller controls
+        whether it reads `"parser 'csv': ..."`, `"<yaml>: 'csv' ..."`, or
+        `"<yaml>: tables.<T> ..."`.
+        """
+        accepted = cls.accepted_params()
+        unknown = sorted(set(params) - accepted)
         if unknown:
             raise ConfigError(
-                f"parser {self.name!r}: unknown config keys {unknown}; "
+                f"{ctx}: unknown keys {unknown}; "
                 f"accepted: {sorted(accepted)}"
             )
-        if "field_matching_policy" in raw:
-            policy = raw["field_matching_policy"]
+        if "field_matching_policy" in params:
+            policy = params["field_matching_policy"]
             if policy not in _VALID_FIELD_MATCHING_POLICIES:
                 raise ConfigError(
-                    f"parser {self.name!r}: field_matching_policy={policy!r} must be "
+                    f"{ctx}: field_matching_policy={policy!r} must be "
                     f"one of {sorted(_VALID_FIELD_MATCHING_POLICIES)}"
                 )
-        self.params = raw
 
     # ------------------------------------------------------------------
     # Plugin entry point
@@ -235,7 +250,12 @@ class FileParser(ABC):
     # ------------------------------------------------------------------
 
     def read(
-        self, paths: list[Path], *, table_name_hint: str | None = None,
+        self,
+        paths: list[Path],
+        *,
+        table_name_hint: str | None = None,
+        contract_field_names: list[str] | None = None,
+        similarity_threshold: float = 0.8,
     ) -> ReadResult:
         """Read all `paths` and return a unified LazyFrame plus the
         per-file schemas.
@@ -246,6 +266,12 @@ class FileParser(ABC):
             file) added as tracking columns.
           - Multi-file frames concatenated via `diagonal_relaxed` so
             differing columns across files become null in the union.
+
+        `contract_field_names` and `similarity_threshold` together drive how the
+        i-th data column binds to the i-th contract field (see
+        `_apply_field_matching`). When `contract_field_names` is omitted, the
+        rename step is a no-op -- handy for standalone / ad-hoc parser use
+        without runner cooperation.
         """
         if not paths:
             raise ValueError(f"parser {self.name!r}: read called with no paths")
@@ -265,7 +291,11 @@ class FileParser(ABC):
             # field names independently. Multi-file reads with disagreeing
             # headers (CSV) or disagreeing `report_header` translations
             # (JSON) still unify cleanly after concat-by-name.
-            lf = self._apply_field_matching(lf, path)
+            lf = self._apply_field_matching(
+                lf, path,
+                contract_field_names=contract_field_names,
+                similarity_threshold=similarity_threshold,
+            )
             lf = self._attach_tracking(lf, path, pl)
             per_file_lf.append(lf)
             per_file_schemas.append((path.name, parsed.schema))
@@ -326,7 +356,14 @@ class FileParser(ABC):
     # Field-matching policy
     # ------------------------------------------------------------------
 
-    def _apply_field_matching(self, lf: Any, path: Path) -> Any:
+    def _apply_field_matching(
+        self,
+        lf: Any,
+        path: Path,
+        *,
+        contract_field_names: list[str] | None,
+        similarity_threshold: float,
+    ) -> Any:
         """Rename the per-file frame's columns to contract field names per the
         configured policy. No-op when `contract_field_names` is unset (parser
         used standalone) or when the chosen policy produces no rename.
@@ -335,12 +372,12 @@ class FileParser(ABC):
         multi-file concat, so two files whose parser-emitted column names
         disagree still concat cleanly under contract field names.
         """
-        if not self.contract_field_names:
+        if not contract_field_names:
             return lf
         existing = lf.collect_schema().names()
         policy = self.params.get("field_matching_policy", self.default_field_matching_policy)
         if policy == "positional":
-            rename_map = self._positional_match_map(existing, self.contract_field_names, path)
+            rename_map = self._positional_match_map(existing, contract_field_names, path)
         elif policy == "exact":
             # Exact = no rename; columns whose names already equal a contract
             # field stay as-is, the rest are surfaced by `column_missing` and
@@ -348,7 +385,7 @@ class FileParser(ABC):
             return lf
         elif policy == "similarity":
             rename_map = self._similarity_match_map(
-                existing, self.contract_field_names, self.similarity_threshold,
+                existing, contract_field_names, similarity_threshold,
             )
         else:
             # Already validated in __init__; defensive.

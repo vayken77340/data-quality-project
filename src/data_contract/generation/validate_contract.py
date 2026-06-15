@@ -37,7 +37,7 @@ from data_contract.contract import Contract
 from data_contract.errors import ConfigError
 from data_contract.field_constraints import constraint_for_contract_key
 from data_contract.field_constraints.base import unwrap_structured_value
-from data_contract.generation.joins import JOIN_TYPE_ALIASES
+from data_contract.generation.joins import JOIN_TYPE_ALIASES, JoinsContract
 from data_contract.generation.schema_export import validate_against_schema
 from data_contract.type_mapping import Type, TypeRegistry, load_type_registry
 
@@ -339,6 +339,41 @@ def _validate_joins_payload(
 # ---------------------------------------------------------------------------
 # Invariant engines
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InMemoryInvariantsResult:
+    """Output of `check_invariants_in_memory`. `per_table[T]` is the (possibly
+    empty) list of errors for table T; `joins` is the (possibly empty) list of
+    join-level errors."""
+    per_table: dict[str, list["InvariantError"]]
+    joins: list["InvariantError"]
+
+
+def check_invariants_in_memory(
+    contracts_by_table: dict[str, Contract],
+    joins_contract: JoinsContract | None,
+    type_registry: TypeRegistry,
+    *,
+    allow_unknown_constraints: bool = False,
+) -> InMemoryInvariantsResult:
+    """Run the same invariant engine `validate-contract` uses on the on-disk
+    YAMLs, but against in-memory `Contract` objects (and an optional in-memory
+    `JoinsContract`). Used by `pipeline.self_check_post_build` after a build
+    so emission bugs surface at the source instead of one round-trip later.
+    """
+    peer_field_names = {t: c.field_name_set() for t, c in contracts_by_table.items()}
+    per_table: dict[str, list[InvariantError]] = {}
+    for table, contract in contracts_by_table.items():
+        peer_subset = {t: n for t, n in peer_field_names.items() if t != table}
+        per_table[table] = check_invariants(
+            contract, type_registry, peer_subset,
+            allow_unknown_constraints=allow_unknown_constraints,
+        )
+    joins_errors: list[InvariantError] = []
+    if joins_contract is not None:
+        joins_errors = check_joins_invariants(joins_contract.to_dict(), peer_field_names)
+    return InMemoryInvariantsResult(per_table=per_table, joins=joins_errors)
 
 
 def check_invariants(

@@ -55,6 +55,7 @@ from data_contract.generation.spec_reader import (
     open_workbook,
     read_sheet,
 )
+from data_contract.generation.validate_contract import check_invariants_in_memory
 from data_contract.errors import ConfigError
 from data_contract.settings import Settings
 from data_contract.type_mapping import TypeRegistry
@@ -152,37 +153,16 @@ def process_epic(
 
     try:
         for selector in selected:
-            sheet_name = selector.table_name
-            read = read_sheet(wb, sheet_name, merged.column_mapping)
-            if read.error is not None:
-                rejection = Rejection(
-                    version=merged.version,
-                    epic=merged.epic,
-                    generated_at=now_iso_z(),
-                    spec_file=spec_file_rel,
-                    spec_sheet=sheet_name,
-                    table=sheet_name,
-                    errors=keys_data.errors + [read.error],
-                )
-                emit_result(rejection, contracts_dir, outcome, write=write, settings=settings)
-                continue
-
-            sheet_spec = read.spec
-            assert sheet_spec is not None
-            rows = list(iter_field_rows(wb, sheet_spec))
-            result = build_contract(
-                merged, sheet_spec, rows,
-                type_registry=registry,
+            result = build_one_table(
+                merged, selector, wb,
+                registry=registry,
                 spec_file_rel=spec_file_rel,
-                table_name_from_config=selector.table_name,
                 allow_unknown_types=allow_unknown_types,
+                keys_data=keys_data,
+                pk_index=pk_index,
+                seen_tables=seen_tables,
+                settings=settings,
             )
-            result = enrich_with_keys(
-                result, keys_data, pk_index,
-                fk_allow_violations=settings.allow_foreign_key_violation,
-                allow_missing_primary_keys=settings.allow_missing_primary_keys,
-            )
-            result = check_duplicate_table(result, sheet_name, seen_tables)
             if isinstance(result, Contract):
                 contracts_by_table[result.table] = result
             emit_result(result, contracts_dir, outcome, write=write, settings=settings)
@@ -219,6 +199,59 @@ def process_epic(
 # ---------------------------------------------------------------------------
 # Build-result transformations (Contract | Rejection -> Contract | Rejection)
 # ---------------------------------------------------------------------------
+
+
+def build_one_table(
+    merged: MergedConfig,
+    selector: TableSelector,
+    wb,
+    *,
+    registry: TypeRegistry,
+    spec_file_rel: str,
+    allow_unknown_types: bool,
+    keys_data: KeysData,
+    pk_index: dict[str, set[str]],
+    seen_tables: dict[str, str],
+    settings: Settings,
+) -> Contract | Rejection:
+    """Build one table end-to-end: read sheet, build contract, enrich with keys,
+    check for cross-sheet duplicates. Returns the final `Contract` on success
+    or a `Rejection` carrying every collected error.
+
+    Pure: no file writes, no console prints. Both `process_epic` and
+    `backfill_missing_history` call this to share the per-table core; each
+    caller chooses how to persist or report the result.
+    """
+    sheet_name = selector.table_name
+    read = read_sheet(wb, sheet_name, merged.column_mapping)
+    if read.error is not None:
+        return Rejection(
+            version=merged.version,
+            epic=merged.epic,
+            generated_at=now_iso_z(),
+            spec_file=spec_file_rel,
+            spec_sheet=sheet_name,
+            table=sheet_name,
+            errors=keys_data.errors + [read.error],
+        )
+
+    sheet_spec = read.spec
+    assert sheet_spec is not None
+    rows = list(iter_field_rows(wb, sheet_spec))
+    result = build_contract(
+        merged, sheet_spec, rows,
+        type_registry=registry,
+        spec_file_rel=spec_file_rel,
+        table_name_from_config=sheet_name,
+        allow_unknown_types=allow_unknown_types,
+    )
+    result = enrich_with_keys(
+        result, keys_data, pk_index,
+        fk_allow_violations=settings.allow_foreign_key_violation,
+        allow_missing_primary_keys=settings.allow_missing_primary_keys,
+    )
+    result = check_duplicate_table(result, sheet_name, seen_tables)
+    return result
 
 
 def check_duplicate_table(
@@ -355,30 +388,20 @@ def self_check_post_build(
     `outcome.rejected`. Canonical YAMLs are NOT deleted -- left in place
     for the human to inspect.
     """
-    from data_contract.generation.validate_contract import (
-        check_invariants, check_joins_invariants,
-    )
+    result = check_invariants_in_memory(contracts_by_table, joins_contract, type_registry)
 
-    peer_field_names = {t: c.field_name_set() for t, c in contracts_by_table.items()}
-
-    for table, contract in contracts_by_table.items():
-        peer_subset = {t: names for t, names in peer_field_names.items() if t != table}
-        errors = check_invariants(
-            contract, type_registry, peer_subset, allow_unknown_constraints=False,
-        )
+    for table, errors in result.per_table.items():
         if errors:
             outcome.rejected += 1
             print(f"[SELF-CHECK-FAIL] {table} - {len(errors)} invariant errors", file=sys.stderr)
             for err in errors:
                 print(f"  - {err.render()}", file=sys.stderr)
 
-    if joins_contract is not None:
-        errors = check_joins_invariants(joins_contract.to_dict(), peer_field_names)
-        if errors:
-            outcome.rejected += 1
-            print(f"[SELF-CHECK-FAIL] joins - {len(errors)} invariant errors", file=sys.stderr)
-            for err in errors:
-                print(f"  - {err.render()}", file=sys.stderr)
+    if result.joins:
+        outcome.rejected += 1
+        print(f"[SELF-CHECK-FAIL] joins - {len(result.joins)} invariant errors", file=sys.stderr)
+        for err in result.joins:
+            print(f"  - {err.render()}", file=sys.stderr)
 
 
 def emit_joins(

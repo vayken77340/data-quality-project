@@ -11,9 +11,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 from data_contract.generation.config import ColumnMapping
 from data_contract.errors import RejectionError, SpecReaderError
 from data_contract.generation.header_matcher import find_column, normalize
-
-
-HEADER_SEARCH_DEPTH = 5  # scan first N rows of a sheet looking for the header
+from data_contract.generation.sheet_io import (
+    HEADER_SEARCH_DEPTH,
+    cell as _cell,
+    locate_header_row,
+    row_is_empty as _row_is_empty,
+)
 
 
 @dataclass(frozen=True)
@@ -196,20 +199,6 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
         )
 
 
-def _cell(row: tuple, idx: int | None) -> object | None:
-    if idx is None or idx >= len(row):
-        return None
-    return row[idx]
-
-
-def _row_is_empty(row: tuple, indices: set[int]) -> bool:
-    for i in indices:
-        v = _cell(row, i)
-        if v is not None and str(v).strip() != "":
-            return False
-    return True
-
-
 def _locate_header_row(ws: Worksheet, mapping: ColumnMapping) -> tuple[int, list[str | None]] | None:
     # Only columns flagged `required: true` (the default) contribute to header
     # detection. If a spec author marks e.g. `name.column_required: false`, header
@@ -222,9 +211,4 @@ def _locate_header_row(ws: Worksheet, mapping: ColumnMapping) -> tuple[int, list
         if first is None:
             return None
         return 1, [None if c is None else str(c) for c in first]
-    rows_iter = ws.iter_rows(min_row=1, max_row=HEADER_SEARCH_DEPTH, values_only=True)
-    for row_idx, row in enumerate(rows_iter, start=1):
-        present = {normalize(c) for c in row if c is not None}
-        if required_norm.issubset(present):
-            return row_idx, [None if c is None else str(c) for c in row]
-    return None
+    return locate_header_row(ws, required_norm)

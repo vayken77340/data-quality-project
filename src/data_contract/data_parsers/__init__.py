@@ -103,18 +103,7 @@ def load_parser_yaml_overrides(path: Path) -> dict[str, dict[str, Any]]:
                 f"{path}: '{fmt}' block must be a mapping (or omitted); "
                 f"got {type(block).__name__}"
             )
-        # Include the base-class generic params (e.g. field_matching_policy)
-        # so the typo-gate matches what the FileParser `__init__` would accept.
-        allowed = (
-            set(REGISTRY[fmt].PARSER_PARAMS)
-            | set(REGISTRY[fmt]._BASE_PARSER_PARAMS)
-        )
-        unknown = sorted(set(block) - allowed)
-        if unknown:
-            raise ConfigError(
-                f"{path}: '{fmt}' has unknown keys {unknown}; "
-                f"accepted: {sorted(allowed)}"
-            )
+        REGISTRY[fmt].validate_params(block, ctx=f"{path}: '{fmt}'")
         out[fmt] = dict(block)
     return out
 

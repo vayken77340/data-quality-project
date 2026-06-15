@@ -110,7 +110,7 @@ def test_typo_gate_accepts_field_matching_policy_without_redeclaration():
             raise NotImplementedError
 
     _TinyParser({"field_matching_policy": "exact"})       # accepted
-    with pytest.raises(ConfigError, match="unknown config keys"):
+    with pytest.raises(ConfigError, match="unknown keys"):
         _TinyParser({"bogus_key": True})
 
 
@@ -125,8 +125,9 @@ def test_positional_renames_columns_by_index(tmp_path):
         column_names=["A", "B", "C"],
         policy="positional",
     )
-    parser.contract_field_names = ["id", "name", "price"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+    ).frame.collect()
     # Columns now carry contract names; values landed under their
     # positional contract field.
     assert "id" in df.columns and df["id"].to_list() == ["1"]
@@ -140,8 +141,9 @@ def test_positional_no_op_when_already_aligned(tmp_path):
         column_names=["id", "name"],
         policy="positional",
     )
-    parser.contract_field_names = ["id", "name"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name"],
+    ).frame.collect()
     assert df["id"].to_list() == ["1"]
     assert df["name"].to_list() == ["foo"]
 
@@ -154,8 +156,9 @@ def test_positional_fewer_existing_than_contract(tmp_path):
         column_names=["A", "B"],
         policy="positional",
     )
-    parser.contract_field_names = ["id", "name", "price"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+    ).frame.collect()
     assert "id" in df.columns
     assert "name" in df.columns
     assert "price" not in df.columns   # missing -- runner emits column_missing
@@ -168,8 +171,9 @@ def test_positional_extra_existing_left_as_extra(tmp_path):
         column_names=["A", "B", "C", "D"],
         policy="positional",
     )
-    parser.contract_field_names = ["id", "name", "price"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+    ).frame.collect()
     assert {"id", "name", "price", "D"} <= set(df.columns)
 
 
@@ -181,9 +185,10 @@ def test_positional_collision_raises(tmp_path):
         column_names=["A", "B", "C", "id"],
         policy="positional",
     )
-    parser.contract_field_names = ["id", "name", "price"]
     with pytest.raises(ConfigError, match="duplicate columns"):
-        parser.read([_touch(tmp_path)]).frame.collect()
+        parser.read(
+            [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+        ).frame.collect()
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +202,9 @@ def test_exact_keeps_matching_columns_as_is(tmp_path):
         column_names=["id", "name"],
         policy="exact",
     )
-    parser.contract_field_names = ["id", "name"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name"],
+    ).frame.collect()
     assert df["id"].to_list() == ["1"]
     assert df["name"].to_list() == ["foo"]
 
@@ -211,8 +217,9 @@ def test_exact_leaves_mismatched_columns_alone(tmp_path):
         column_names=["ID", "Name"],
         policy="exact",
     )
-    parser.contract_field_names = ["id", "name"]
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)], contract_field_names=["id", "name"],
+    ).frame.collect()
     # No rename happened -- still capitalised, still mismatched.
     assert "ID" in df.columns
     assert "Name" in df.columns
@@ -231,9 +238,11 @@ def test_similarity_matches_case_variants(tmp_path):
         column_names=["ID", "User Name"],
         policy="similarity",
     )
-    parser.contract_field_names = ["id", "user_name"]
-    parser.similarity_threshold = 0.8
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_field_names=["id", "user_name"],
+        similarity_threshold=0.8,
+    ).frame.collect()
     assert df["id"].to_list() == ["1"]
     assert df["user_name"].to_list() == ["foo"]
 
@@ -245,9 +254,11 @@ def test_similarity_respects_threshold(tmp_path):
         column_names=["Completely Different"],
         policy="similarity",
     )
-    parser.contract_field_names = ["id"]
-    parser.similarity_threshold = 0.8
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_field_names=["id"],
+        similarity_threshold=0.8,
+    ).frame.collect()
     # No rename -- threshold protects against accidental matches.
     assert "Completely Different" in df.columns
     assert "id" not in df.columns
@@ -261,9 +272,11 @@ def test_similarity_greedy_doesnt_double_claim(tmp_path):
         column_names=["user_id", "user-id"],
         policy="similarity",
     )
-    parser.contract_field_names = ["userid"]
-    parser.similarity_threshold = 0.6
-    df = parser.read([_touch(tmp_path)]).frame.collect()
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_field_names=["userid"],
+        similarity_threshold=0.6,
+    ).frame.collect()
     # The first column claims "userid"; the second has no contract field left.
     assert "userid" in df.columns
     # The unclaimed source column survives under its original name.
@@ -278,7 +291,7 @@ def test_similarity_greedy_doesnt_double_claim(tmp_path):
 
 
 def test_no_contract_field_names_is_no_op(tmp_path):
-    """Parsers used standalone (no runner setting `contract_field_names`)
+    """Parsers used standalone (no runner passing `contract_field_names`)
     skip the matching step entirely -- the LazyFrame passes through with
     its parser-emitted column names."""
     parser = _FixtureParser(
@@ -286,7 +299,7 @@ def test_no_contract_field_names_is_no_op(tmp_path):
         column_names=["foo"],
         policy="positional",
     )
-    # contract_field_names left as the class default: None
+    # contract_field_names omitted -- default is None, so matching is a no-op.
     df = parser.read([_touch(tmp_path)]).frame.collect()
     assert "foo" in df.columns
 
@@ -324,8 +337,9 @@ def test_positional_multi_file_with_disagreeing_headers(tmp_path):
             )
 
     parser = _PerFileParser()
-    parser.contract_field_names = ["id", "name", "price"]
-    df = parser.read([file_a, file_b]).frame.collect().sort("__row_index__", "__source_file__")
+    df = parser.read(
+        [file_a, file_b], contract_field_names=["id", "name", "price"],
+    ).frame.collect().sort("__row_index__", "__source_file__")
     # Both files unified under contract names with values in the right cols.
     assert set(["id", "name", "price"]) <= set(df.columns)
     assert sorted(df["id"].to_list()) == ["1", "2"]

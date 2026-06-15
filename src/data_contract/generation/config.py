@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from data_contract.core.column_ref import (
     UNSET as _UNSET,
@@ -18,6 +18,29 @@ from data_contract.errors import ConfigError
 from data_contract.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
 from data_contract.field_constraints.base import FieldConstraint
 from data_contract.generation.nullable import NullableMapping
+
+
+# ---------------------------------------------------------------------------
+# Shared `from_dict` plumbing
+# ---------------------------------------------------------------------------
+#
+# The three `*ColumnMapping.from_dict` methods below all check that a set of
+# required entries is present, then parse each entry via `parse_column_ref`
+# with the same `prefix` repeated per call. These two helpers collapse that
+# pattern; class-specific concerns (which entries are required, optional, or
+# need a non-plain ColumnRef parser) stay inline.
+
+
+def _check_required(raw: dict[str, Any], required: set[str], *, ctx: str) -> None:
+    missing = required - raw.keys()
+    if missing:
+        raise ConfigError(f"{ctx} missing required entries: {sorted(missing)}")
+
+
+def _make_col_parser(raw: dict[str, Any], *, prefix: str) -> Callable[[str], ColumnRef]:
+    def col(key: str) -> ColumnRef:
+        return parse_column_ref(raw.get(key) or {}, prefix=prefix, key=key)
+    return col
 
 
 ALL_TABLES = "__ALL__"
@@ -48,13 +71,10 @@ class ColumnMapping:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ColumnMapping":
-        required = {"name", "type", "description", "nullable"}
-        missing = required - raw.keys()
-        if missing:
-            raise ConfigError(f"column_mapping missing required entries: {sorted(missing)}")
-
-        def col(key: str) -> ColumnRef:
-            return parse_column_ref(raw.get(key) or {}, prefix="column_mapping", key=key)
+        _check_required(
+            raw, {"name", "type", "description", "nullable"}, ctx="column_mapping",
+        )
+        col = _make_col_parser(raw, prefix="column_mapping")
 
         nullable_block = raw.get("nullable")
         if not isinstance(nullable_block, dict):
@@ -99,13 +119,8 @@ class KeysColumnMapping:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "KeysColumnMapping":
-        required = {"table_name", "primary_key"}
-        missing = required - raw.keys()
-        if missing:
-            raise ConfigError(f"keys.column_mapping missing required entries: {sorted(missing)}")
-
-        def _col(key: str) -> ColumnRef:
-            return parse_column_ref(raw.get(key) or {}, prefix="keys.column_mapping", key=key)
+        _check_required(raw, {"table_name", "primary_key"}, ctx="keys.column_mapping")
+        _col = _make_col_parser(raw, prefix="keys.column_mapping")
 
         def _split_col(key: str) -> SeparatedColumnRef:
             return parse_separated_column_ref(
@@ -151,13 +166,12 @@ class JoinsColumnMapping:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "JoinsColumnMapping":
-        required = {"source_table", "target_table", "source_column", "target_column", "join_type"}
-        missing = required - raw.keys()
-        if missing:
-            raise ConfigError(f"joins.column_mapping missing required entries: {sorted(missing)}")
-
-        def _col(key: str) -> ColumnRef:
-            return parse_column_ref(raw.get(key) or {}, prefix="joins.column_mapping", key=key)
+        _check_required(
+            raw,
+            {"source_table", "target_table", "source_column", "target_column", "join_type"},
+            ctx="joins.column_mapping",
+        )
+        _col = _make_col_parser(raw, prefix="joins.column_mapping")
 
         cardinality_block = raw.get("cardinality")
         cardinality_spec: CardinalityColumnRef | None = None

@@ -14,9 +14,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from data_contract.contract import Rejection
 from data_contract.errors import ConfigError, SpecReaderError
 from data_contract.generation.builder import (
-    build_contract,
     history_path_for_table,
     write_history_only,
 )
@@ -27,12 +27,13 @@ from data_contract.generation.config import (
     merge,
     version_sort_key,
 )
-from data_contract.generation.spec_reader import (
-    iter_field_rows,
-    open_workbook,
-    read_sheet,
-)
+from data_contract.generation.spec_reader import open_workbook
 from data_contract.generation.keys import build_pk_index, read_keys_sheet
+from data_contract.generation.pipeline import (
+    build_one_table,
+    emit_drift_for_new_history,
+    resolve_table_selectors,
+)
 from data_contract.settings import Settings
 from data_contract.type_mapping import TypeRegistry
 
@@ -55,11 +56,6 @@ def backfill_missing_history(
     would-reject build) are logged and the sibling is skipped -- the loop
     moves on to the next.
     """
-    from data_contract.generation.pipeline import (
-        check_duplicate_table, emit_drift_for_new_history, enrich_with_keys,
-    )
-    from data_contract.contract import Rejection
-
     contracts_dir = epic_dir / "contracts"
     target_key = version_sort_key(target_version)
 
@@ -91,37 +87,25 @@ def backfill_missing_history(
             continue
 
         try:
-            from data_contract.generation.pipeline import resolve_table_selectors
-
             tables = resolve_table_selectors(merged, wb)
             keys_data = read_keys_sheet(wb, merged.keys)
             pk_index = build_pk_index(keys_data.rows)
             seen_tables: dict[str, str] = {}
+            spec_file_rel = str(spec_path).replace("\\", "/")
             for selector in tables:
                 history_file = history_path_for_table(contracts_dir, sibling.version, selector.table_name)
                 if history_file.exists():
                     continue
-                read = read_sheet(wb, selector.table_name, merged.column_mapping)
-                if read.error is not None:
-                    print(
-                        f"  (skip backfill v{sibling.version} {selector.table_name}: {read.error.message})",
-                        file=sys.stderr,
-                    )
-                    continue
-                rows = list(iter_field_rows(wb, read.spec))
-                result = build_contract(
-                    merged, read.spec, rows,
-                    type_registry=registry,
-                    spec_file_rel=str(spec_path).replace("\\", "/"),
-                    table_name_from_config=selector.table_name,
+                result = build_one_table(
+                    merged, selector, wb,
+                    registry=registry,
+                    spec_file_rel=spec_file_rel,
                     allow_unknown_types=allow_unknown_types,
+                    keys_data=keys_data,
+                    pk_index=pk_index,
+                    seen_tables=seen_tables,
+                    settings=settings,
                 )
-                result = enrich_with_keys(
-                    result, keys_data, pk_index,
-                    fk_allow_violations=settings.allow_foreign_key_violation,
-                    allow_missing_primary_keys=settings.allow_missing_primary_keys,
-                )
-                result = check_duplicate_table(result, selector.table_name, seen_tables)
                 if isinstance(result, Rejection):
                     err_kinds = sorted({e.kind for e in result.errors})
                     print(
