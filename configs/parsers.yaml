@@ -61,7 +61,7 @@
 
 csv:
   encoding:              utf-8
-  delimiter:             ","
+  delimiter:             ";"
   header_row:            1
   null_tokens:           ["", "NULL"]
   quote_char:            '"'
