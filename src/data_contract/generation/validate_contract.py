@@ -47,6 +47,15 @@ from data_contract.generation.schema_export import validate_against_schema
 from data_contract.type_mapping import TypeRegistry, load_type_registry
 
 
+class ValidateContractAbort(Exception):
+    """Top-level abort signal. Caught at the entry point of
+    `run_validate_contract`, formatted via `_emit_init_error`, returned as
+    exit code 1. Use for "give up before any contract is validated" errors
+    (mutual-exclusion args, type registry missing, no epics found, etc.) so
+    the orchestrator reads as one happy path under one catch.
+    """
+
+
 @dataclass
 class ValidationOutcome:
     scope: str            # e.g. "epic:1118" or "file:/tmp/x.yaml"
@@ -87,47 +96,48 @@ def run_validate_contract(
     output_format: str = "text",
 ) -> int:
     """CLI entry point. Returns exit code (0 / 1 / 2)."""
-    if file is not None and epic is not None:
-        _emit_init_error("--file and --epic are mutually exclusive", output_format)
-        return 1
-
-    try:
-        type_registry = load_type_registry(types_path)
-    except ConfigError as e:
-        _emit_init_error(f"config error: {e}", output_format)
-        return 1
-
     outcomes: list[ValidationOutcome] = []
     epic_failed = False
 
-    if file is not None:
-        path = Path(file)
-        loaded = _load_yaml_safely(path, output_format)
-        if loaded is None:
-            return 1
-        outcomes.append(_validate_one_payload(
-            payload=loaded, path=path, scope=f"file:{path}",
-            type_registry=type_registry,
-            peer_field_names={},
-            allow_unknown_constraints=allow_unknown_constraints,
-        ))
-    else:
-        epics = [epic] if epic is not None else discover_epics(
-            epic_root, required_subdir="contracts",
-        )
-        if not epics:
-            _emit_init_error(f"no epics found under {epic_root}", output_format)
-            return 1
-        for e in epics:
-            ep_outcomes, ep_failed = _validate_epic(
-                epic_dir=epic_root / e,
+    try:
+        if file is not None and epic is not None:
+            raise ValidateContractAbort("--file and --epic are mutually exclusive")
+
+        try:
+            type_registry = load_type_registry(types_path)
+        except ConfigError as e:
+            raise ValidateContractAbort(f"config error: {e}") from e
+
+        if file is not None:
+            path = Path(file)
+            loaded = _load_yaml_safely(path, output_format)
+            if loaded is None:
+                return 1
+            outcomes.append(_validate_one_payload(
+                payload=loaded, path=path, scope=f"file:{path}",
                 type_registry=type_registry,
+                peer_field_names={},
                 allow_unknown_constraints=allow_unknown_constraints,
-                output_format=output_format,
+            ))
+        else:
+            epics = [epic] if epic is not None else discover_epics(
+                epic_root, required_subdir="contracts",
             )
-            outcomes.extend(ep_outcomes)
-            if ep_failed:
-                epic_failed = True
+            if not epics:
+                raise ValidateContractAbort(f"no epics found under {epic_root}")
+            for e in epics:
+                ep_outcomes, ep_failed = _validate_epic(
+                    epic_dir=epic_root / e,
+                    type_registry=type_registry,
+                    allow_unknown_constraints=allow_unknown_constraints,
+                    output_format=output_format,
+                )
+                outcomes.extend(ep_outcomes)
+                if ep_failed:
+                    epic_failed = True
+    except ValidateContractAbort as exc:
+        _emit_init_error(str(exc), output_format)
+        return 1
 
     _emit_outcomes(outcomes, output_format)
     if epic_failed:
