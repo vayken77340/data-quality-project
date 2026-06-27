@@ -30,6 +30,10 @@ def postgres_registry():
     return base.with_target(pg)
 
 
+# NOTE: kept local instead of using tests/conftest.py's `contract()` because
+# every callsite expects `epic="T"` (the canonical's default is "E"). Passing
+# `epic="T"` at every callsite was rejected in audit v7/v8 -- the epic
+# string here is just placeholder noise that one-line shape-shifts the file.
 def _contract(table: str, *fields: FieldContract) -> Contract:
     return Contract(
         version="1.0", epic="T", generated_at="",

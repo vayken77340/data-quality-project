@@ -21,6 +21,11 @@ from data_contract.validation.checks.sample_field_drift import (
 )
 
 
+# NOTE: kept local instead of using tests/conftest.py's `contract()` because
+# every callsite is varargs-only (no `table` arg; hardcoded `table="T"`) and
+# expects `epic="T"`. The canonical signature is `(table, *fields)` and
+# defaults `epic="E"`; matching the callsites here was rejected in audit
+# v7/v8 -- the file's narrow shape makes the local def clearer.
 def _contract(*fields: FieldContract) -> Contract:
     return Contract(
         version="1.0", epic="T", generated_at="",

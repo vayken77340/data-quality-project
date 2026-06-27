@@ -6,7 +6,7 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.workbook.workbook import Workbook as WorkbookType
 
-from data_contract.contract import FieldContract
+from data_contract.contract import Contract, FieldContract
 from data_contract.type_mapping import Type
 
 
@@ -29,6 +29,29 @@ def field_contract(
     return FieldContract(
         name=name, type=type_, nullable=nullable,
         description=description, max_length=max_length,
+    )
+
+
+def contract(
+    table: str = "T",
+    *fields: FieldContract,
+    epic: str = "E",
+    version: str = "1.0",
+    generated_at: str = "",
+    spec_file: str = "",
+    spec_sheet: str | None = None,
+) -> Contract:
+    """Canonical Contract factory for tests.
+
+    `spec_sheet` defaults to `table` when omitted. Most tests don't care
+    about epic/version/generated_at/spec_file -- the defaults match the
+    "minimal valid Contract" shape most callers want. Override per-test
+    when the assertion depends on a specific value.
+    """
+    return Contract(
+        version=version, epic=epic, generated_at=generated_at,
+        spec_file=spec_file, spec_sheet=spec_sheet if spec_sheet is not None else table,
+        table=table, fields=list(fields),
     )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

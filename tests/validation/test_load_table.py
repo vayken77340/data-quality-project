@@ -31,6 +31,11 @@ def _build_config(tmp_path: Path, file_pattern: str = "{table}*.csv") -> Validat
     return ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
+# NOTE: kept local instead of using tests/conftest.py's `contract()` because
+# this helper is a fixture-builder that bakes in the specific (id, name)
+# field shape every load-table test asserts on. Pulling the fields out and
+# passing them at every callsite was rejected in audit v7/v8 -- the
+# hardcoded shape is the test's contract, not a parameter.
 def _contract(table: str = "T") -> Contract:
     return Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="",

@@ -8,13 +8,7 @@ from data_contract.contract import Contract, FieldContract
 from data_contract.table_checks.fk_existence import FkExistenceCheck
 from data_contract.table_checks.pk_uniqueness import PkUniquenessCheck
 from data_contract.type_mapping import Type
-
-
-def _contract(table, fields):
-    return Contract(
-        version="1.0", epic="E", generated_at="t",
-        spec_file="s", spec_sheet="S", table=table, fields=fields,
-    )
+from tests.conftest import contract as _contract
 
 
 def _f(name, *, t=Type.INT64, nullable=False, primary_key=None):
@@ -27,13 +21,13 @@ def _f(name, *, t=Type.INT64, nullable=False, primary_key=None):
 
 
 def test_pk_uniqueness_returns_none_when_no_pk():
-    contract = _contract("T", [_f("x")])
+    contract = _contract("T", _f("x"))
     frame = pl.LazyFrame([{"x": 1}, {"x": 2}])
     assert PkUniquenessCheck().check_data(frame, contract) is None
 
 
 def test_pk_uniqueness_flags_every_participant():
-    contract = _contract("T", [_f("proj_id", primary_key=True)])
+    contract = _contract("T", _f("proj_id", primary_key=True))
     frame = pl.LazyFrame([
         {"proj_id": 1},
         {"proj_id": 2},
@@ -48,18 +42,19 @@ def test_pk_uniqueness_flags_every_participant():
 
 
 def test_pk_uniqueness_skips_null_pk():
-    contract = _contract("T", [_f("proj_id", primary_key=True, nullable=True)])
+    contract = _contract("T", _f("proj_id", primary_key=True, nullable=True))
     frame = pl.LazyFrame([{"proj_id": None}, {"proj_id": None}, {"proj_id": 1}])
     violating = PkUniquenessCheck().check_data(frame, contract)
     assert violating.collect().height == 0
 
 
 def test_pk_uniqueness_composite():
-    contract = _contract("T", [
+    contract = _contract(
+        "T",
         _f("order_id", primary_key=True),
         _f("line_id", primary_key=True),
         _f("note", t=Type.STRING, nullable=True),
-    ])
+    )
     frame = pl.LazyFrame([
         {"order_id": 1, "line_id": 1, "note": "a"},
         {"order_id": 1, "line_id": 2, "note": "b"},  # different composite, not a violation

@@ -20,6 +20,11 @@ from data_contract.generation.joins import JoinsContract, JoinRow
 from data_contract.type_mapping import Type
 
 
+# NOTE: kept local instead of using tests/conftest.py's `contract()` because
+# every callsite in this file depends on `generated_at` and `spec_file`
+# being the specific values below (asserted by the data-dictionary tests).
+# Passing both kwargs at every callsite was rejected in audit v7/v8 -- they
+# belong with the factory, not at every call.
 def _contract(table: str, *fields: FieldContract) -> Contract:
     return Contract(
         version="1.0",

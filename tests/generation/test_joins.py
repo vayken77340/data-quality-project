@@ -75,6 +75,11 @@ def _wb_with_joins(rows: list[tuple], *, sheet_name: str = "Joins", header_row: 
     return wb
 
 
+# NOTE: kept local instead of using tests/conftest.py's `contract()` because
+# this helper takes field NAMES as strings (and builds FieldContracts
+# internally), which is a different shape from the canonical `*fields`
+# varargs. Switching the callsites to build FieldContracts inline was
+# rejected in audit v7/v8 -- the string list keeps these joins tests terse.
 def _contract(table: str, fields: list[str]) -> Contract:
     return Contract(
         version="1.0",
