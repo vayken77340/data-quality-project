@@ -26,6 +26,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook as WorkbookType
 
 from data_contract._util import now_iso_z
+from data_contract.core.yaml_io import load_yaml
 from data_contract.generation.config import version_sort_key
 from data_contract.contract import Contract, FieldContract
 from data_contract.generation.joins import JoinsContract, JoinRow
@@ -93,7 +94,7 @@ def load_drift_entries(contracts_dir: Path) -> DriftAggregate:
     if drift_dir.is_dir():
         for yaml_path in sorted(drift_dir.glob("*.yaml")):
             try:
-                payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+                payload = load_yaml(yaml_path)
             except yaml.YAMLError:
                 continue
             from_v = str(payload.get("from_version", ""))

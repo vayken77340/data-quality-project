@@ -77,8 +77,12 @@ def validate_epic_name(name: str) -> str:
     return name
 
 
-def discover_epics(epic_root: Path) -> list[str]:
-    """List every epic directory under `epic_root` that has a `configs/` subdir.
+def discover_epics(epic_root: Path, *, required_subdir: str = "configs") -> list[str]:
+    """List every epic directory under `epic_root` that has the named subdir.
+
+    `required_subdir` defaults to `configs/` (the generation-side gate) but
+    `validate-contract` passes `contracts/` so it only sees epics whose
+    contracts have already been built.
 
     Returns names sorted alphabetically. Empty list when the root is
     missing — callers decide whether that's a hard error.
@@ -87,6 +91,6 @@ def discover_epics(epic_root: Path) -> list[str]:
         return []
     out: list[str] = []
     for child in sorted(epic_root.iterdir()):
-        if child.is_dir() and (child / "configs").is_dir():
+        if child.is_dir() and (child / required_subdir).is_dir():
             out.append(child.name)
     return out

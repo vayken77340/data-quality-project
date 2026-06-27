@@ -34,6 +34,8 @@ from typing import Any
 import yaml
 
 from data_contract.contract import Contract
+from data_contract.core.epic import discover_epics
+from data_contract.core.yaml_io import load_yaml_mapping
 from data_contract.errors import ConfigError
 from data_contract.field_constraints import constraint_for_contract_key
 from data_contract.field_constraints.base import unwrap_structured_value
@@ -131,7 +133,9 @@ def run_validate_contract(
             allow_unknown_constraints=allow_unknown_constraints,
         ))
     else:
-        epics = [epic] if epic is not None else _discover_epics(epic_root)
+        epics = [epic] if epic is not None else discover_epics(
+            epic_root, required_subdir="contracts",
+        )
         if not epics:
             _emit_init_error(f"no epics found under {epic_root}", output_format)
             return 1
@@ -193,17 +197,6 @@ def _stats_for_table_payload(outcome: ValidationOutcome) -> str:
 # ---------------------------------------------------------------------------
 # Epic + single-file flows
 # ---------------------------------------------------------------------------
-
-
-def _discover_epics(epic_root: Path) -> list[str]:
-    """Epics for `validate-contract` need a `contracts/` subdir, not `configs/`,
-    so we can't reuse `core.epic.discover_epics` directly here."""
-    if not epic_root.is_dir():
-        return []
-    return sorted(
-        c.name for c in epic_root.iterdir()
-        if c.is_dir() and (c / "contracts").is_dir()
-    )
 
 
 def _validate_epic(
@@ -279,8 +272,8 @@ def _load_yaml_safely(path: Path, output_format: str) -> dict | None:
         _emit_init_error(f"{path} not found", output_format)
         return None
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
+        return load_yaml_mapping(path, what="contract YAML")
+    except (yaml.YAMLError, ConfigError) as e:
         _emit_init_error(f"failed to parse {path}: {e}", output_format)
         return None
 
