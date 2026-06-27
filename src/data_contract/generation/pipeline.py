@@ -59,6 +59,7 @@ from data_contract.generation.spec_reader import (
 from data_contract.generation.validate_contract import check_invariants_in_memory
 from data_contract.errors import ConfigError
 from data_contract.settings import Settings
+from data_contract.targets import load_target_config, resolve_target_path
 from data_contract.type_mapping import TypeRegistry
 
 
@@ -128,31 +129,11 @@ def process_epic(
         outcome.epic_failures.append(epic)
         return outcome
 
-    # Overlay the target on the type registry so `physical_type_for(field)` can
-    # stamp Oracle/Postgres/Iceberg physical names. Per-epic target files
-    # (epics/<E>/configs/targets/<n>.yaml) beat the repo-root file. Picks the
-    # target from the canonical (highest) version -- targets are an
-    # epic-wide attribute, not a per-version one in practice.
-    #
-    # Soft failure: when the target file is missing or malformed, generation
-    # proceeds without the overlay -- physical_type is omitted from every
-    # field but the contract is still valid. Validation is the strict consumer.
     canonical_cfg = next(c for c in all_configs if c.version == canonical_version)
-    try:
-        from data_contract.targets import load_target_config, resolve_target_path
-        target_path = resolve_target_path(
-            canonical_cfg.target,
-            repo_root=specs_parsing_path.parent.parent,
-            epic_dir=epic_dir,
-        )
-        target_config = load_target_config(target_path)
-        registry = registry.with_target(target_config)
-    except ConfigError as e:
-        print(
-            f"[WARN] epic {epic}: target overlay unavailable ({e}); "
-            f"contracts will be emitted without `physical_type`",
-            file=sys.stderr,
-        )
+    registry = _overlay_target_or_warn(
+        registry, epic=epic, canonical_cfg=canonical_cfg,
+        epic_dir=epic_dir, specs_parsing_path=specs_parsing_path,
+    )
 
     canonical_contracts: dict[str, Contract] = {}
     canonical_joins: JoinsContract | None = None
@@ -282,6 +263,42 @@ def _load_all_configs(
 
 def _pick_canonical(configs: list[EpicConfig]) -> str:
     return max(configs, key=lambda c: version_sort_key(c.version)).version
+
+
+def _overlay_target_or_warn(
+    registry: TypeRegistry,
+    *,
+    epic: str,
+    canonical_cfg: EpicConfig,
+    epic_dir: Path,
+    specs_parsing_path: Path,
+) -> TypeRegistry:
+    """Overlay the canonical version's target onto `registry`, or warn + return
+    the input registry unchanged.
+
+    Per-epic target files (epics/<E>/configs/targets/<n>.yaml) beat the
+    repo-root file. Picks the target from the canonical (highest) version --
+    targets are an epic-wide attribute, not a per-version one in practice.
+
+    Soft failure: when the target file is missing or malformed, generation
+    proceeds without the overlay -- `physical_type` is omitted from every
+    field but the contract is still valid. Validation is the strict consumer.
+    """
+    try:
+        target_path = resolve_target_path(
+            canonical_cfg.target,
+            repo_root=specs_parsing_path.parent.parent,
+            epic_dir=epic_dir,
+        )
+        target_config = load_target_config(target_path)
+        return registry.with_target(target_config)
+    except ConfigError as e:
+        print(
+            f"[WARN] epic {epic}: target overlay unavailable ({e}); "
+            f"contracts will be emitted without `physical_type`",
+            file=sys.stderr,
+        )
+        return registry
 
 
 def _build_one_version(
