@@ -524,10 +524,11 @@ def _build_french_boolean_epic(
     return epic_root
 
 
-def test_boolean_tokens_from_target_accepted_end_to_end(repo_root: Path, tmp_path: Path, monkeypatch):
-    """Boolean tokens declared by the active target (postgres native: t/f/yes/no/y/n
-    /on/off/true/false/1/0) flow through the pipeline cleanly. Tokens are NOT
-    inherited from configs/types.yaml -- the target is authoritative."""
+def test_universal_boolean_tokens_accepted_end_to_end(repo_root: Path, tmp_path: Path, monkeypatch):
+    """Universal boolean tokens (French + English + digit forms) stamped onto the
+    contract from configs/types.yaml at generation time flow through the pipeline
+    cleanly. The contract is authoritative -- targets cannot declare data_values
+    (see src/data_contract/targets.py)."""
     monkeypatch.chdir(repo_root)
     epic_root = _build_french_boolean_epic(
         repo_root, tmp_path, ["true", "false", "Yes", " no "],
