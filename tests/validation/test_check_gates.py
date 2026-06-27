@@ -1,7 +1,7 @@
 """Tests for `checks:` gates in validation.yaml.
 
-Covers: CheckGates dataclass behaviour, YAML parsing (global + per-table +
-merge), runner short-circuits per check.
+Covers: `Gates` dataclass behaviour (from `core.gates`), YAML parsing
+(global + per-table + merge), runner short-circuits per check.
 """
 
 from __future__ import annotations
@@ -15,45 +15,44 @@ import yaml
 
 from data_contract.cli import main
 from data_contract.errors import ConfigError
+from data_contract.core.gates import Gates, GateSpec
 from data_contract.validation.config import (
-    CheckGates,
-    CheckSpec,
     ValidationConfig,
     _parse_check_gates,
 )
 
 
-def _spec(enabled: bool) -> CheckSpec:
-    return CheckSpec(enabled=enabled)
+def _spec(enabled: bool) -> GateSpec:
+    return GateSpec(enabled=enabled)
 from tests.conftest import ALL_CHECKS_ENABLED_YAML, write_test_parsers_yaml
 
 
 # ---------------------------------------------------------------------------
-# CheckGates: defaults + override semantics
+# Gates: defaults + override semantics
 # ---------------------------------------------------------------------------
 
 
 def test_check_gates_default_all_enabled():
-    g = CheckGates()
+    g = Gates()
     for name in ("type_coercion", "nullable", "pk_uniqueness", "fk_existence",
                  "min_value", "unique"):
         assert g.is_enabled(name) is True
 
 
 def test_check_gates_explicit_disable():
-    g = CheckGates(specs={"pk_uniqueness": _spec(False)})
+    g = Gates(specs={"pk_uniqueness": _spec(False)})
     assert g.is_enabled("pk_uniqueness") is False
     # Other checks unaffected (defensive default).
     assert g.is_enabled("nullable") is True
 
 
 def test_check_gates_with_overrides_merges_child_over_parent():
-    parent = CheckGates(specs={
+    parent = Gates(specs={
         "pk_uniqueness": _spec(False),
         "fk_existence": _spec(False),
     })
     # Child overrides pk_uniqueness; parent's fk_existence survives.
-    child = CheckGates(specs={"pk_uniqueness": CheckSpec(enabled=True)})
+    child = Gates(specs={"pk_uniqueness": GateSpec(enabled=True)})
     merged = parent.with_overrides(child)
     assert merged.is_enabled("pk_uniqueness") is True   # child wins
     assert merged.is_enabled("fk_existence") is False   # parent inherits
@@ -61,8 +60,8 @@ def test_check_gates_with_overrides_merges_child_over_parent():
 
 
 def test_check_gates_with_overrides_does_not_mutate():
-    parent = CheckGates(specs={"pk_uniqueness": _spec(False)})
-    child = CheckGates(specs={"fk_existence": _spec(False)})
+    parent = Gates(specs={"pk_uniqueness": _spec(False)})
+    child = Gates(specs={"fk_existence": _spec(False)})
     _ = parent.with_overrides(child)
     assert set(parent.specs) == {"pk_uniqueness"}
     assert set(child.specs) == {"fk_existence"}

@@ -9,30 +9,29 @@ from data_contract.validation.checks.value_parsers import (
     get_parser,
     parse_boolean,
     parse_date,
-    parse_double,
-    parse_float,
-    parse_integer,
+    parse_float64,
+    parse_int64,
+    parse_string,
     parse_timestamp,
-    parse_varchar,
 )
 
 
-# --- varchar ----------------------------------------------------------------
+# --- string -----------------------------------------------------------------
 
 
-def test_parse_varchar_identity():
-    assert parse_varchar("hello") == ("hello", None)
+def test_parse_string_identity():
+    assert parse_string("hello") == ("hello", None)
 
 
-def test_parse_varchar_preserves_leading_zeros():
-    assert parse_varchar("00042") == ("00042", None)
+def test_parse_string_preserves_leading_zeros():
+    assert parse_string("00042") == ("00042", None)
 
 
-def test_parse_varchar_none_passthrough():
-    assert parse_varchar(None) == (None, None)
+def test_parse_string_none_passthrough():
+    assert parse_string(None) == (None, None)
 
 
-# --- integer ----------------------------------------------------------------
+# --- int64 ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -41,8 +40,8 @@ def test_parse_varchar_none_passthrough():
     ("-7", -7),
     ("1234567890", 1234567890),
 ])
-def test_parse_integer_happy(raw, expected):
-    assert parse_integer(raw) == (expected, None)
+def test_parse_int64_happy(raw, expected):
+    assert parse_int64(raw) == (expected, None)
 
 
 @pytest.mark.parametrize("raw", [
@@ -57,17 +56,17 @@ def test_parse_integer_happy(raw, expected):
     "",              # empty
     "abc",
 ])
-def test_parse_integer_rejects(raw):
-    value, err = parse_integer(raw)
+def test_parse_int64_rejects(raw):
+    value, err = parse_int64(raw)
     assert value is None
     assert err == raw
 
 
-def test_parse_integer_none_passthrough():
-    assert parse_integer(None) == (None, None)
+def test_parse_int64_none_passthrough():
+    assert parse_int64(None) == (None, None)
 
 
-# --- double / float ---------------------------------------------------------
+# --- float64 ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -80,8 +79,8 @@ def test_parse_integer_none_passthrough():
     ("1.5E-3", 1.5e-3),
     ("-0.0", -0.0),
 ])
-def test_parse_double_happy(raw, expected):
-    value, err = parse_double(raw)
+def test_parse_float64_happy(raw, expected):
+    value, err = parse_float64(raw)
     assert err is None
     assert value == expected
 
@@ -96,25 +95,14 @@ def test_parse_double_happy(raw, expected):
     "",
     "abc",
 ])
-def test_parse_double_rejects(raw):
-    value, err = parse_double(raw)
+def test_parse_float64_rejects(raw):
+    value, err = parse_float64(raw)
     assert value is None
     assert err == raw
 
 
-def test_parse_float_aliased_to_float32():
-    # parse_float is the back-compat alias for parse_float32; parse_double is
-    # the back-compat alias for parse_float64. Both share the same regex but
-    # different downstream Polars dtypes.
-    from data_contract.validation.checks.value_parsers import (
-        parse_float32, parse_float64,
-    )
-    assert parse_float is parse_float32
-    assert parse_double is parse_float64
-
-
-def test_parse_double_none_passthrough():
-    assert parse_double(None) == (None, None)
+def test_parse_float64_none_passthrough():
+    assert parse_float64(None) == (None, None)
 
 
 # --- boolean ----------------------------------------------------------------

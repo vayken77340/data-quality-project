@@ -41,13 +41,6 @@ class DriftChange:
         return out
 
 
-# `ConstraintColumnRef` was the constraint-side copy of `ColumnRef` carrying
-# the same three fields. Kept here as a back-compat alias so existing imports
-# (`from data_contract.field_constraints.base import ConstraintColumnRef`)
-# resolve, but the implementation is the shared `ColumnRef`.
-ConstraintColumnRef = ColumnRef
-
-
 # ---------------------------------------------------------------------------
 # Config helpers (referenced by FieldConstraint.from_config)
 # ---------------------------------------------------------------------------
@@ -261,12 +254,12 @@ class FieldConstraint(ABC):
             return {}
         return dict(cls.CONTRACT_VALUE_SCHEMA)
 
-    column: ConstraintColumnRef
+    column: ColumnRef
     raw_config: dict[str, Any]
     _spec_parsing_params: dict[str, Any]
     _contract_params: dict[str, Any]
 
-    def __init__(self, column: ConstraintColumnRef) -> None:
+    def __init__(self, column: ColumnRef) -> None:
         self.column = column
         self.raw_config = {}
         self._spec_parsing_params = {}

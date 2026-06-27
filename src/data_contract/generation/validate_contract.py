@@ -167,20 +167,13 @@ def _emit_outcomes(outcomes: list[ValidationOutcome], output_format: str) -> Non
             print(f"--- epic {o.scope.removeprefix('epic:')} ---")
             last_scope = o.scope
         if o.ok:
-            stats = _stats_for_table_payload(o)
-            print(f"[VALIDATE-OK] {o.table} - {stats}")
+            print(f"[VALIDATE-OK] {o.table} - clean")
         else:
             print(f"[VALIDATE-FAIL] {o.table} - {o.n_errors} errors", file=sys.stderr)
             for se in o.schema_errors:
                 print(f"  - schema: {se}", file=sys.stderr)
             for ie in o.invariant_errors:
                 print(f"  - {ie.render()}", file=sys.stderr)
-
-
-def _stats_for_table_payload(outcome: ValidationOutcome) -> str:
-    # The outcome doesn't carry the contract object, but the table line is
-    # already informative enough; keep the OK summary concise.
-    return f"clean"
 
 
 # ---------------------------------------------------------------------------

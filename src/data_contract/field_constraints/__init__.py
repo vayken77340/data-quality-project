@@ -12,7 +12,6 @@ from __future__ import annotations
 from data_contract.core.registry import BaseRegistry, IndexSpec, RegistrySpec
 from data_contract.errors import ConfigError
 from data_contract.field_constraints.base import (
-    ConstraintColumnRef,
     ConstraintContext,
     DriftChange,
     FieldConstraint,
@@ -83,7 +82,6 @@ __all__ = [
     "get",
     "constraint_for_contract_key",
     "FieldConstraint",
-    "ConstraintColumnRef",
     "ConstraintContext",
     "DriftChange",
     "diff_added_or_removed",

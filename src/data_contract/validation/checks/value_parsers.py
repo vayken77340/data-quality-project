@@ -262,17 +262,6 @@ def parse_binary(raw: str | None) -> ParseResult:
     return raw, None
 
 
-# ---------------------------------------------------------------------------
-# Back-compat names (referenced from older imports until callsites migrate)
-# ---------------------------------------------------------------------------
-
-
-parse_varchar = parse_string
-parse_integer = parse_int64
-parse_double = parse_float64
-parse_float = parse_float32
-
-
 _PARSER_BY_TYPE: dict[Type, Callable[..., ParseResult]] = {
     Type.STRING:       parse_string,
     Type.TEXT:         parse_string,    # unbounded variable-length: same parse path

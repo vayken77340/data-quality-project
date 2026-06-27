@@ -128,14 +128,6 @@ CHECK_TIER_KEYS: tuple[str, ...] = ("structural", "table", "field")
 METRIC_TIER_KEYS: tuple[str, ...] = ("field", "table")
 
 
-# Back-compat aliases: the gate dataclasses used to live here; the
-# implementation collapsed onto `core.gates` but the public surface stays.
-CheckGates = Gates
-CheckSpec = GateSpec
-MetricGates = Gates
-MetricSpec = GateSpec
-
-
 def _tier_check_names() -> dict[str, frozenset[str]]:
     """Per-tier set of valid check names.
 

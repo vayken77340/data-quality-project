@@ -176,16 +176,6 @@ def _parser_kwargs(field: FieldContract, type_registry: TypeRegistry | None) -> 
     return {}
 
 
-def boolean_token_map(type_registry: TypeRegistry) -> dict[str, frozenset[str]] | None:
-    """Convenience wrapper: registry-level token map for BOOLEAN.
-
-    Kept for callers that ask "does BOOLEAN have any data_values at all" without
-    a specific field in hand. Field-level lookups should go through
-    `_field_boolean_tokens(field, registry)` instead.
-    """
-    return type_registry.data_values_for(Type.BOOLEAN)
-
-
 def _field_boolean_tokens(
     field: FieldContract, type_registry: TypeRegistry | None,
 ) -> dict[str, frozenset[str]] | None:

@@ -53,14 +53,6 @@ VALIDATION_FILENAME = "validation.yaml"
 CONTRACT_CONFIGS_SUBDIR = "contracts"
 
 
-# Back-compat aliases so existing imports / external code keep resolving.
-# `ColumnSpec` etc. used to be three near-identical local dataclasses --
-# they're now thin re-exports of the shared `core.column_ref` types.
-ColumnSpec = ColumnRef
-SplitColumnSpec = SeparatedColumnRef
-CardinalityColumnSpec = CardinalityColumnRef
-
-
 _CORE_KEYS = frozenset({"name", "db_name", "type", "description", "nullable", "table"})
 
 
@@ -388,46 +380,6 @@ def discover_version_configs(epic_configs_dir: Path) -> list[Path]:
         if p.is_file() and p.suffix in (".yaml", ".yml"):
             out.append(p)
     return out
-
-
-def select_version_config(
-    epic_configs_dir: Path,
-    *,
-    version: str | None = None,
-    explicit_path: Path | None = None,
-) -> tuple[EpicConfig, str]:
-    """Return (config, reason-string-for-the-CLI-summary)."""
-    if explicit_path is not None and version is not None:
-        raise ConfigError("--version and --config are mutually exclusive")
-
-    if explicit_path is not None:
-        if not explicit_path.is_file():
-            raise ConfigError(f"explicit config not found: {explicit_path}")
-        cfg = EpicConfig.from_yaml(explicit_path)
-        return cfg, f"explicit path {explicit_path}"
-
-    candidates = discover_version_configs(epic_configs_dir)
-    if not candidates:
-        raise ConfigError(f"no version configs found in {epic_configs_dir}")
-
-    loaded = [EpicConfig.from_yaml(p) for p in candidates]
-
-    if version is not None:
-        wanted = version.strip()
-        matches = [c for c in loaded if c.version == wanted]
-        if not matches:
-            raise ConfigError(
-                f"no config with version {wanted!r} in {epic_configs_dir}; "
-                f"available: {[c.version for c in loaded]}"
-            )
-        if len(matches) > 1:
-            raise ConfigError(
-                f"multiple configs with version {wanted!r}: {[str(c.path) for c in matches]}"
-            )
-        return matches[0], f"version {wanted}"
-
-    chosen = max(loaded, key=lambda c: version_sort_key(c.version))
-    return chosen, f"highest version: {chosen.version}"
 
 
 def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
