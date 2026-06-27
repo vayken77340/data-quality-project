@@ -19,6 +19,7 @@ module has zero generation imports. See the docstring at the top of
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable, Union
 
@@ -30,6 +31,7 @@ from data_contract.contract import (
     Rejection,
 )
 from data_contract.core.column_ref import ColumnRef
+from data_contract.core.slugify import slugify
 from data_contract.core.yaml_io import dump_yaml
 from data_contract.errors import ErrorCollector, RejectionError
 from data_contract.field_constraints.base import ConstraintContext
@@ -66,6 +68,150 @@ def _check_mandatory_blank(
 # ---------------------------------------------------------------------------
 
 
+def _build_one_field(
+    row: RawField,
+    cm,
+    sheet_spec: SheetSpec,
+    type_registry: TypeRegistry,
+    *,
+    allow_unknown_types: bool,
+) -> tuple[FieldContract | None, list[RejectionError], str | None]:
+    """Process one spec row into at most one `FieldContract`.
+
+    Returns `(field, errors, table_value)`:
+      - `field` is None when name or type couldn't be resolved.
+      - `errors` carries every blank/missing/parse failure encountered.
+      - `table_value` is the raw Table-column value for this row when the sheet
+        has a Table column (used by the caller to detect multi-table sheets);
+        None otherwise.
+
+    Duplicate-name detection lives in the caller -- it is cross-row state.
+    """
+    errors: list[RejectionError] = []
+
+    source_name_value, err = _check_mandatory_blank(
+        row.name_raw, cm.name, field_name="name", sheet_row=row.sheet_row,
+    )
+    if err: errors.append(err)
+
+    # Optional `Nom BDD` override: when present, used verbatim as the field's
+    # `name` (skipping slugify). When absent, `name` is `slugify(source_name)`.
+    db_name_override: str | None = None
+    if cm.db_name is not None and row.db_name_raw is not None:
+        db_raw = str(row.db_name_raw).strip()
+        if db_raw:
+            db_name_override = db_raw
+
+    if source_name_value:
+        name_value: str | None = db_name_override or slugify(source_name_value)
+    else:
+        name_value = None
+
+    description_value, err = _check_mandatory_blank(
+        row.description_raw, cm.description, field_name="description", sheet_row=row.sheet_row,
+    )
+    if err: errors.append(err)
+    # Normalise empty descriptions to None so `FieldContract.to_dict` omits
+    # the key. specs_parsing.yaml ships description with `default_value: ""`,
+    # which would otherwise stamp every undocumented field with `description: ''`.
+    if isinstance(description_value, str) and description_value.strip() == "":
+        description_value = None
+
+    # Type goes through the registry rather than the blank-check helper because
+    # it produces a structured ParsedType (or downgrades to UNKNOWN).
+    parsed_type: ParsedType | None
+    type_str, type_blank_err = _check_mandatory_blank(
+        row.type_raw, cm.type, field_name="type", sheet_row=row.sheet_row,
+    )
+    if type_blank_err:
+        errors.append(type_blank_err)
+        parsed_type = None
+    elif type_str is None:
+        parsed_type = None
+    else:
+        parsed_type, type_err = parse_type(type_str, type_registry, sheet_row=row.sheet_row)
+        if type_err is not None:
+            if allow_unknown_types:
+                parsed_type = unknown_parsed_type()
+            else:
+                errors.append(RejectionError(
+                    kind=type_err.kind,
+                    sheet_row=type_err.sheet_row,
+                    column=cm.type.spec_name,
+                    field="type",
+                    value=type_err.value,
+                    message=type_err.message,
+                ))
+
+    nullable_value, null_err = parse_nullable(row.nullable_raw, cm.nullable, sheet_row=row.sheet_row)
+    if null_err: errors.append(null_err)
+
+    table_value: str | None = None
+    if sheet_spec.has_table_column and cm.table is not None:
+        tval, err = _check_mandatory_blank(
+            row.table_raw, cm.table, field_name="table", sheet_row=row.sheet_row,
+        )
+        if err: errors.append(err)
+        if tval is not None:
+            table_value = tval
+
+    constraint_values: dict[str, Any] = {}
+    if parsed_type is not None and cm.constraints:
+        ctx = ConstraintContext(
+            sheet_row=row.sheet_row,
+            field_type=parsed_type.type,
+            field_max_length=parsed_type.max_length,
+        )
+        for c_name, constraint in cm.constraints.items():
+            value, err = constraint.parse_cell(row.extras.get(c_name), ctx)
+            if err is not None:
+                errors.append(err)
+                continue
+            if value is not None:
+                constraint_values[constraint.contract_key] = constraint.to_contract_value(value)
+
+    if name_value is None or parsed_type is None:
+        return None, errors, table_value
+
+    # For BOOLEAN, stamp the universal data_values block (from the base type
+    # registry) onto the field. The contract carries its own authoritative
+    # token list; targets no longer dictate which tokens are valid.
+    field_data_values = None
+    if parsed_type.type is Type.BOOLEAN:
+        base_tokens = type_registry.data_values_for(Type.BOOLEAN)
+        if base_tokens is not None:
+            field_data_values = {
+                literal: sorted(tokens) for literal, tokens in base_tokens.items()
+            }
+
+    # Emit `source_name` only when it differs from the database `name`. Holds
+    # the verbatim spec value ("Reference Number") so the validator can match
+    # raw CSV/Excel/JSON headers without needing a separate field_mapping block.
+    field_source_name: str | None = None
+    if source_name_value and source_name_value != name_value:
+        field_source_name = source_name_value
+
+    field = FieldContract(
+        name=name_value,
+        source_name=field_source_name,
+        type=parsed_type.type,
+        nullable=nullable_value,
+        description=description_value,
+        max_length=parsed_type.max_length,
+        precision=parsed_type.precision,
+        scale=parsed_type.scale,
+        data_values=field_data_values,
+        constraints=constraint_values,
+    )
+    # Stamp the target-resolved physical type. Derived from the active target
+    # overlay (`TypeRegistry.physical_type_for`) and re-derived on validation,
+    # so this is a display field only -- the validator never trusts it.
+    physical = type_registry.physical_type_for(field)
+    if physical is not None:
+        field = replace(field, physical_type=physical)
+    return field, errors, table_value
+
+
 def build_contract(
     merged: MergedConfig,
     sheet_spec: SheetSpec,
@@ -91,101 +237,29 @@ def build_contract(
     table_values: list[str] = []
 
     for row in rows:
-        # name / type / description: shared blank-check + mandatory handling.
-        name_value, err = _check_mandatory_blank(row.name_raw, cm.name, field_name="name", sheet_row=row.sheet_row)
-        if err: collector.add(err)
-
-        description_value, err = _check_mandatory_blank(row.description_raw, cm.description, field_name="description", sheet_row=row.sheet_row)
-        if err: collector.add(err)
-
-        # Type goes through the registry rather than the blank-check helper because
-        # it produces a structured ParsedType (or downgrades to UNKNOWN).
-        parsed_type: ParsedType | None
-        type_str, type_blank_err = _check_mandatory_blank(row.type_raw, cm.type, field_name="type", sheet_row=row.sheet_row)
-        if type_blank_err:
-            collector.add(type_blank_err)
-            parsed_type = None
-        elif type_str is None:
-            parsed_type = None
-        else:
-            parsed_type, type_err = parse_type(type_str, type_registry, sheet_row=row.sheet_row)
-            if type_err is not None:
-                if allow_unknown_types:
-                    parsed_type = unknown_parsed_type()
-                else:
-                    collector.add(RejectionError(
-                        kind=type_err.kind,
-                        sheet_row=type_err.sheet_row,
-                        column=cm.type.spec_name,
-                        field="type",
-                        value=type_err.value,
-                        message=type_err.message,
-                    ))
-
-        # Nullable: own dedicated parser (has its own missing/invalid kinds).
-        nullable_value, null_err = parse_nullable(row.nullable_raw, cm.nullable, sheet_row=row.sheet_row)
-        if null_err: collector.add(null_err)
-
-        # Table column: validated only, not put on the field. Use the shared
-        # mandatory-blank check for symmetry, then accumulate non-empty values.
-        if sheet_spec.has_table_column and cm.table is not None:
-            tval, err = _check_mandatory_blank(row.table_raw, cm.table, field_name="table", sheet_row=row.sheet_row)
-            if err: collector.add(err)
-            if tval is not None:
-                table_values.append(tval)
-
-        # Constraints — parsed once the field's resolved type/max_length is known.
-        constraint_values: dict[str, Any] = {}
-        if parsed_type is not None and cm.constraints:
-            ctx = ConstraintContext(
+        field, row_errors, table_value = _build_one_field(
+            row, cm, sheet_spec, type_registry,
+            allow_unknown_types=allow_unknown_types,
+        )
+        for err in row_errors:
+            collector.add(err)
+        if table_value is not None:
+            table_values.append(table_value)
+        if field is None:
+            continue
+        prev_row = seen_field_names.get(field.name)
+        if prev_row is not None:
+            collector.add(RejectionError(
+                kind="duplicate_field",
                 sheet_row=row.sheet_row,
-                field_type=parsed_type.type,
-                field_max_length=parsed_type.max_length,
-            )
-            for c_name, constraint in cm.constraints.items():
-                value, err = constraint.parse_cell(row.extras.get(c_name), ctx)
-                if err is not None:
-                    collector.add(err)
-                    continue
-                if value is not None:
-                    constraint_values[constraint.contract_key] = constraint.to_contract_value(value)
-
-        if name_value is not None and parsed_type is not None:
-            prev_row = seen_field_names.get(name_value)
-            if prev_row is not None:
-                collector.add(RejectionError(
-                    kind="duplicate_field",
-                    sheet_row=row.sheet_row,
-                    column=cm.name.spec_name,
-                    field="name",
-                    value=name_value,
-                    message=f"duplicate field name {name_value!r} (first seen at sheet row {prev_row})",
-                ))
-            else:
-                seen_field_names[name_value] = row.sheet_row
-                # For BOOLEAN, stamp the universal data_values block (from
-                # the base type registry) onto the field. The contract then
-                # carries its own authoritative token list -- targets no
-                # longer dictate which tokens are valid.
-                field_data_values = None
-                if parsed_type.type is Type.BOOLEAN:
-                    base_tokens = type_registry.data_values_for(Type.BOOLEAN)
-                    if base_tokens is not None:
-                        field_data_values = {
-                            literal: sorted(tokens)
-                            for literal, tokens in base_tokens.items()
-                        }
-                fields.append(FieldContract(
-                    name=name_value,
-                    type=parsed_type.type,
-                    nullable=nullable_value,
-                    description=description_value,
-                    max_length=parsed_type.max_length,
-                    precision=parsed_type.precision,
-                    scale=parsed_type.scale,
-                    data_values=field_data_values,
-                    constraints=constraint_values,
-                ))
+                column=cm.name.spec_name,
+                field="name",
+                value=field.name,
+                message=f"duplicate field name {field.name!r} (first seen at sheet row {prev_row})",
+            ))
+            continue
+        seen_field_names[field.name] = row.sheet_row
+        fields.append(field)
 
     # Resolve the contract's table name.
     table_name = sheet_spec.sheet_name
@@ -213,6 +287,7 @@ def build_contract(
         spec_file=spec_file_rel,
         spec_sheet=sheet_spec.sheet_name,
         table=table_name,
+        target=merged.target,
     )
 
     if collector.has_errors():

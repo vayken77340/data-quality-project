@@ -18,13 +18,13 @@
     "generated_at": {
       "type": "string"
     },
-    "source": {
+    "spec": {
       "type": "object",
       "properties": {
-        "spec_file": {
+        "file_path": {
           "type": "string"
         },
-        "spec_sheet": {
+        "sheet_name": {
           "type": "string"
         }
       }
@@ -32,6 +32,9 @@
     "table": {
       "type": "string",
       "minLength": 1
+    },
+    "target": {
+      "type": "string"
     },
     "fields": {
       "type": "array",
@@ -53,10 +56,14 @@
           "type": "string",
           "minLength": 1
         },
+        "source_name": {
+          "type": "string"
+        },
         "type": {
           "type": "string",
           "enum": [
             "string",
+            "text",
             "int32",
             "int64",
             "float32",
@@ -69,6 +76,9 @@
             "binary",
             "unknown"
           ]
+        },
+        "physical_type": {
+          "type": "string"
         },
         "nullable": {
           "type": "boolean"
@@ -105,6 +115,22 @@
             "table",
             "column"
           ],
+          "additionalProperties": false
+        },
+        "data_values": {
+          "type": "object",
+          "patternProperties": {
+            "^.+$": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            }
+          },
           "additionalProperties": false
         },
         "unique": {

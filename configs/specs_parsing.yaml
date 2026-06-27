@@ -19,6 +19,14 @@ fields:
   column_mapping:
     name:
       spec_name: Champ dans extract
+    # Optional override: when present, this cell becomes the contract field's
+    # `name` verbatim. Blank cells fall back to slugifying the source name.
+    # Use it for acronyms ("URL" -> `url` not `u_r_l`), reserved words, and
+    # team-specific conventions the auto-slug can't infer.
+    db_name:
+      spec_name: Nom BDD
+      column_required: false
+      default_value: null
     type:
       spec_name: Type
     description:
@@ -32,8 +40,8 @@ fields:
     nullable:
       spec_name: Obligatoire
       values:
-        "true":  ["non", "no", "false", "0", "n"]
-        "false": ["oui", "yes", "true", "1", "o", "y"]
+        "true":  ["non"]
+        "false": ["oui"]
 
 keys:
   sheet_name: "Clés unitaires"

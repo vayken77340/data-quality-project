@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from data_contract.cli import main
+from tests.conftest import write_test_parsers_yaml
 
 
 def _write_contract(path: Path, payload: dict) -> None:
@@ -19,7 +20,7 @@ def _minimal_payload(table: str = "T", **field_overrides) -> dict:
         "version": "1.0",
         "epic": "E",
         "generated_at": "2026-06-04T10:00:00Z",
-        "source": {"spec_file": "epics/E/specs/spec.xlsx", "spec_sheet": table},
+        "spec": {"file_path": "epics/E/specs/spec.xlsx", "sheet_name": table},
         "table": table,
         "fields": [field],
     }
@@ -32,10 +33,7 @@ def _bootstrap_validate_layout(tmp_path: Path, repo_root: Path) -> Path:
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     return tmp_path
 
 
@@ -198,14 +196,14 @@ def test_generate_self_check_catches_dangling_fk(tmp_path, repo_root, monkeypatc
     monkeypatch.chdir(tmp_path)
 
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
 
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
-    (edir / "configs" / "v1.0.yaml").write_text(
-        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: T\n",
         encoding="utf-8",
     )

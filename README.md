@@ -5,18 +5,21 @@ Spec-driven data contract generator. Reads an Excel specification per epic and e
 ## Layout
 
 ```
-configs/types.yaml              # global type registry (shared by all epics)
+configs/
+    types.yaml                  # global type registry (shared by all epics)
+    specs_parsing.yaml          # global spec-column mapping (shared by all epics)
+    targets/<target>.yaml       # per-target physical-type overlays (oracle, postgres, iceberg)
+    parsers.yaml                # per-format parser defaults (csv, excel, json)
 epics/<epic>/
     configs/
-        defaults.yaml           # per-epic spec-column mapping (incl. optional constraints)
-        <anything>.yaml         # one or more version configs (selected by `version` field)
+        contracts/<version>.yaml          # one file per version (e.g. v1.0.yaml, v2.0.yaml)
+        validation.yaml                   # per-epic validate-data settings
     specs/<file>.xlsx           # the spec workbook
     contracts/
-        <table>.yaml            # current contract, overwritten each successful run
-        history/<v>/<table>.yaml          # versioned snapshot (everything for v lives together)
+        <table>.yaml            # canonical contract for the highest version
+        history/<v>/<table>.yaml          # versioned snapshot (every built version)
         history/<v>/joins.yaml            # joins snapshot for that version
-        history/<v>/spec/<file>.xlsx      # byte-exact copy of the spec used to build this version
-        drift/<table>__v<from>_to_v<to>.yaml  # structured changelog between two versions
+        drift/<table>__v<from>_to_v<to>.yaml  # structured changelog -- written by `generate-drift`
         rejected/<table>.yaml             # only present when the spec for that table failed validation
     docs/
         data_dictionary.xlsx    # auto-generated per-epic XLSX (one sheet per table + README + Joins)
@@ -31,7 +34,7 @@ pip install -e .[dev] -r requirements-dev.txt
 python -m data_contract generate --epic 1118
 ```
 
-The CLI auto-picks the highest-version config in `epics/<epic>/configs/`. Pin a specific one with `--version 1.0` or `--config <path>`. Omit `--epic` to process every epic under `epics/`.
+By default, `generate` builds **every** version under `epics/<epic>/configs/contracts/`: the highest version becomes the canonical contract (`contracts/<table>.yaml`), older versions are written to `contracts/history/<v>/`. Pin a single version with `--version 1.0` (older versions write only to `history/`; canonical is untouched) or use `--config <path>`. Omit `--epic` to process every epic under `epics/`.
 
 Exit codes: `0` = all tables built clean, `2` = at least one rejection, `1` = an epic couldn't be processed (bad config / missing spec).
 
@@ -50,12 +53,25 @@ Spaces are allowed but mean every CLI invocation needs quotes — `python -m dat
 
 ## Commands
 
-- `generate` — build contracts. Writes `<table>.yaml`, history, drift, rejected files, the data dictionary XLSX, and a snapshot of the source spec into history as needed.
+- `generate` — build contracts for every version under `configs/contracts/`. Highest version = canonical (`<table>.yaml`), older = history-only. `--version <x>` narrows to one version; if `x` isn't the highest, only `history/<x>/` is touched. Writes the data dictionary XLSX too.
 - `lint` — same validation pass as `generate` but writes **nothing**. Also gates `docs/constraints.md` freshness — fails if a re-render would change the file. CI gate. Same exit codes (`0`/`2`/`1`).
-- `drift --epic E --table T --from 1.0 --to 2.0 [--write]` — compute drift between two existing history snapshots without regenerating. With `--write`, also emit the YAML to `contracts/drift/`.
+- `generate-drift --epic E [--table T] [--from V1 --to V2] [--no-write]` — generate drift files. Default: walks every consecutive history pair (`v_n-1 → v_n`) for every table and writes one drift file per non-empty pair. `--from/--to` narrows to a specific pair; `--table` narrows to one table. `--no-write` is the dry-run mode.
 - `export-schema [--out PATH]` — render the contract JSON Schema (default `docs/contract-schema.json`). Idempotent: only writes when content changes.
 - `validate-contract [--epic E | --file PATH]` — validate a contract YAML on disk against the JSON Schema and the semantic invariants (PK not nullable, max_length on strings only, FK targets exist, etc.). Different from `lint`: `lint` re-runs spec→contract, `validate-contract` checks a YAML file as-is. Exit codes same as `generate`.
+- `validate-data --epic E [--table T]` — load the contracts, glob the sample data per `validation.yaml.file_pattern`, run the configured checks and metrics, write the JSON / Markdown / HTML / XLSX reports.
 - `regen-docs [--path docs/constraints.md]` — rewrite the auto-generated catalog and format-token tables in `docs/constraints.md`.
+
+## Field naming
+
+The spec's `name` column carries the **business-friendly** header as written by spec authors ("Reference Number", "Date d'envoi"). The generator stores that verbatim as `source_name` on the contract and derives `name` -- the database identifier -- by slugifying it (lowercase, accents stripped, non-alphanumeric → `_`). When the slug already equals the source value, `source_name` is omitted from the YAML to keep already-clean rows quiet.
+
+For acronyms, reserved words, or team conventions the auto-slugifier can't infer, declare a `Nom BDD` cell in the spec; the generator uses that as `name` verbatim and skips slugify for that row.
+
+The validator's `exact` and `similarity` policies match incoming CSV/Excel/JSON headers against `source_name` first, then fall back to `name`. The per-table `field_mapping:` block in `validation.yaml` was removed -- every header rename now lives on the contract.
+
+## Target physical types
+
+Each generated contract carries `target: <name>` (stamped from the epic version config) and a per-field `physical_type` derived from the target overlay (`configs/targets/<target>.yaml`). Spec readers see what the database actually stores -- `BINARY_DOUBLE` for `float64` on Oracle, `VARCHAR2(384 BYTE)` for `string(384)`, etc. The validator never trusts the on-disk value; it recomputes from the active overlay so a target change is honoured immediately. Spec authors never write `physical_type` by hand.
 
 ## Field constraints
 
@@ -89,6 +105,10 @@ fields:
     # default is substituted in. `column_required: false` REQUIRES
     # `default_value` to be declared.
     name:        { spec_name: Field }
+    db_name:                       # optional override; bypasses slugify
+      spec_name: "Nom BDD"
+      column_required: false
+      default_value: null
     type:        { spec_name: Type }
     description:
       spec_name: Description

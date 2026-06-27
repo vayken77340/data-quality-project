@@ -254,7 +254,7 @@ class FileParser(ABC):
         paths: list[Path],
         *,
         table_name_hint: str | None = None,
-        contract_field_names: list[str] | None = None,
+        contract_fields: list[tuple[str, str | None]] | None = None,
         similarity_threshold: float = 0.8,
     ) -> ReadResult:
         """Read all `paths` and return a unified LazyFrame plus the
@@ -267,11 +267,12 @@ class FileParser(ABC):
           - Multi-file frames concatenated via `diagonal_relaxed` so
             differing columns across files become null in the union.
 
-        `contract_field_names` and `similarity_threshold` together drive how the
-        i-th data column binds to the i-th contract field (see
-        `_apply_field_matching`). When `contract_field_names` is omitted, the
-        rename step is a no-op -- handy for standalone / ad-hoc parser use
-        without runner cooperation.
+        `contract_fields` is a list of `(name, source_name)` pairs. `name` is
+        the contract field's database identifier (what columns get renamed
+        to); `source_name` is the verbatim spec header (e.g. "Reference
+        Number") used by `exact` and `similarity` policies to match raw
+        CSV/Excel/JSON headers before falling back to `name`. When omitted,
+        the rename step is a no-op -- handy for standalone parser use.
         """
         if not paths:
             raise ValueError(f"parser {self.name!r}: read called with no paths")
@@ -293,7 +294,7 @@ class FileParser(ABC):
             # (JSON) still unify cleanly after concat-by-name.
             lf = self._apply_field_matching(
                 lf, path,
-                contract_field_names=contract_field_names,
+                contract_fields=contract_fields,
                 similarity_threshold=similarity_threshold,
             )
             lf = self._attach_tracking(lf, path, pl)
@@ -361,31 +362,34 @@ class FileParser(ABC):
         lf: Any,
         path: Path,
         *,
-        contract_field_names: list[str] | None,
+        contract_fields: list[tuple[str, str | None]] | None,
         similarity_threshold: float,
     ) -> Any:
-        """Rename the per-file frame's columns to contract field names per the
-        configured policy. No-op when `contract_field_names` is unset (parser
+        """Rename the per-file frame's columns to contract field `name`s per
+        the configured policy. No-op when `contract_fields` is unset (parser
         used standalone) or when the chosen policy produces no rename.
 
         Per-file by construction: called inside `read()`'s loop before the
         multi-file concat, so two files whose parser-emitted column names
         disagree still concat cleanly under contract field names.
+
+        `exact` and `similarity` policies match against `source_name` first
+        (when set), then fall back to `name`. This lets the contract carry
+        business-friendly headers ("Reference Number") and still bind raw
+        CSVs/Excels that use those headers.
         """
-        if not contract_field_names:
+        if not contract_fields:
             return lf
         existing = lf.collect_schema().names()
+        names = [n for n, _ in contract_fields]
         policy = self.params.get("field_matching_policy", self.default_field_matching_policy)
         if policy == "positional":
-            rename_map = self._positional_match_map(existing, contract_field_names, path)
+            rename_map = self._positional_match_map(existing, names, path)
         elif policy == "exact":
-            # Exact = no rename; columns whose names already equal a contract
-            # field stay as-is, the rest are surfaced by `column_missing` and
-            # `extra_column` downstream.
-            return lf
+            rename_map = self._exact_match_map(existing, contract_fields)
         elif policy == "similarity":
             rename_map = self._similarity_match_map(
-                existing, contract_field_names, similarity_threshold,
+                existing, contract_fields, similarity_threshold,
             )
         else:
             # Already validated in __init__; defensive.
@@ -432,36 +436,77 @@ class FileParser(ABC):
             )
         return rename_map
 
+    def _exact_match_map(
+        self,
+        existing: list[str],
+        contract_fields: list[tuple[str, str | None]],
+    ) -> dict[str, str]:
+        """Build a `{existing_name: contract_name}` map for exact mode.
+
+        For each existing column: rename to a contract field's `name` if the
+        column text matches the contract's `source_name` exactly, OR if it
+        already equals the `name`. `source_name` is tried first so business-
+        friendly headers ("Reference Number") win over a name collision.
+        Columns that match neither are left alone -- downstream
+        `column_missing` / `extra_column` surface them.
+        """
+        rename_map: dict[str, str] = {}
+        used_names: set[str] = set()
+        # Build lookups: source_name first (higher priority), then name as fallback.
+        by_source: dict[str, str] = {}
+        by_name: dict[str, str] = {}
+        for name, source_name in contract_fields:
+            if source_name:
+                by_source.setdefault(source_name, name)
+            by_name.setdefault(name, name)
+        for col in existing:
+            target = by_source.get(col) or by_name.get(col)
+            if target is None or target in used_names:
+                continue
+            if col != target:
+                rename_map[col] = target
+            used_names.add(target)
+        return rename_map
+
     def _similarity_match_map(
         self,
         existing: list[str],
-        contract_field_names: list[str],
+        contract_fields: list[tuple[str, str | None]],
         threshold: float,
     ) -> dict[str, str]:
         """Build a `{existing_name: contract_name}` map for similarity mode.
 
         Greedy assignment: iterate existing columns in order, find each one's
         best-scoring contract field above `threshold`, claim it exclusively.
-        Exact matches short-circuit (no scoring needed). Mismatches that
-        can't clear the threshold stay as-is; downstream `column_missing` /
-        `extra_column` surface them.
+        Exact matches against `source_name` (when set) or `name` short-circuit
+        (no scoring needed). Mismatches that can't clear the threshold stay
+        as-is; downstream `column_missing` / `extra_column` surface them.
         """
-        contract_set = set(contract_field_names)
+        # Pair each contract entry with the candidate string used for matching:
+        # source_name when set (business-friendly), else name (already a slug).
+        candidates: list[tuple[str, str]] = [
+            (name, source_name or name) for name, source_name in contract_fields
+        ]
         used: set[str] = set()
         rename_map: dict[str, str] = {}
         for col in existing:
-            if col in contract_set:
-                used.add(col)
+            # Exact-match shortcut against either source_name or name.
+            exact = next(
+                (name for name, cand in candidates if name not in used and (col == cand or col == name)),
+                None,
+            )
+            if exact is not None:
+                used.add(exact)
                 continue
             best: str | None = None
             best_score = threshold
-            for cn in contract_field_names:
-                if cn in used:
+            for name, cand in candidates:
+                if name in used:
                     continue
-                score = _similarity_score(col, cn)
+                score = _similarity_score(col, cand)
                 if score >= best_score:
                     best_score = score
-                    best = cn
+                    best = name
             if best is not None:
                 rename_map[col] = best
                 used.add(best)

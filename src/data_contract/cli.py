@@ -2,7 +2,7 @@
 
 Business logic lives in:
   * `generation/pipeline.py` -- spec -> contract per-epic processing.
-  * `generation/backfill.py` -- history backfill loop.
+  * `generation/drift.py` -- drift diff + history walking.
   * `generation/validate_contract.py` -- on-disk contract validation.
   * `validation/runner.py` -- data validation orchestration.
 """
@@ -33,8 +33,13 @@ from data_contract.generation.catalog import (
     would_regen_change,
 )
 from data_contract.generation.config import SPECS_PARSING_FILENAME
-from data_contract.generation.drift import diff_contracts
-from data_contract.generation.pipeline import Outcome, print_drift_summary, process_epic
+from data_contract.generation.drift import (
+    diff_contracts,
+    discover_history_tables,
+    print_drift_summary,
+    walk_version_pairs,
+)
+from data_contract.generation.pipeline import Outcome, process_epic
 from data_contract.generation.schema_export import (
     DEFAULT_SCHEMA_OUT,
     write_contract_json_schema,
@@ -61,8 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_generate_or_lint(args, write=True)
     if args.command == "lint":
         return _cmd_generate_or_lint(args, write=False)
-    if args.command == "drift":
-        return _cmd_drift(args)
+    if args.command == "generate-drift":
+        return _cmd_generate_drift(args)
     if args.command == "export-schema":
         return _cmd_export_schema(args)
     if args.command == "validate-contract":
@@ -100,14 +105,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     gen = sub.add_parser(
         "generate",
-        help="Build contracts for one epic, or all epics if --epic is omitted.",
+        help=(
+            "Build contracts for one epic, or all epics if --epic is omitted. "
+            "Without --version, every config under configs/contracts/ is built; "
+            "highest version = canonical, older = history-only."
+        ),
     )
     _add_generate_args(gen)
-    gen.add_argument(
-        "--no-backfill",
-        action="store_true",
-        help="Skip auto-generating history snapshots for sibling configs with versions older than the target.",
-    )
     gen.add_argument(
         "--skip-self-check",
         action="store_true",
@@ -121,15 +125,23 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_generate_args(lint)
 
     drift = sub.add_parser(
-        "drift",
-        help="Compute drift between two existing history snapshots without regenerating.",
+        "generate-drift",
+        help=(
+            "Generate drift files for an epic. Without --from/--to, walks every "
+            "consecutive history pair for every table and writes the diffs. "
+            "With --table, --from, --to, narrows to a specific pair."
+        ),
     )
     drift.add_argument("--epic", required=True, type=_epic_arg_type)
-    drift.add_argument("--table", required=True)
-    drift.add_argument("--from", dest="from_version", required=True, help="Older history version, e.g. 1.0.")
-    drift.add_argument("--to", dest="to_version", required=True, help="Newer history version, e.g. 2.0.")
+    drift.add_argument("--table", default=None, help="Restrict to one table.")
+    drift.add_argument("--from", dest="from_version", default=None, help="Older history version, e.g. 1.0. Requires --to.")
+    drift.add_argument("--to", dest="to_version", default=None, help="Newer history version, e.g. 2.0. Requires --from.")
     drift.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
-    drift.add_argument("--write", action="store_true", help="Also write the drift YAML to contracts/drift/.")
+    drift.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Dry-run: compute drift and print the summary but skip writing files.",
+    )
 
     export = sub.add_parser(
         "export-schema",
@@ -226,8 +238,7 @@ def _add_generate_args(p: argparse.ArgumentParser) -> None:
 
 def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     if args.config is not None and args.epic is None:
-        print("config error: --config requires --epic", file=sys.stderr)
-        return 1
+        return _fail("config error", ValueError("--config requires --epic"))
 
     epic_root = Path(args.epic_root)
     try:
@@ -240,11 +251,9 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
     else:
         epics = discover_epics(epic_root)
         if not epics:
-            print(f"config error: no epics found under {epic_root}", file=sys.stderr)
-            return 1
+            return _fail("config error", FileNotFoundError(f"no epics found under {epic_root}"))
         print(f"discovered {len(epics)} epic(s): {', '.join(epics)}")
 
-    backfill = write and not getattr(args, "no_backfill", False)
     skip_self_check = (not write) or getattr(args, "skip_self_check", False)
 
     settings = load_settings()
@@ -262,7 +271,6 @@ def _cmd_generate_or_lint(args: argparse.Namespace, *, write: bool) -> int:
             version=args.version,
             explicit_config=Path(args.config) if args.config else None,
             allow_unknown_types=args.allow_unknown_types,
-            backfill=backfill,
             write=write,
             skip_self_check=skip_self_check,
             settings=settings,
@@ -320,6 +328,11 @@ def _cmd_export_schema(args: argparse.Namespace) -> int:
 
 
 def _cmd_validate_data(args: argparse.Namespace) -> int:
+    # Doesn't route the ImportError through `_fail` because the message is a
+    # multi-line install instruction; the helper's "<label>: <one-liner>" shape
+    # would obscure the actionable line break. Every other failure in this
+    # command bubbles up from `run_validate_data`, which prints + returns 1
+    # itself.
     try:
         from data_contract.validation.runner import run_validate_data
     except ImportError as e:
@@ -342,6 +355,9 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
 
 
 def _cmd_validate_contract(args: argparse.Namespace) -> int:
+    # No `_fail` wrapper: `run_validate_contract` handles its own exit codes
+    # and emits structured JSON or text reports, neither of which fit the
+    # helper's "<label>: <error>" stderr shape.
     from data_contract.generation.validate_contract import run_validate_contract
     return run_validate_contract(
         epic=args.epic,
@@ -353,28 +369,81 @@ def _cmd_validate_contract(args: argparse.Namespace) -> int:
     )
 
 
-def _cmd_drift(args: argparse.Namespace) -> int:
+def _cmd_generate_drift(args: argparse.Namespace) -> int:
+    """Standalone drift generation. Three modes:
+
+      - No `--from/--to`: walk every consecutive history pair for every table
+        (or `--table` to narrow). Writes one drift file per non-empty pair.
+      - `--from/--to`: compute drift for that one pair across every table
+        (or `--table` to narrow).
+      - `--no-write`: skip the disk writes; still print the summary.
+
+    Returns 0 even when no drifts are found -- there's nothing wrong about
+    a clean run -- and 1 only on hard config errors (epic dir missing, etc.).
+    """
+    if (args.from_version is None) != (args.to_version is None):
+        return _fail(
+            "generate-drift",
+            ValueError("--from and --to must be used together"),
+        )
+
     epic_root = Path(args.epic_root)
     contracts_dir = epic_root / args.epic / "contracts"
-    from_file = history_path_for_table(contracts_dir, args.from_version, args.table)
-    to_file = history_path_for_table(contracts_dir, args.to_version, args.table)
-    for p in (from_file, to_file):
-        if not p.is_file():
-            print(f"history file not found: {p}", file=sys.stderr)
-            return 1
-    try:
-        old_contract = Contract.load(from_file)
-        new_contract = Contract.load(to_file)
-    except Exception as e:
-        return _fail("failed to load history", e)
-    report = diff_contracts(old_contract, new_contract)
-    print_drift_summary(args.table, args.from_version, args.to_version, report)
-    if args.write and not report.is_empty():
-        out = drift_path_for(contracts_dir, args.table, args.from_version, args.to_version)
-        dump_yaml(out, report.to_dict())
-        try:
-            rel = str(out.relative_to(contracts_dir)).replace("\\", "/")
-        except ValueError:
-            rel = str(out).replace("\\", "/")
-        print(f"  wrote {rel}")
+    history_root = contracts_dir / "history"
+    if not history_root.is_dir():
+        return _fail(
+            "generate-drift",
+            FileNotFoundError(f"history directory not found: {history_root}"),
+        )
+
+    write = not args.no_write
+    tables = [args.table] if args.table else discover_history_tables(history_root)
+    if not tables:
+        print(f"generate-drift: no tables found under {history_root}", file=sys.stderr)
+        return 0
+
+    pair_count = 0
+    written_count = 0
+    for table in tables:
+        if args.from_version is not None:
+            pairs = [(
+                history_path_for_table(contracts_dir, args.from_version, table),
+                history_path_for_table(contracts_dir, args.to_version, table),
+                args.from_version, args.to_version,
+            )]
+        else:
+            pairs = walk_version_pairs(history_root, table)
+
+        for from_path, to_path, from_v, to_v in pairs:
+            if not (from_path.is_file() and to_path.is_file()):
+                if args.from_version is not None:
+                    return _fail(
+                        "generate-drift",
+                        FileNotFoundError(
+                            f"history file not found: "
+                            f"{from_path if not from_path.is_file() else to_path}"
+                        ),
+                    )
+                continue
+            try:
+                old_contract = Contract.load(from_path)
+                new_contract = Contract.load(to_path)
+            except Exception as e:
+                print(f"  (skip {table} v{from_v}->v{to_v}: {e})", file=sys.stderr)
+                continue
+            report = diff_contracts(old_contract, new_contract)
+            pair_count += 1
+            print_drift_summary(table, from_v, to_v, report)
+            if write and not report.is_empty():
+                out = drift_path_for(contracts_dir, table, from_v, to_v)
+                dump_yaml(out, report.to_dict())
+                try:
+                    rel = str(out.relative_to(contracts_dir)).replace("\\", "/")
+                except ValueError:
+                    rel = str(out).replace("\\", "/")
+                print(f"  wrote contracts/{rel}")
+                written_count += 1
+
+    summary_verb = "written" if write else "computed (dry-run)"
+    print(f"generate-drift: {pair_count} pair(s) {summary_verb}; {written_count} file(s) on disk")
     return 0

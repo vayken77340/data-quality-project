@@ -64,12 +64,50 @@ metrics:
 # blocks at once.
 ALL_CHECKS_ENABLED_YAML = ALL_CHECKS_ENABLED_YAML + ALL_METRICS_ENABLED_YAML
 
-# YAML snippet that satisfies the required `target:` field. Tests that don't
-# care about target-specific behaviour use this. Postgres is chosen because
-# its boolean tokens are the most permissive (accepts `true`/`false`/`t`/`f`
-# /`yes`/`no`/`y`/`n`/`on`/`off`/`1`/`0`) so token-related test fixtures
-# don't need to be tailored to a specific convention.
-DEFAULT_TARGET_YAML = "target: postgres\n"
+# Default target name for tests that need to stamp a contract or epic config.
+# Postgres is chosen because its boolean tokens are the most permissive
+# (accepts `true`/`false`/`t`/`f`/`yes`/`no`/`y`/`n`/`on`/`off`/`1`/`0`) so
+# token-related test fixtures don't need to be tailored to a specific
+# convention. `target:` no longer lives in validation.yaml -- it lives on
+# the contract and on the epic version config; tests that need an end-to-end
+# run stamp it via this constant.
+DEFAULT_TARGET_NAME = "postgres"
+
+
+# Hermetic parsers.yaml for integration tests that need a configs/parsers.yaml
+# in their tmp tree. Mirrors what every test CSV fixture writes (comma
+# delimiter, UTF-8, ", NULL" null tokens) rather than copying production --
+# tests stay green even if the prod default changes.
+TEST_PARSERS_YAML = """\
+csv:
+  encoding:              utf-8
+  delimiter:             ","
+  header_row:            1
+  null_tokens:           ["", "NULL"]
+  quote_char:            '"'
+  field_matching_policy: positional
+
+excel:
+  header_row:            1
+  null_tokens:           ["", "NULL"]
+  field_matching_policy: positional
+
+json:
+  encoding:              utf-8
+  header_path:           "data[0].report_header"
+  rows_path:             "data[0].report_row"
+  name_key:              "name"
+  null_tokens:           ["", "null", "NULL"]
+  field_matching_policy: exact
+"""
+
+
+def write_test_parsers_yaml(configs_dir: Path) -> None:
+    """Write the hermetic parsers.yaml into `configs_dir`. Used by integration
+    tests that build a tmp epic tree and need a parsers.yaml to satisfy the
+    `<types-path>.parent / 'parsers.yaml'` lookup."""
+    configs_dir.mkdir(parents=True, exist_ok=True)
+    (configs_dir / "parsers.yaml").write_text(TEST_PARSERS_YAML, encoding="utf-8")
 
 
 MINIMAL_DEFAULTS_YAML = """fields:

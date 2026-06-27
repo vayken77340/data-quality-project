@@ -20,14 +20,20 @@ def _outdir(tmp_path: Path) -> Path:
 
 
 def _postgres_epic_root(repo_root: Path, tmp_path: Path) -> Path:
-    """Copy the live `epics/1118/` config tree to tmp and rewrite the
-    validation.yaml's target to postgres.
+    """Copy the live `epics/1118/` config tree to tmp, rewrite every
+    generated contract's `target:` to postgres, and normalise the table
+    names to the historical `PROJECT` / `CALENDAR` shape these tests use.
 
-    The live 1118 config sets `target: oracle` which uses Y/N boolean tokens.
-    These integration test fixtures use Python `True`/`False` (calamine
-    surfaces them as 'True'/'False') -- postgres accepts those, oracle does
-    not. The tests are about epic-resolution / PK clustering / etc., not
-    target-specific behavior, so we route them through a postgres copy.
+    The live 1118 spec maps tables to `ipn_project` / `ipn_calendar`
+    (snake_case database identifiers); these integration tests pre-date
+    that rename and reference the plain sheet names. Rewriting the
+    in-tmp copies keeps the tests focused on behaviour rather than
+    spec-naming churn.
+
+    Target: the live config uses `target: oracle` (Y/N boolean tokens).
+    The fixture data uses Python booleans surfaced as 'True'/'False'
+    -- postgres accepts those, oracle does not. Tests are about
+    epic-resolution / PK clustering / etc., not target-specific behaviour.
     """
     dst_root = tmp_path / "tmp_epics"
     dst = dst_root / "1118"
@@ -35,10 +41,31 @@ def _postgres_epic_root(repo_root: Path, tmp_path: Path) -> Path:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
-    vy = dst / "configs" / "validation.yaml"
-    text = vy.read_text(encoding="utf-8")
-    text = re.sub(r"^target:\s*\w+", "target: postgres", text, count=1, flags=re.MULTILINE)
-    vy.write_text(text, encoding="utf-8")
+
+    # Rename the canonical and history contract YAMLs to the legacy table
+    # names so `--table PROJECT` and the fixture sample filenames line up.
+    rename_map = {"ipn_project": "PROJECT", "ipn_calendar": "CALENDAR"}
+    contracts_dir = dst / "contracts"
+    for old_name, new_name in rename_map.items():
+        for legacy_path in (
+            contracts_dir / f"{old_name}.yaml",
+            *contracts_dir.glob(f"history/*/{old_name}.yaml"),
+        ):
+            if legacy_path.is_file():
+                legacy_path.rename(legacy_path.with_name(f"{new_name}.yaml"))
+
+    # Rewrite each contract YAML in place: `table:` -> legacy name,
+    # `target:` -> postgres.
+    contract_paths = list(contracts_dir.glob("*.yaml"))
+    history_dir = contracts_dir / "history"
+    if history_dir.is_dir():
+        contract_paths.extend(history_dir.rglob("*.yaml"))
+    for cy in contract_paths:
+        text = cy.read_text(encoding="utf-8")
+        text = re.sub(r"^target:\s*\w+", "target: postgres", text, count=1, flags=re.MULTILINE)
+        for old_name, new_name in rename_map.items():
+            text = re.sub(rf"^table:\s*{old_name}\s*$", f"table: {new_name}", text, count=1, flags=re.MULTILINE)
+        cy.write_text(text, encoding="utf-8")
     return dst_root
 
 
@@ -120,9 +147,11 @@ def test_multi_file_cross_file_pk_collision(repo_root: Path, tmp_path: Path, mon
 def test_nullable_violation_caught(repo_root: Path, tmp_path: Path, monkeypatch):
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
+    epic_root = _postgres_epic_root(repo_root, tmp_path)
     rc = main([
         "validate-data",
         "--epic", "1118",
+        "--epic-root", str(epic_root),
         "--table", "PROJECT",
         "--input-dir", str(FIXTURES / "nullable"),
         "--output-dir", str(out),
@@ -167,9 +196,11 @@ def test_clean_run_xlsx_has_summary_and_profile_sheets(repo_root: Path, tmp_path
 def test_dup_pk_xlsx_has_one_rejected_sheet_with_pk_after_source_file(repo_root: Path, tmp_path: Path, monkeypatch):
     monkeypatch.chdir(repo_root)
     out = _outdir(tmp_path)
+    epic_root = _postgres_epic_root(repo_root, tmp_path)
     rc = main([
         "validate-data",
         "--epic", "1118",
+        "--epic-root", str(epic_root),
         "--table", "PROJECT",
         "--input-dir", str(FIXTURES / "dup_pk"),
         "--output-dir", str(out),
@@ -322,7 +353,7 @@ def test_no_input_files_violation_includes_diagnostic(repo_root: Path, tmp_path:
     from tests.conftest import ALL_CHECKS_ENABLED_YAML
     (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
-        ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + """
+        ALL_CHECKS_ENABLED_YAML + """
 defaults:
   format: excel
   file_pattern: "sample/PROJEKT*.xlsx"
@@ -334,6 +365,21 @@ defaults:
     for f in contracts_src.glob("*.yaml"):
         import shutil
         shutil.copy2(f, contracts_dst / f.name)
+    # Rewrite copied contracts' target to postgres so the runner doesn't try
+    # to load the oracle overlay (the test only cares about file-glob diagnostics).
+    # Also rename the live `ipn_project`/`ipn_calendar` tables back to the
+    # legacy names this test asserts on.
+    rename_map = {"ipn_project": "PROJECT", "ipn_calendar": "CALENDAR"}
+    for old_name, new_name in rename_map.items():
+        legacy = contracts_dst / f"{old_name}.yaml"
+        if legacy.is_file():
+            legacy.rename(legacy.with_name(f"{new_name}.yaml"))
+    for f in contracts_dst.glob("*.yaml"):
+        t = f.read_text(encoding="utf-8")
+        t = re.sub(r"^target:\s*\w+", "target: postgres", t, count=1, flags=re.MULTILINE)
+        for old_name, new_name in rename_map.items():
+            t = re.sub(rf"^table:\s*{old_name}\s*$", f"table: {new_name}", t, count=1, flags=re.MULTILINE)
+        f.write_text(t, encoding="utf-8")
     # Put one decoy file in the searched subdir.
     (fake_epic / "sample").mkdir()
     (fake_epic / "sample" / "PROJECT.xlsx").write_text("decoy")
@@ -375,7 +421,7 @@ def test_no_input_files_diagnostic_when_base_missing(repo_root: Path, tmp_path: 
     from tests.conftest import ALL_CHECKS_ENABLED_YAML
     (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
-        ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + """
+        ALL_CHECKS_ENABLED_YAML + """
 defaults:
   format: excel
   file_pattern: "nope/{table}*.xlsx"
@@ -385,6 +431,10 @@ defaults:
     for f in (repo_root / "epics" / "1118" / "contracts").glob("*.yaml"):
         import shutil
         shutil.copy2(f, contracts_dst / f.name)
+    for f in contracts_dst.glob("*.yaml"):
+        t = f.read_text(encoding="utf-8")
+        t = re.sub(r"^target:\s*\w+", "target: postgres", t, count=1, flags=re.MULTILINE)
+        f.write_text(t, encoding="utf-8")
 
     rc = main([
         "validate-data",
@@ -437,7 +487,6 @@ def _build_french_boolean_epic(
     (fake_epic / "configs").mkdir(parents=True, exist_ok=True)
     (fake_epic / "configs" / "validation.yaml").write_text(
         ALL_CHECKS_ENABLED_YAML +
-        "target: postgres\n"
         "defaults:\n"
         "  format: excel\n"
         '  file_pattern: "sample/{table}*.xlsx"\n',
@@ -448,6 +497,21 @@ def _build_french_boolean_epic(
     contracts_dst.mkdir(parents=True)
     for f in contracts_src.glob("*.yaml"):
         shutil.copy2(f, contracts_dst / f.name)
+    # Rename copied `ipn_project`/`ipn_calendar` contracts back to PROJECT/
+    # CALENDAR (legacy table names this test asserts on).
+    rename_map = {"ipn_project": "PROJECT", "ipn_calendar": "CALENDAR"}
+    for old_name, new_name in rename_map.items():
+        legacy = contracts_dst / f"{old_name}.yaml"
+        if legacy.is_file():
+            legacy.rename(legacy.with_name(f"{new_name}.yaml"))
+    # Rewrite contract targets to postgres (this test asserts on postgres
+    # boolean tokens) and normalise the table name to the legacy form.
+    for f in contracts_dst.glob("*.yaml"):
+        t = f.read_text(encoding="utf-8")
+        t = re.sub(r"^target:\s*\w+", "target: postgres", t, count=1, flags=re.MULTILINE)
+        for old_name, new_name in rename_map.items():
+            t = re.sub(rf"^table:\s*{old_name}\s*$", f"table: {new_name}", t, count=1, flags=re.MULTILINE)
+        f.write_text(t, encoding="utf-8")
 
     (fake_epic / "sample").mkdir()
     wb = Workbook()

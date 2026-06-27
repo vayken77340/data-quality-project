@@ -36,6 +36,7 @@ def _merged():
         epic="1118",
         version="1.0",
         spec_file_name="x.xlsx",
+        target="postgres",
         tables=[TableSelector(table_name="PROJECT")],
         column_mapping=_mapping(),
         keys=_keys_spec(),

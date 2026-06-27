@@ -30,7 +30,7 @@ def _fixture():
         "version": "1.0",
         "epic": "T",
         "table": "T",
-        "source": {"spec_file": "s", "spec_sheet": "T"},
+        "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
             {"name": "a", "type": "int32", "nullable": True},
             {"name": "b", "type": "string", "nullable": False, "max_length": 10},
@@ -89,7 +89,7 @@ def test_field_metric_handles_missing_column():
         "version": "1.0",
         "epic": "T",
         "table": "T",
-        "source": {"spec_file": "s", "spec_sheet": "T"},
+        "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
             {"name": "a", "type": "int32", "nullable": True},
             {"name": "missing", "type": "int32", "nullable": True},

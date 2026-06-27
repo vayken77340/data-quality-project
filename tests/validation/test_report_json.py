@@ -9,7 +9,7 @@ from textwrap import dedent
 import yaml
 
 from data_contract.cli import main
-from tests.conftest import ALL_CHECKS_ENABLED_YAML
+from tests.conftest import ALL_CHECKS_ENABLED_YAML, write_test_parsers_yaml
 
 
 def _build_test_epic(tmp_path: Path, *, target: str | None = None) -> Path:
@@ -24,10 +24,7 @@ def _build_test_epic(tmp_path: Path, *, target: str | None = None) -> Path:
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     # Targets always needed now (target: is required in validation.yaml).
     (tmp_path / "configs" / "targets").mkdir()
     for name in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
@@ -38,7 +35,8 @@ def _build_test_epic(tmp_path: Path, *, target: str | None = None) -> Path:
 
     contract = {
         "version": "1.0", "epic": "T", "table": "T",
-        "source": {"spec_file": "s", "spec_sheet": "T"},
+        "target": target or "postgres",
+        "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
             {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
             {"name": "label", "type": "string", "nullable": False, "max_length": 3},
@@ -47,12 +45,8 @@ def _build_test_epic(tmp_path: Path, *, target: str | None = None) -> Path:
     (epic / "contracts" / "T.yaml").write_text(
         yaml.safe_dump(contract, sort_keys=False), encoding="utf-8",
     )
-    # `target:` is required in validation.yaml. Tests default to postgres if
-    # not specified -- it's the most permissive target.
-    target_line = f"target: {target or 'postgres'}\n"
     (epic / "configs" / "validation.yaml").write_text(
         ALL_CHECKS_ENABLED_YAML +
-        target_line +
         dedent("""\
             defaults:
               format: csv

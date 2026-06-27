@@ -6,22 +6,20 @@ import pytest
 
 from data_contract.errors import ConfigError
 from data_contract.validation.config import ValidationConfig
-from tests.conftest import ALL_CHECKS_ENABLED_YAML, DEFAULT_TARGET_YAML
+from tests.conftest import ALL_CHECKS_ENABLED_YAML
 
 
 def _write(path: Path, text: str) -> Path:
     """Write `text` to `path`.
 
-    For validation.yaml files, prepend the required `checks:` block AND the
-    required `target:` field UNLESS the test already declared one (lets
-    explicit-error tests still exercise the missing-block path).
+    For validation.yaml files, prepend the required `checks:` block UNLESS the
+    test already declared one (lets explicit-error tests still exercise the
+    missing-block path).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.name == "validation.yaml":
         if "checks:" not in text:
             text = ALL_CHECKS_ENABLED_YAML + text
-        if "target:" not in text:
-            text = DEFAULT_TARGET_YAML + text
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -39,7 +37,6 @@ tables:
     t = cfg.tables["PROJECT"]
     assert t.format == "csv"
     assert t.file_pattern == "project_*.csv"
-    assert t.field_mapping == {}
     assert t.parser_overrides == {}
 
 
@@ -69,7 +66,10 @@ tables:
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 
-def test_field_mapping_must_be_string_to_string(tmp_path):
+def test_field_mapping_block_rejected_with_migration_hint(tmp_path):
+    """The per-table `field_mapping:` block was removed; per-field renames
+    live on the contract via `source_name` / `name`. A stale block must
+    fail loudly so the operator notices the migration."""
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """
 tables:
@@ -77,9 +77,9 @@ tables:
     format: csv
     file_pattern: "x.csv"
     field_mapping:
-      "Spec Col": 123  # value isn't a string
+      "Spec Col": "spec_col"
 """)
-    with pytest.raises(ConfigError, match="field_mapping"):
+    with pytest.raises(ConfigError, match="Nom BDD"):
         ValidationConfig.from_yaml(cfg_dir / "validation.yaml", cfg_dir / "parsers.yaml")
 
 

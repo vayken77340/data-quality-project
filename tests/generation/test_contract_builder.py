@@ -37,6 +37,7 @@ def _merged(mapping=None, version="1.0"):
         epic="1118",
         version=version,
         spec_file_name="ignored.xlsx",
+        target="postgres",
         tables=[TableSelector(table_name="PROJECT")],
         column_mapping=mapping or _mapping(),
         keys=_keys_spec(),

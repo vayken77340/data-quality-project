@@ -8,11 +8,12 @@ Generation-side flags (steer optional steps of `data-contract generate`):
     and the data validator's pk_uniqueness check has nothing to enforce,
     so duplicate rows in the sample become tolerated. Default False --
     the keys sheet remains the source of truth unless explicitly relaxed.
-  - generate_history: write versioned `contracts/history/<v>/<table>.yaml`
-    snapshots alongside the canonical contract.
-  - generate_drift: emit `contracts/drift/<table>__v<a>_to_v<b>.yaml`
-    when a new history snapshot follows an existing older one.
   - generate_join_contract: read the joins sheet and emit `joins.yaml`.
+
+History and drift no longer have toggles. Generate always writes every
+version's history snapshot (canonical = highest version, older = history
+only). Drift is a separate verb (`generate-drift`); env-var control there
+is unnecessary because the writing behaviour is steered by CLI flags.
 
 Validation-side flags (steer `data-contract validate-data`):
   - rejected_row_cap: how many distinct (source_file, source_row) tuples
@@ -46,8 +47,6 @@ class Settings:
     # Generation-side
     allow_foreign_key_violation: bool = True
     allow_missing_primary_keys: bool = False
-    generate_history: bool = True
-    generate_drift: bool = True
     generate_join_contract: bool = True
     # Validation-side
     rejected_row_cap: int = 500
@@ -154,12 +153,6 @@ def load_settings(start_dir: Path | None = None) -> Settings:
         ),
         allow_missing_primary_keys=_parse_bool(
             values.get("allow_missing_primary_keys"), defaults.allow_missing_primary_keys,
-        ),
-        generate_history=_parse_bool(
-            values.get("generate_history"), defaults.generate_history,
-        ),
-        generate_drift=_parse_bool(
-            values.get("generate_drift"), defaults.generate_drift,
         ),
         generate_join_contract=_parse_bool(
             values.get("generate_join_contract"), defaults.generate_join_contract,

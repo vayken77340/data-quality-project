@@ -148,7 +148,7 @@ class JoinsContract:
             "version": self.version,
             "epic": self.epic,
             "generated_at": self.generated_at,
-            "source": {"spec_file": self.spec_file, "spec_sheet": self.spec_sheet},
+            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
             "joins": [_join_row_to_dict(j) for j in self.joins],
         }
 
@@ -167,7 +167,7 @@ class JoinsRejection:
             "version": self.version,
             "epic": self.epic,
             "generated_at": self.generated_at,
-            "source": {"spec_file": self.spec_file, "spec_sheet": self.spec_sheet},
+            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
             "errors": [e.to_dict() for e in self.errors],
         }
 
@@ -279,104 +279,116 @@ def read_joins_sheet(wb: Workbook, joins_spec: JoinsSpec) -> JoinsData:
         ))
         return out
 
+    cell_indices = [i for i in indices.values() if i is not None]
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx <= header_row:
             continue
-        cell_indices = [i for i in indices.values() if i is not None]
         if _row_is_empty(row, cell_indices):
             continue
-
-        raw_cells = {key: _cell(row, idx) for key, idx in indices.items()}
-        row_errors: list[RejectionError] = []
-        trimmed: dict[str, str] = {}
-        skip_row = False
-
-        # Per-row checks for each conceptually-required column. Blank cells
-        # in a column WITHOUT `default_value` produce a rejection; blank
-        # cells in a column WITH `default_value` silently skip the row
-        # (we can't build a join without all five values, but the spec
-        # author opted into "blanks are tolerable here").
-        for key, col in required_columns.items():
-            if indices[key] is None:
-                skip_row = True  # column header was absent (column_required=false)
-                continue
-            value = raw_cells[key]
-            if value is None or str(value).strip() == "":
-                if not col.has_default:
-                    row_errors.append(RejectionError(
-                        kind="missing_mandatory",
-                        sheet_row=row_idx,
-                        column=col.spec_name,
-                        field=key,
-                        message=(
-                            f"joins sheet {sheet_name!r} row {row_idx}: "
-                            f"column {col.spec_name!r} ({key}) requires a value but the cell is empty"
-                        ),
-                    ))
-                else:
-                    skip_row = True
-                continue
-            trimmed[key] = str(value).strip()
-
-        if row_errors:
-            out.errors.extend(row_errors)
-            continue
-        if skip_row:
-            continue
-
-        # Normalize join_type.
-        canonical_type = JOIN_TYPE_ALIASES.get(trimmed["join_type"].lower())
-        if canonical_type is None:
-            out.errors.append(RejectionError(
-                kind="invalid_join_type",
-                sheet_row=row_idx,
-                column=cm.join_type.spec_name,
-                value=trimmed["join_type"],
-                message=(
-                    f"joins sheet {sheet_name!r} row {row_idx}: "
-                    f"join type {trimmed['join_type']!r} is not recognized "
-                    f"(expected INNER / LEFT / RIGHT / FULL / CROSS or a known alias)"
-                ),
-            ))
-            continue
-
-        # Optional cardinality.
-        cardinality_value: str | None = None
-        raw_card = raw_cells.get("cardinality")
-        if raw_card is not None and str(raw_card).strip() != "":
-            cardinality_separator = cm.cardinality.separator if cm.cardinality else None
-            parsed = parse_cardinality(str(raw_card), separator=cardinality_separator)
-            if parsed is None:
-                out.errors.append(RejectionError(
-                    kind="invalid_cardinality",
-                    sheet_row=row_idx,
-                    column=cm.cardinality.spec_name if cm.cardinality else None,
-                    value=raw_card,
-                    message=(
-                        f"joins sheet {sheet_name!r} row {row_idx}: "
-                        f"cardinality {raw_card!r} is not parseable "
-                        f"(expected `1:1`, `1:n`, `n:1`, `n:m` or `1 -> n` style)"
-                    ),
-                ))
-                continue
-            cardinality_value = parsed
-
-        comment_value = _trim_or_none(raw_cells.get("comment"))
-        description_value = _trim_or_none(raw_cells.get("description"))
-
-        out.rows.append(JoinRow(
-            sheet_row=row_idx,
-            source_table=trimmed["source_table"],
-            target_table=trimmed["target_table"],
-            source_column=trimmed["source_column"],
-            target_column=trimmed["target_column"],
-            join_type=canonical_type,
-            cardinality=cardinality_value,
-            comment=comment_value,
-            description=description_value,
-        ))
+        join_row, row_errors = _process_join_row(
+            row, row_idx, sheet_name, cm, indices, required_columns,
+        )
+        out.errors.extend(row_errors)
+        if join_row is not None:
+            out.rows.append(join_row)
 
     return out
+
+
+def _process_join_row(
+    row: tuple,
+    row_idx: int,
+    sheet_name: str,
+    cm: JoinsColumnMapping,
+    indices: dict[str, int | None],
+    required_columns: dict[str, object],
+) -> tuple["JoinRow | None", list[RejectionError]]:
+    """Validate + parse one joins-sheet row. Returns `(join_row, errors)`.
+
+    Returns `(None, [])` for rows skipped because a column with
+    `default_value` declared was blank (the spec author opted into "blanks
+    are tolerable"). Returns `(None, errors)` when any per-cell validation
+    fails. Otherwise returns a fully-formed `JoinRow` and the empty list.
+    """
+    raw_cells = {key: _cell(row, idx) for key, idx in indices.items()}
+    errors: list[RejectionError] = []
+    trimmed: dict[str, str] = {}
+    skip_row = False
+
+    # Per-row checks for each conceptually-required column. Blank cells in
+    # a column WITHOUT `default_value` reject; blank in one WITH `default_value`
+    # silently skips the row.
+    for key, col in required_columns.items():
+        if indices[key] is None:
+            skip_row = True  # header was absent (column_required=false)
+            continue
+        value = raw_cells[key]
+        if value is None or str(value).strip() == "":
+            if not col.has_default:
+                errors.append(RejectionError(
+                    kind="missing_mandatory",
+                    sheet_row=row_idx,
+                    column=col.spec_name,
+                    field=key,
+                    message=(
+                        f"joins sheet {sheet_name!r} row {row_idx}: "
+                        f"column {col.spec_name!r} ({key}) requires a value but the cell is empty"
+                    ),
+                ))
+            else:
+                skip_row = True
+            continue
+        trimmed[key] = str(value).strip()
+
+    if errors or skip_row:
+        return None, errors
+
+    canonical_type = JOIN_TYPE_ALIASES.get(trimmed["join_type"].lower())
+    if canonical_type is None:
+        errors.append(RejectionError(
+            kind="invalid_join_type",
+            sheet_row=row_idx,
+            column=cm.join_type.spec_name,
+            value=trimmed["join_type"],
+            message=(
+                f"joins sheet {sheet_name!r} row {row_idx}: "
+                f"join type {trimmed['join_type']!r} is not recognized "
+                f"(expected INNER / LEFT / RIGHT / FULL / CROSS or a known alias)"
+            ),
+        ))
+        return None, errors
+
+    cardinality_value: str | None = None
+    raw_card = raw_cells.get("cardinality")
+    if raw_card is not None and str(raw_card).strip() != "":
+        cardinality_separator = cm.cardinality.separator if cm.cardinality else None
+        parsed = parse_cardinality(str(raw_card), separator=cardinality_separator)
+        if parsed is None:
+            errors.append(RejectionError(
+                kind="invalid_cardinality",
+                sheet_row=row_idx,
+                column=cm.cardinality.spec_name if cm.cardinality else None,
+                value=raw_card,
+                message=(
+                    f"joins sheet {sheet_name!r} row {row_idx}: "
+                    f"cardinality {raw_card!r} is not parseable "
+                    f"(expected `1:1`, `1:n`, `n:1`, `n:m` or `1 -> n` style)"
+                ),
+            ))
+            return None, errors
+        cardinality_value = parsed
+
+    return JoinRow(
+        sheet_row=row_idx,
+        source_table=trimmed["source_table"],
+        target_table=trimmed["target_table"],
+        source_column=trimmed["source_column"],
+        target_column=trimmed["target_column"],
+        join_type=canonical_type,
+        cardinality=cardinality_value,
+        comment=_trim_or_none(raw_cells.get("comment")),
+        description=_trim_or_none(raw_cells.get("description")),
+    ), errors
 
 
 def validate_joins(rows: list[JoinRow], contracts_by_table: dict[str, Contract]) -> list[RejectionError]:

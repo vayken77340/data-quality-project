@@ -1,10 +1,15 @@
 """Per-table file load + binding to contract field names.
 
-Owns the "read source files, apply field_mapping, surface drift / extra columns"
-work that used to be inlined in `runner._validate_one_table`. The output
-`LoadedTable` carries the eager `pl.DataFrame`, the per-data-column set, and the
-parser class — enough state for the runner's phase loop to operate without
+Owns the "read source files, surface drift / extra columns" work that used
+to be inlined in `runner._validate_one_table`. The output `LoadedTable`
+carries the eager `pl.DataFrame`, the per-data-column set, and the parser
+class -- enough state for the runner's phase loop to operate without
 reaching back through the parser instance.
+
+Header-to-contract binding lives entirely on the contract: each
+`FieldContract` carries a `source_name` (the raw header) and `name` (the
+database identifier). The parser's field-matching policy looks at both,
+so this module no longer needs a per-table rename block.
 """
 
 from __future__ import annotations
@@ -45,9 +50,8 @@ def load_table(
     settings: Settings,
 ) -> LoadedTable | None:
     """Glob the input directory, instantiate the parser, read all matched files,
-    apply the post-rename `field_mapping` shim, surface `extra_column` and
-    source-schema drift. Returns `None` on a load failure that's already been
-    recorded as a `Violation` on `report`.
+    surface `extra_column` and source-schema drift. Returns `None` on a load
+    failure that's already been recorded as a `Violation` on `report`.
     """
     resolved_pattern = table_cfg.file_pattern.replace("{table}", contract.table)
     paths = sorted(input_dir.glob(resolved_pattern))
@@ -71,7 +75,7 @@ def load_table(
         parsed = parser.read(
             paths,
             table_name_hint=contract.table,
-            contract_field_names=[f.name for f in contract.fields],
+            contract_fields=[(f.name, f.source_name) for f in contract.fields],
             similarity_threshold=settings.similarity_threshold,
         )
     except Exception as e:
@@ -84,20 +88,6 @@ def load_table(
     frame = parsed.frame
     report.source_schemas = parsed.per_file_schemas
     report.parser_cls = parser_cls
-
-    if table_cfg.field_mapping:
-        # `field_mapping` does a header-to-contract rename at the runner
-        # level. In positional mode the parser has already renamed
-        # columns to contract names; mappings whose source isn't present
-        # are silently skipped (the defensive guard) and `column_missing`
-        # surfaces any underlying gap.
-        present_cols = set(frame.collect_schema().names())
-        applicable = {
-            src: dst for src, dst in table_cfg.field_mapping.items()
-            if src in present_cols
-        }
-        if applicable:
-            frame = frame.rename(applicable)
 
     df = frame.collect()
     report.total_rows = df.height

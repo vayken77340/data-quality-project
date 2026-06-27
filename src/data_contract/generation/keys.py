@@ -15,7 +15,7 @@ rejections through the existing quarantine pattern.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from openpyxl.workbook.workbook import Workbook
 
@@ -215,7 +215,12 @@ def enrich_field_contract_list(
     *,
     fk_allow_violations: bool = False,
 ) -> tuple[list[FieldContract], list[RejectionError], list[RejectionError]]:
-    """Apply PK flags and resolved FKs to the field list in-place.
+    """Apply PK flags and resolved FKs to the field list.
+
+    `FieldContract` is frozen; enrichment swaps each affected entry for a
+    `dataclasses.replace`d copy. The returned list preserves input order; the
+    input list is left untouched (call sites in pipeline / backfill use the
+    return value, so this is a no-op for them).
 
     Returns `(fields, errors, fk_warnings)`. When `fk_allow_violations` is True,
     FK resolution errors (`unknown_foreign_key_target`,
@@ -263,7 +268,7 @@ def enrich_field_contract_list(
                     f"but its `nullable` flag is true; primary key columns must not be nullable"
                 ),
             ))
-        f.primary_key = True
+        by_name[col] = replace(f, primary_key=True)
 
     # Foreign keys.
     for col in sorted(fk_cols):
@@ -303,8 +308,11 @@ def enrich_field_contract_list(
             ))
             continue
         target_table = next(iter(targets))
-        f.foreign_key = {"table": target_table, "column": col}
+        by_name[col] = replace(f, foreign_key={"table": target_table, "column": col})
 
-    return fields, errors, fk_warnings
+    # Rebuild the list from `by_name` to pick up the replaced entries while
+    # preserving the original order.
+    new_fields = [by_name[f.name] for f in fields]
+    return new_fields, errors, fk_warnings
 
 

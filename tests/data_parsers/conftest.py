@@ -1,57 +1,71 @@
 """Shared fixtures for parser tests.
 
-Parsers no longer carry per-format defaults on the class -- defaults live
-in `configs/parsers.yaml`. These helpers reproduce that loading in tests
-so each `CsvParser(...)` / `ExcelParser(...)` instantiation gets the same
-baseline a production runner would supply.
+Tests are HERMETIC: defaults declared here do not come from production
+`configs/parsers.yaml`. A test that wants to exercise a specific delimiter,
+encoding, or null-token set passes it as an explicit override to the factory.
+
+The production YAML is exercised only by `tests/data_parsers/test_yaml_overrides.py`,
+which uses its own tmp_path YAML rather than reading the repo's file.
+
+Baseline values mirror what every test fixture in this directory writes
+(comma-separated CSVs, UTF-8, ", " null tokens). Changing them is a test-only
+decision and should not affect production code.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from data_contract.data_parsers import load_parser_yaml_overrides
 
+_CSV_DEFAULTS = {
+    "encoding":              "utf-8",
+    "delimiter":             ",",
+    "header_row":            1,
+    "null_tokens":           ["", "NULL"],
+    "quote_char":            '"',
+    "field_matching_policy": "positional",
+}
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_PARSERS_YAML = _REPO_ROOT / "configs" / "parsers.yaml"
+_EXCEL_DEFAULTS = {
+    "header_row":            1,
+    "null_tokens":           ["", "NULL"],
+    "field_matching_policy": "positional",
+}
+
+_JSON_DEFAULTS = {
+    "encoding":              "utf-8",
+    "header_path":           "data[0].report_header",
+    "rows_path":             "data[0].report_row",
+    "name_key":              "name",
+    "null_tokens":           ["", "null", "NULL"],
+    "field_matching_policy": "exact",
+}
 
 
 @pytest.fixture(scope="session")
-def parser_yaml_defaults() -> dict[str, dict]:
-    """The per-format defaults block from `configs/parsers.yaml`."""
-    return load_parser_yaml_overrides(_PARSERS_YAML)
-
-
-@pytest.fixture(scope="session")
-def csv_params(parser_yaml_defaults):
+def csv_params():
     """Factory: returns CSV defaults merged with caller-supplied overrides.
 
     Usage:
-        parser = CsvParser(csv_params())                 # YAML defaults only
-        parser = CsvParser(csv_params(delimiter=";"))    # YAML + override
+        parser = CsvParser(csv_params())                 # hermetic baseline
+        parser = CsvParser(csv_params(delimiter=";"))    # override one knob
     """
-    base = parser_yaml_defaults.get("csv", {})
     def factory(**overrides):
-        return {**base, **overrides}
+        return {**_CSV_DEFAULTS, **overrides}
     return factory
 
 
 @pytest.fixture(scope="session")
-def excel_params(parser_yaml_defaults):
+def excel_params():
     """Factory: returns Excel defaults merged with caller-supplied overrides."""
-    base = parser_yaml_defaults.get("excel", {})
     def factory(**overrides):
-        return {**base, **overrides}
+        return {**_EXCEL_DEFAULTS, **overrides}
     return factory
 
 
 @pytest.fixture(scope="session")
-def json_params(parser_yaml_defaults):
+def json_params():
     """Factory: returns JSON defaults merged with caller-supplied overrides."""
-    base = parser_yaml_defaults.get("json", {})
     def factory(**overrides):
-        return {**base, **overrides}
+        return {**_JSON_DEFAULTS, **overrides}
     return factory

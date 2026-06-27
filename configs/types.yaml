@@ -29,8 +29,8 @@ mappings:
   boolean:
     aliases: [boolean, bool, "booléen"]
     data_values:
-      "true":  [true,  "true",  "vrai", "oui", "1", "y", "yes", "t"]
-      "false": [false, "false", "faux", "non", "0", "n", "no", "f"]
+      "true":  [true,  "true",  "vrai", "oui"]
+      "false": [false, "false", "faux", "non"]
 
   date:
     aliases: [date]

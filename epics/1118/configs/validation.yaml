@@ -1,23 +1,34 @@
-# REQUIRED: target database. Universal logical types in the contract acquire
-# concrete validation rules (bounds, length_unit, boolean tokens, physical_type)
-# only when mapped to a target's physical types. Switch to `oracle` or
-# `iceberg` to validate against those databases' rules.
-target: oracle
-
-# Defaults shared across tables.
+# validate-data config for this epic.
 #
+# What lives here:
+#   - which checks/metrics run (tier-keyed gates, below)
+#   - where to find sample data (defaults.format + defaults.file_pattern)
+#   - per-table parser overrides and gate refinements
+#
+# What does NOT live here (and why):
+#   - target:        moved to the epic version config (configs/contracts/v1.0.yaml)
+#                    and stamped onto each contract. The runner reads it
+#                    from the contracts at load time.
+#   - field_mapping: removed entirely. Per-field renames now live on the
+#                    contract via `source_name` (raw spec header) and `name`
+#                    (database identifier). Use the `Nom BDD` cell in the
+#                    spec when the auto-slugified `name` needs an override.
+#   - rejected_row_cap, extra_columns_severity, similarity_threshold:
+#                    operator toggles that vary by environment (CI vs dev)
+#                    -- they live in .env. See src/data_contract/settings.py.
+
 # `file_pattern` is a glob applied relative to the epic's directory
 # (epics/<epic>/). So "sample/{table}*.xlsx" walks epic_dir/sample/, looking
-# for files like PROJECT.xlsx, CALENDAR.xlsx, etc.
-#
-# `{table}` is substituted with the table name at glob time.
+# for files like PROJECT.xlsx, CALENDAR.xlsx, etc. `{table}` is substituted
+# with the table name at glob time.
 defaults:
   format: excel
   file_pattern: "sample/{table}*.xlsx"
 
 # Tier-keyed checks block. Every name within a tier must be listed
-# explicitly (true|false). Descriptions live in
-# configs/report_strings.yaml under `checks_sheet.descriptions`.
+# explicitly (true|false) -- the gate parser refuses partial blocks at the
+# global level so a new plugin can't silently default to off. Descriptions
+# live in configs/report_strings.yaml under `checks_sheet.descriptions`.
 #
 # Tiers:
 #   structural -- type-system-derived (hard-coded set; new structural
@@ -69,13 +80,35 @@ metrics:
 # `contracts_folder` is optional; omitted = <epic_dir>/contracts.
 # contracts_folder: "epics/1118/contracts"
 
-# `tables:` is optional. Omitted = every <table>.yaml under contracts_folder is validated.
-# Listing scopes validation to a subset and lets you override defaults per table.
+# `tables:` is optional. Omitted = every <table>.yaml under contracts_folder
+# is validated using the defaults block above. Listing scopes validation to a
+# subset AND lets you override defaults per table.
+#
+# Per-table keys recognized:
+#   format            -- parser name; overrides defaults.format.
+#   file_pattern      -- glob; overrides defaults.file_pattern.
+#   parser_overrides  -- per-format parser params (allowlisted by each
+#                        parser's PARSER_PARAMS). The generic
+#                        `field_matching_policy` ("positional" | "exact" |
+#                        "similarity") goes here. `exact` and `similarity`
+#                        match incoming CSV/Excel/JSON headers against the
+#                        contract's `source_name` first, then fall back to
+#                        `name` -- so a CSV with the business header
+#                        "Reference Number" binds to a contract field
+#                        `name: reference_number, source_name: Reference
+#                        Number` automatically. No field_mapping needed.
+#   checks            -- per-tier partial overrides on the global gates.
+#   metrics           -- same shape as checks.
 #
 # tables:
 #   PROJECT:
 #   CALENDAR:
 #     parser_overrides:
-#       sheet_name: "Calendar Sheet"   # format-specific config goes here
-#     field_mapping:
-#       "Data Header": contract_field  # per-table column rename
+#       sheet_name: "Calendar Sheet"          # format-specific parser config
+#       field_matching_policy: similarity     # fuzzy header match
+#     checks:
+#       field:
+#         unique: true                        # override the global gate
+#     metrics:
+#       field:
+#         duplicate_pct: false

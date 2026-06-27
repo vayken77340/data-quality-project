@@ -46,7 +46,11 @@ def _make_col_parser(raw: dict[str, Any], *, prefix: str) -> Callable[[str], Col
 ALL_TABLES = "__ALL__"
 SPECS_PARSING_FILENAME = "specs_parsing.yaml"
 VALIDATION_FILENAME = "validation.yaml"
-_NON_VERSION_FILENAMES = frozenset({SPECS_PARSING_FILENAME, VALIDATION_FILENAME})
+# Per-version contract configs live under `epics/<E>/configs/<CONTRACT_CONFIGS_SUBDIR>/`.
+# Keeping them in a dedicated folder means discovery is "list every YAML here" --
+# no filename-based exclusion list, no risk that a new top-level config file
+# accidentally gets parsed as a version.
+CONTRACT_CONFIGS_SUBDIR = "contracts"
 
 
 # Back-compat aliases so existing imports / external code keep resolving.
@@ -57,7 +61,7 @@ SplitColumnSpec = SeparatedColumnRef
 CardinalityColumnSpec = CardinalityColumnRef
 
 
-_CORE_KEYS = frozenset({"name", "type", "description", "nullable", "table"})
+_CORE_KEYS = frozenset({"name", "db_name", "type", "description", "nullable", "table"})
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,10 @@ class ColumnMapping:
     type: ColumnRef
     description: ColumnRef
     nullable: NullableMapping
+    # Optional spec column whose value, when present, becomes the contract
+    # field's `name` verbatim (bypassing slugify). Maps to the "Nom BDD"
+    # column in the standard specs_parsing.yaml.
+    db_name: ColumnRef | None = None
     table: ColumnRef | None = None
     constraints: dict[str, FieldConstraint] = field(default_factory=dict)
 
@@ -87,6 +95,12 @@ class ColumnMapping:
         else:
             table = parse_column_ref(table_block, prefix="column_mapping", key="table")
 
+        db_name_block = raw.get("db_name")
+        if db_name_block is None:
+            db_name = None
+        else:
+            db_name = parse_column_ref(db_name_block, prefix="column_mapping", key="db_name")
+
         constraints: dict[str, FieldConstraint] = {}
         for key, value in raw.items():
             if key in _CORE_KEYS:
@@ -105,6 +119,7 @@ class ColumnMapping:
             type=col("type"),
             description=col("description"),
             nullable=nullable,
+            db_name=db_name,
             table=table,
             constraints=constraints,
         )
@@ -259,6 +274,7 @@ class EpicConfig:
     epic: str
     version: str
     spec_file_name: str
+    target: str
     tables: list[TableSelector] | str  # list, or ALL_TABLES sentinel
     column_mapping_override: dict[str, Any] | None  # raw, merged later
 
@@ -277,6 +293,15 @@ class EpicConfig:
         spec_file_name = raw.get("spec_file_name")
         if not isinstance(spec_file_name, str) or not spec_file_name:
             raise ConfigError(f"{path}: 'spec_file_name' must be a non-empty string")
+
+        target_raw = raw.get("target")
+        if target_raw is None:
+            raise ConfigError(
+                f"{path}: missing required field 'target'. Declare the target "
+                f"database the generated contracts are for -- e.g. `target: oracle`."
+            )
+        if not isinstance(target_raw, str) or not target_raw:
+            raise ConfigError(f"{path}: 'target' must be a non-empty string")
 
         tables_raw = raw.get("tables")
         if tables_raw == "all" or tables_raw == ALL_TABLES:
@@ -308,6 +333,7 @@ class EpicConfig:
             epic=str(epic),
             version=version,
             spec_file_name=spec_file_name,
+            target=target_raw,
             tables=tables,
             column_mapping_override=override,
         )
@@ -318,6 +344,7 @@ class MergedConfig:
     epic: str
     version: str
     spec_file_name: str
+    target: str
     tables: list[TableSelector] | str
     column_mapping: ColumnMapping
     keys: KeysSpec
@@ -341,11 +368,24 @@ def version_sort_key(v: str) -> tuple[Any, ...]:
 
 
 def discover_version_configs(epic_configs_dir: Path) -> list[Path]:
+    """Return every per-version contract YAML under `<epic_configs_dir>/contracts/`.
+
+    The subdir layout (vs. the old flat layout that mixed version configs
+    with `validation.yaml` and `specs_parsing.yaml`) lets discovery be a
+    simple glob -- no filename-based exclusion list to maintain.
+    """
     if not epic_configs_dir.is_dir():
         raise ConfigError(f"epic configs directory not found: {epic_configs_dir}")
+    versions_dir = epic_configs_dir / CONTRACT_CONFIGS_SUBDIR
+    if not versions_dir.is_dir():
+        raise ConfigError(
+            f"no contract version configs found at {versions_dir}; "
+            f"create the folder and add at least one version YAML "
+            f"(e.g. {versions_dir / 'v1.0.yaml'})."
+        )
     out: list[Path] = []
-    for p in sorted(epic_configs_dir.iterdir()):
-        if p.is_file() and p.suffix in (".yaml", ".yml") and p.name not in _NON_VERSION_FILENAMES:
+    for p in sorted(versions_dir.iterdir()):
+        if p.is_file() and p.suffix in (".yaml", ".yml"):
             out.append(p)
     return out
 
@@ -414,6 +454,7 @@ def merge(defaults: Defaults, epic: EpicConfig) -> MergedConfig:
         epic=epic.epic,
         version=epic.version,
         spec_file_name=epic.spec_file_name,
+        target=epic.target,
         tables=epic.tables,
         column_mapping=cm,
         keys=defaults.keys,
@@ -459,6 +500,8 @@ def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
         "description": _column_ref_to_raw(cm.description),
         "nullable": nullable_raw,
     }
+    if cm.db_name is not None:
+        out["db_name"] = _column_ref_to_raw(cm.db_name)
     if cm.table is not None:
         out["table"] = _column_ref_to_raw(cm.table)
     for name, constraint in cm.constraints.items():

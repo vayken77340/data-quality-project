@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Union
 
 from data_contract._util import load_yaml
+from data_contract.core.yaml_io import FlowList
 from data_contract.errors import RejectionError
 from data_contract.field_constraints import constraint_for_contract_key
 from data_contract.field_constraints.base import (
@@ -29,7 +30,8 @@ from data_contract.type_mapping import Type
 
 
 CORE_FIELD_KEYS = frozenset({
-    "name", "type", "nullable", "description",
+    "name", "source_name", "type", "physical_type",
+    "nullable", "description",
     "max_length", "precision", "scale",
     "primary_key", "foreign_key",
     "data_values",
@@ -62,7 +64,7 @@ class FieldCheck:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class FieldContract:
     name: str
     type: Type
@@ -80,13 +82,30 @@ class FieldContract:
     # longer carry boolean data_values. Stamped onto each BOOLEAN field by
     # `build_contract` from the base type registry.
     data_values: dict[str, list[str]] | None = None
+    # Raw business-friendly header from the spec ("Reference Number",
+    # "Date d'envoi"). `name` is the slugified database identifier derived
+    # from this. Omitted from `to_dict()` when it slugifies to `name` --
+    # already-clean headers don't need both keys.
+    source_name: str | None = None
+    # Target-resolved physical type ("VARCHAR2(384 BYTE)", "BINARY_DOUBLE").
+    # Derived at build time via `TypeRegistry.physical_type_for(field)`. The
+    # validator always recomputes from the active target overlay; this is a
+    # display field for spec readers, not an authoritative source.
+    physical_type: str | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"name": self.name, "type": self.type.value}
+        out: dict[str, Any] = {"name": self.name}
+        # Omit source_name when it equals name -- avoids noise on already-
+        # clean business headers that match their database slug.
+        if self.source_name and self.source_name != self.name:
+            out["source_name"] = self.source_name
+        out["type"] = self.type.value
+        if self.physical_type:
+            out["physical_type"] = self.physical_type
         if self.nullable is not None:
             out["nullable"] = self.nullable
-        if self.description is not None:
+        if self.description:
             out["description"] = self.description
         if self.max_length is not None:
             out["max_length"] = self.max_length
@@ -99,7 +118,8 @@ class FieldContract:
         if self.foreign_key is not None:
             out["foreign_key"] = dict(self.foreign_key)
         if self.data_values is not None:
-            out["data_values"] = {k: list(v) for k, v in self.data_values.items()}
+            # FlowList renders one line per token bucket: `'true': [1, oui, ...]`.
+            out["data_values"] = {k: FlowList(v) for k, v in self.data_values.items()}
         for k, v in self.constraints.items():
             out[k] = v
         return out
@@ -117,9 +137,11 @@ class FieldContract:
             data_values = {str(k).strip().lower(): list(v) for k, v in data_values_raw.items()}
         return cls(
             name=payload["name"],
+            source_name=payload.get("source_name"),
             type=Type.from_canonical_string(payload["type"]),
+            physical_type=payload.get("physical_type"),
             nullable=payload.get("nullable"),
-            description=payload.get("description"),
+            description=payload.get("description") or "",
             max_length=payload.get("max_length"),
             precision=payload.get("precision"),
             scale=payload.get("scale"),
@@ -160,15 +182,24 @@ class _Provenance:
     spec_file: str
     spec_sheet: str
     table: str
+    # Active target database. Stamped at generation from the epic version
+    # config. Validation reads this to apply the matching target overlay
+    # (physical types, bounds, length unit, parse formats) to the type
+    # registry. Empty string means "no target" -- legacy contracts predating
+    # this field, or hand-written test fixtures.
+    target: str = ""
 
     def _provenance_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "version": self.version,
             "epic": self.epic,
             "generated_at": self.generated_at,
-            "source": {"spec_file": self.spec_file, "spec_sheet": self.spec_sheet},
+            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
             "table": self.table,
         }
+        if self.target:
+            out["target"] = self.target
+        return out
 
 
 @dataclass
@@ -182,14 +213,15 @@ class Contract(_Provenance):
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "Contract":
-        src = payload.get("source") or {}
+        spec = payload.get("spec") or {}
         return cls(
             version=str(payload["version"]),
             epic=str(payload["epic"]),
             generated_at=str(payload.get("generated_at", "")),
-            spec_file=str(src.get("spec_file", "")),
-            spec_sheet=str(src.get("spec_sheet", "")),
+            spec_file=str(spec.get("file_path", "")),
+            spec_sheet=str(spec.get("sheet_name", "")),
             table=str(payload["table"]),
+            target=str(payload.get("target", "")),
             fields=[FieldContract.from_dict(f) for f in payload.get("fields", [])],
         )
 

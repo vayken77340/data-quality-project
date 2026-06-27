@@ -33,7 +33,7 @@ from data_contract.generation.joins import (
 )
 from data_contract.type_mapping import Type
 
-from tests.conftest import add_keys_sheet, minimal_defaults_yaml
+from tests.conftest import add_keys_sheet, minimal_defaults_yaml, write_test_parsers_yaml
 
 
 # ---------------------------------------------------------------------------
@@ -425,12 +425,9 @@ def _bootstrap_joins_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
@@ -449,8 +446,8 @@ joins:
     description:   { spec_name: Description,  default_value: null }
 """
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults, encoding="utf-8")
-    (edir / "configs" / "v1.0.yaml").write_text(
-        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: T1\n  - table_name: T2\n",
         encoding="utf-8",
     )

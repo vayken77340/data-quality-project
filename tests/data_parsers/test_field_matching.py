@@ -126,7 +126,7 @@ def test_positional_renames_columns_by_index(tmp_path):
         policy="positional",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None), ("price", None)],
     ).frame.collect()
     # Columns now carry contract names; values landed under their
     # positional contract field.
@@ -142,7 +142,7 @@ def test_positional_no_op_when_already_aligned(tmp_path):
         policy="positional",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None)],
     ).frame.collect()
     assert df["id"].to_list() == ["1"]
     assert df["name"].to_list() == ["foo"]
@@ -157,7 +157,7 @@ def test_positional_fewer_existing_than_contract(tmp_path):
         policy="positional",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None), ("price", None)],
     ).frame.collect()
     assert "id" in df.columns
     assert "name" in df.columns
@@ -172,7 +172,7 @@ def test_positional_extra_existing_left_as_extra(tmp_path):
         policy="positional",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None), ("price", None)],
     ).frame.collect()
     assert {"id", "name", "price", "D"} <= set(df.columns)
 
@@ -187,7 +187,7 @@ def test_positional_collision_raises(tmp_path):
     )
     with pytest.raises(ConfigError, match="duplicate columns"):
         parser.read(
-            [_touch(tmp_path)], contract_field_names=["id", "name", "price"],
+            [_touch(tmp_path)], contract_fields=[("id", None), ("name", None), ("price", None)],
         ).frame.collect()
 
 
@@ -203,7 +203,7 @@ def test_exact_keeps_matching_columns_as_is(tmp_path):
         policy="exact",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None)],
     ).frame.collect()
     assert df["id"].to_list() == ["1"]
     assert df["name"].to_list() == ["foo"]
@@ -218,7 +218,7 @@ def test_exact_leaves_mismatched_columns_alone(tmp_path):
         policy="exact",
     )
     df = parser.read(
-        [_touch(tmp_path)], contract_field_names=["id", "name"],
+        [_touch(tmp_path)], contract_fields=[("id", None), ("name", None)],
     ).frame.collect()
     # No rename happened -- still capitalised, still mismatched.
     assert "ID" in df.columns
@@ -240,7 +240,7 @@ def test_similarity_matches_case_variants(tmp_path):
     )
     df = parser.read(
         [_touch(tmp_path)],
-        contract_field_names=["id", "user_name"],
+        contract_fields=[("id", None), ("user_name", None)],
         similarity_threshold=0.8,
     ).frame.collect()
     assert df["id"].to_list() == ["1"]
@@ -256,7 +256,7 @@ def test_similarity_respects_threshold(tmp_path):
     )
     df = parser.read(
         [_touch(tmp_path)],
-        contract_field_names=["id"],
+        contract_fields=[("id", None)],
         similarity_threshold=0.8,
     ).frame.collect()
     # No rename -- threshold protects against accidental matches.
@@ -274,7 +274,7 @@ def test_similarity_greedy_doesnt_double_claim(tmp_path):
     )
     df = parser.read(
         [_touch(tmp_path)],
-        contract_field_names=["userid"],
+        contract_fields=[("userid", None)],
         similarity_threshold=0.6,
     ).frame.collect()
     # The first column claims "userid"; the second has no contract field left.
@@ -290,18 +290,75 @@ def test_similarity_greedy_doesnt_double_claim(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_no_contract_field_names_is_no_op(tmp_path):
-    """Parsers used standalone (no runner passing `contract_field_names`)
-    skip the matching step entirely -- the LazyFrame passes through with
-    its parser-emitted column names."""
+def test_no_contract_fields_is_no_op(tmp_path):
+    """Parsers used standalone (no runner passing `contract_fields`) skip
+    the matching step entirely -- the LazyFrame passes through with its
+    parser-emitted column names."""
     parser = _FixtureParser(
         rows=[{"foo": "1"}],
         column_names=["foo"],
         policy="positional",
     )
-    # contract_field_names omitted -- default is None, so matching is a no-op.
+    # contract_fields omitted -- default is None, so matching is a no-op.
     df = parser.read([_touch(tmp_path)]).frame.collect()
     assert "foo" in df.columns
+
+
+# ---------------------------------------------------------------------------
+# source_name preference: exact + similarity policies match against the raw
+# spec header first, then fall back to the contract's slugified `name`.
+# ---------------------------------------------------------------------------
+
+
+def test_exact_prefers_source_name_over_name(tmp_path):
+    """When the file's header is the business-friendly spec value, the
+    `exact` policy renames it to the contract's database `name`."""
+    parser = _FixtureParser(
+        rows=[{"Reference Number": "1", "Email": "x@y"}],
+        column_names=["Reference Number", "Email"],
+        policy="exact",
+    )
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_fields=[("reference_number", "Reference Number"), ("email", None)],
+    ).frame.collect()
+    assert "reference_number" in df.columns
+    assert df["reference_number"].to_list() == ["1"]
+    # "Email" lacks a source_name, so it had to match `name` exactly --
+    # case-sensitive, so it doesn't.
+    assert "Email" in df.columns
+    assert "email" not in df.columns
+
+
+def test_exact_falls_back_to_name_when_source_name_absent(tmp_path):
+    """When `source_name` isn't set, exact-match against `name` still works."""
+    parser = _FixtureParser(
+        rows=[{"id": "1"}],
+        column_names=["id"],
+        policy="exact",
+    )
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_fields=[("id", None)],
+    ).frame.collect()
+    assert "id" in df.columns
+
+
+def test_similarity_prefers_source_name_for_candidate(tmp_path):
+    """Similarity scoring uses the business-friendly header as the candidate
+    when set -- so an input column close to the source name wins."""
+    parser = _FixtureParser(
+        rows=[{"Reference No.": "1"}],
+        column_names=["Reference No."],
+        policy="similarity",
+    )
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_fields=[("reference_number", "Reference Number")],
+        similarity_threshold=0.6,
+    ).frame.collect()
+    assert "reference_number" in df.columns
+    assert df["reference_number"].to_list() == ["1"]
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +395,7 @@ def test_positional_multi_file_with_disagreeing_headers(tmp_path):
 
     parser = _PerFileParser()
     df = parser.read(
-        [file_a, file_b], contract_field_names=["id", "name", "price"],
+        [file_a, file_b], contract_fields=[("id", None), ("name", None), ("price", None)],
     ).frame.collect().sort("__row_index__", "__source_file__")
     # Both files unified under contract names with values in the right cols.
     assert set(["id", "name", "price"]) <= set(df.columns)

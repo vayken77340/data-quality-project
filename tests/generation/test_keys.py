@@ -32,7 +32,10 @@ from data_contract.generation.keys import (
 from data_contract.generation.spec_reader import open_workbook
 from data_contract.type_mapping import Type
 
-from tests.conftest import add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml
+from tests.conftest import (
+    add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml,
+    write_test_parsers_yaml,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +250,7 @@ def test_enrich_pk_only_table():
     fields = [_field("user_id"), _field("name")]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert not errors
     assert fields[0].primary_key is True
     assert fields[1].primary_key is None
@@ -257,7 +260,7 @@ def test_enrich_composite_pk():
     fields = [_field("order_id"), _field("item_id"), _field("qty")]
     rows = [KeysRow(2, "ORDER_ITEMS", ["order_id", "item_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "ORDER_ITEMS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "ORDER_ITEMS", rows, pk_index)
     assert not errors
     assert fields[0].primary_key is True
     assert fields[1].primary_key is True
@@ -268,7 +271,7 @@ def test_enrich_unknown_pk_field():
     fields = [_field("name")]  # no `user_id` field on this table
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert any(e.kind == "unknown_pk_field" for e in errors)
 
 
@@ -279,7 +282,7 @@ def test_enrich_fk_resolves_via_pk_index():
         KeysRow(3, "ORDERS", ["order_id"], ["user_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert not errors
@@ -290,7 +293,7 @@ def test_enrich_unknown_foreign_key_target():
     fields = [_field("ghost_col")]
     rows = [KeysRow(2, "ORDERS", ["order_id"], ["ghost_col"])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "ORDERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "ORDERS", rows, pk_index)
     assert any(e.kind == "unknown_foreign_key_target" for e in errors)
 
 
@@ -302,7 +305,7 @@ def test_enrich_ambiguous_foreign_key_target():
         KeysRow(4, "ORDERS",  ["order_id"], ["id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert any(e.kind == "ambiguous_foreign_key_target" for e in errors)
@@ -315,7 +318,7 @@ def test_enrich_fk_column_missing_from_table():
         KeysRow(3, "ORDERS", ["order_id"], ["legacy_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert any(e.kind == "unknown_foreign_key_target" for e in errors)
@@ -329,7 +332,7 @@ def test_enrich_multi_fk_per_row():
         KeysRow(4, "ORDERS",   ["order_id"],   ["user_id", "product_id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index
     )
     assert not errors
@@ -347,11 +350,11 @@ def test_enrich_skips_tables_not_being_generated():
         KeysRow(3, "LEGACY_X", ["junk"], []),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    enriched, errors, _ = enrich_field_contract_list(
         fields_users, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
-    assert fields_users[0].primary_key is True
+    assert enriched[0].primary_key is True
 
 
 def test_enrich_multiple_keys_rows_same_table_merge():
@@ -362,7 +365,7 @@ def test_enrich_multiple_keys_rows_same_table_merge():
         KeysRow(4, "GROUPS", ["group_id"], []),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
@@ -377,7 +380,7 @@ def test_enrich_pk_with_nullable_true_rejects():
     fields = [FieldContract(name="user_id", type=Type.INT64, nullable=True, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert any(e.kind == "nullable_primary_key" and e.field == "user_id" for e in errors)
 
 
@@ -385,7 +388,7 @@ def test_enrich_pk_with_nullable_false_ok():
     fields = [FieldContract(name="user_id", type=Type.INT64, nullable=False, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert errors == []
     assert fields[0].primary_key is True
 
@@ -397,7 +400,7 @@ def test_enrich_pk_with_nullable_none_ok():
     fields = [FieldContract(name="user_id", type=Type.INT64, nullable=None, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
     assert errors == []
 
 
@@ -407,7 +410,7 @@ def test_enrich_fk_allow_violations_demotes_unknown_target():
     fields = [_field("order_id"), _field("ghost_col")]
     rows = [KeysRow(2, "ORDERS", ["order_id"], ["ghost_col"])]
     pk_index = build_pk_index(rows)
-    _, errors, warnings = enrich_field_contract_list(
+    fields, errors, warnings = enrich_field_contract_list(
         fields, "ORDERS", rows, pk_index, fk_allow_violations=True,
     )
     assert errors == []
@@ -423,7 +426,7 @@ def test_enrich_fk_allow_violations_demotes_ambiguous_target():
         KeysRow(4, "ORDERS",  ["order_id"], ["id"]),
     ]
     pk_index = build_pk_index(rows)
-    _, errors, warnings = enrich_field_contract_list(
+    fields, errors, warnings = enrich_field_contract_list(
         fields, "ORDERS",
         [r for r in rows if r.table_name == "ORDERS"],
         pk_index,
@@ -438,7 +441,7 @@ def test_enrich_fk_allow_violations_does_not_demote_pk_errors():
     fields = [_field("name")]  # no `user_id` field — PK reference is broken
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
-    _, errors, warnings = enrich_field_contract_list(
+    fields, errors, warnings = enrich_field_contract_list(
         fields, "USERS", rows, pk_index, fk_allow_violations=True,
     )
     assert any(e.kind == "unknown_pk_field" for e in errors)
@@ -452,7 +455,7 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
         KeysRow(3, "USERS", ["user_id"], []),  # duplicate
     ]
     pk_index = build_pk_index(rows)
-    _, errors, _ = enrich_field_contract_list(
+    fields, errors, _ = enrich_field_contract_list(
         fields, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index
     )
     assert not errors
@@ -574,12 +577,9 @@ def _bootstrap_keys_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
@@ -603,8 +603,8 @@ fields:
         encoding="utf-8",
     )
     table_lines = "\n".join(f"  - table_name: {t}" for t in epic_tables)
-    (edir / "configs" / "v1.0.yaml").write_text(
-        f"epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntables:\n{table_lines}\n",
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        f"epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\ntables:\n{table_lines}\n",
         encoding="utf-8",
     )
 
@@ -699,18 +699,15 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
 
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
-    (edir / "configs" / "v1.0.yaml").write_text(
-        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: T\n",
         encoding="utf-8",
     )

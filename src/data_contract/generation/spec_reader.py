@@ -27,6 +27,7 @@ class RawField:
     description_raw: object | None
     nullable_raw: object | None
     table_raw: object | None  # None when the sheet has no Table column
+    db_name_raw: object | None = None  # None when the sheet has no `Nom BDD` column
     extras: dict[str, object | None] = field(default_factory=dict)  # constraint name -> raw cell
 
 
@@ -107,6 +108,15 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
                 f"sheet {sheet_name!r}: missing required column: table ({mapping.table.spec_name!r})"
             )
 
+    if mapping.db_name is not None:
+        idx = find_column(headers, mapping.db_name.spec_name)
+        if idx is not None:
+            col_idx["db_name"] = idx
+        elif mapping.db_name.column_required:
+            return _header_not_found(
+                f"sheet {sheet_name!r}: missing required column: db_name ({mapping.db_name.spec_name!r})"
+            )
+
     # Locate any declared constraint columns. Columns with `required: true`
     # (the default) that are missing produce `header_not_found`.
     constraint_cols: dict[str, int] = {}
@@ -174,8 +184,9 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
     desc_idx = sheet_spec.col_idx.get("description")
     null_idx = sheet_spec.col_idx.get("nullable")
     table_idx = sheet_spec.col_idx.get("table")
+    db_name_idx = sheet_spec.col_idx.get("db_name")
 
-    mapped_indices = {i for i in (name_idx, type_idx, desc_idx, null_idx, table_idx) if i is not None}
+    mapped_indices = {i for i in (name_idx, type_idx, desc_idx, null_idx, table_idx, db_name_idx) if i is not None}
     for idx in sheet_spec.constraint_cols.values():
         mapped_indices.add(idx)
 
@@ -195,6 +206,7 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
             description_raw=_cell(row, desc_idx),
             nullable_raw=_cell(row, null_idx),
             table_raw=_cell(row, table_idx) if table_idx is not None else None,
+            db_name_raw=_cell(row, db_name_idx) if db_name_idx is not None else None,
             extras=extras,
         )
 

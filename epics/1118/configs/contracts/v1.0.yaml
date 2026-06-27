@@ -1,0 +1,14 @@
+epic: 1118
+version: 1.0
+
+spec_file_name: Spec_example.xlsx
+
+# Target database the generated contracts are written for. Stamped onto each
+# contract YAML and read back by validate-data to apply the matching overlay
+# (physical types, numeric bounds, length unit, parse formats). Available
+# names live under configs/targets/ (oracle, postgres, iceberg).
+target: oracle
+
+tables:
+  - table_name: PROJECT
+  - table_name: CALENDAR

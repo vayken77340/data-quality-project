@@ -659,6 +659,7 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         epic="X",
         version="1.0",
         spec_file_name="x.xlsx",
+        target="postgres",
         tables=[TableSelector("T")],
         column_mapping=cm,
         keys=keys,

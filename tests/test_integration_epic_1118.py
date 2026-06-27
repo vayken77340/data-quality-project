@@ -4,7 +4,7 @@ import yaml
 
 from data_contract.cli import main
 
-from .conftest import add_keys_sheet, minimal_defaults_yaml
+from .conftest import add_keys_sheet, minimal_defaults_yaml, write_test_parsers_yaml
 
 
 def _add_keys_sheet(wb, rows: list[tuple[str, str, str | None]]) -> None:
@@ -32,12 +32,12 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     # this test stays decoupled from upstream sheet-naming changes in the real
     # spec workbook.
     edir = tmp_path / "epics" / "1118"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
-    (edir / "configs" / "v1.0.yaml").write_text(
-        "epic: 1118\nversion: '1.0'\nspec_file_name: Spec_example.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: 1118\nversion: '1.0'\nspec_file_name: Spec_example.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: PROJECT\n",
         encoding="utf-8",
     )
@@ -93,7 +93,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert data["version"] == "1.0"
     assert data["epic"] == "1118"
     assert data["table"] == "PROJECT"
-    assert data["source"]["spec_sheet"] == "PROJECT"
+    assert data["spec"]["sheet_name"] == "PROJECT"
     assert len(data["fields"]) == 5
 
     by_name = {f["name"]: f for f in data["fields"]}
@@ -118,7 +118,7 @@ def test_unknown_type_rejects_table(tmp_path: Path, repo_root: Path, monkeypatch
 
     epic_root = tmp_path / "epics"
     epic_dir = epic_root / "BAD"
-    (epic_dir / "configs").mkdir(parents=True)
+    (epic_dir / "configs" / "contracts").mkdir(parents=True)
     (epic_dir / "specs").mkdir(parents=True)
     (epic_dir / "contracts").mkdir(parents=True)
 
@@ -128,17 +128,14 @@ def test_unknown_type_rejects_table(tmp_path: Path, repo_root: Path, monkeypatch
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
 
     # Defaults
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
 
     # Version config
-    (epic_dir / "configs" / "v1.0.yaml").write_text(
-        "epic: BAD\nversion: '1.0'\nspec_file_name: spec.xlsx\ntables:\n  - table_name: WIDGETS\n",
+    (epic_dir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: BAD\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\ntables:\n  - table_name: WIDGETS\n",
         encoding="utf-8",
     )
 
@@ -174,10 +171,7 @@ def test_generate_all_epics_when_no_epic_arg(tmp_path: Path, repo_root: Path, mo
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
 
     # Build two epics with one tiny spec each.
     from openpyxl import Workbook
@@ -185,12 +179,12 @@ def test_generate_all_epics_when_no_epic_arg(tmp_path: Path, repo_root: Path, mo
 
     for epic in ("100", "200"):
         edir = tmp_path / "epics" / epic
-        (edir / "configs").mkdir(parents=True)
+        (edir / "configs" / "contracts").mkdir(parents=True)
         (edir / "specs").mkdir(parents=True)
         (edir / "contracts").mkdir(parents=True)
         (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults_text, encoding="utf-8")
-        (edir / "configs" / "v1.0.yaml").write_text(
-            f"epic: '{epic}'\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+        (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+            f"epic: '{epic}'\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
             f"tables:\n  - table_name: T\n",
             encoding="utf-8",
         )
@@ -219,22 +213,19 @@ def test_generate_all_epics_aggregates_exit_code(tmp_path: Path, repo_root: Path
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
 
     from openpyxl import Workbook
     defaults_text = minimal_defaults_yaml()
 
     def _make_epic(name: str, type_value: str) -> None:
         edir = tmp_path / "epics" / name
-        (edir / "configs").mkdir(parents=True)
+        (edir / "configs" / "contracts").mkdir(parents=True)
         (edir / "specs").mkdir(parents=True)
         (edir / "contracts").mkdir(parents=True)
         (tmp_path / "configs" / "specs_parsing.yaml").write_text(defaults_text, encoding="utf-8")
-        (edir / "configs" / "v1.0.yaml").write_text(
-            f"epic: '{name}'\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+        (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+            f"epic: '{name}'\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
             f"tables:\n  - table_name: T\n",
             encoding="utf-8",
         )
@@ -274,12 +265,9 @@ def _bootstrap_multi_version_epic(tmp_path: Path, repo_root: Path, *, versions: 
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True, exist_ok=True)
+    (edir / "configs" / "contracts").mkdir(parents=True, exist_ok=True)
     (edir / "specs").mkdir(parents=True, exist_ok=True)
     (edir / "contracts").mkdir(parents=True, exist_ok=True)
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
@@ -303,29 +291,31 @@ def _bootstrap_multi_version_epic(tmp_path: Path, repo_root: Path, *, versions: 
 
     for v in versions:
         spec_name = f"Spec_v{v}.xlsx" if spec_per_version else "Spec.xlsx"
-        (edir / "configs" / f"v{v}.yaml").write_text(
-            f"epic: E\nversion: '{v}'\nspec_file_name: {spec_name}\n"
+        (edir / "configs" / "contracts" / f"v{v}.yaml").write_text(
+            f"epic: E\nversion: '{v}'\nspec_file_name: {spec_name}\ntarget: postgres\n"
             f"tables:\n  - table_name: T\n",
             encoding="utf-8",
         )
     return edir
 
 
-def test_backfill_creates_missing_older_history(tmp_path: Path, repo_root: Path, monkeypatch):
+def test_default_generate_builds_all_versions(tmp_path: Path, repo_root: Path, monkeypatch):
+    """New default: `generate --epic E` (no --version) builds every version.
+    The highest is canonical; older versions emit history-only snapshots."""
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(tmp_path, repo_root, versions=["1.0", "2.0", "3.0"])
 
-    rc = main(["generate", "--epic", "E", "--version", "3.0"])
+    rc = main(["generate", "--epic", "E"])
     assert rc == 0
 
-    # The target version writes canonical + history/3.0
+    # Canonical is the highest (v3.0); history exists for every version.
     assert (edir / "contracts" / "T.yaml").exists()
     for v in ("1.0", "2.0", "3.0"):
         assert (edir / "contracts" / "history" / v / "T.yaml").exists(), f"missing v{v}"
 
 
-def test_backfill_skips_existing_history(tmp_path: Path, repo_root: Path, monkeypatch):
-    """If history/v1.0.yaml already exists, the backfill must not overwrite it."""
+def test_generate_skips_existing_history(tmp_path: Path, repo_root: Path, monkeypatch):
+    """If history/v1.0.yaml already exists, the per-version walk must not overwrite it."""
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(tmp_path, repo_root, versions=["1.0", "2.0"])
 
@@ -333,23 +323,31 @@ def test_backfill_skips_existing_history(tmp_path: Path, repo_root: Path, monkey
     sentinel.parent.mkdir(parents=True)
     sentinel.write_text("preserved: true\n", encoding="utf-8")
 
-    rc = main(["generate", "--epic", "E", "--version", "2.0"])
+    rc = main(["generate", "--epic", "E"])
     assert rc == 0
     assert sentinel.read_text(encoding="utf-8") == "preserved: true\n"
     assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
 
 
-def test_backfill_disabled_via_flag(tmp_path: Path, repo_root: Path, monkeypatch):
+def test_version_flag_builds_only_that_version(tmp_path: Path, repo_root: Path, monkeypatch):
+    """`--version <v>` narrows the build to that single version. On a 2-version
+    epic, `--version 2.0` writes canonical (= the highest) + history/2.0/
+    but never touches history/1.0/."""
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(tmp_path, repo_root, versions=["1.0", "2.0"])
 
-    rc = main(["generate", "--epic", "E", "--version", "2.0", "--no-backfill"])
+    rc = main(["generate", "--epic", "E", "--version", "2.0"])
     assert rc == 0
+    assert (edir / "contracts" / "T.yaml").exists()
     assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
     assert not (edir / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
-def test_backfill_skips_when_older_spec_missing(tmp_path: Path, repo_root: Path, monkeypatch):
+def test_generate_skips_when_older_spec_missing(tmp_path: Path, repo_root: Path, monkeypatch):
+    """When `--version <highest>` narrows the build to just the canonical
+    version, an older sibling whose spec file is gone is simply not visited
+    -- the canonical build succeeds and no history entry is created for the
+    abandoned older version."""
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(
         tmp_path, repo_root, versions=["1.0", "2.0"], spec_per_version=True
@@ -358,23 +356,26 @@ def test_backfill_skips_when_older_spec_missing(tmp_path: Path, repo_root: Path,
     (edir / "specs" / "Spec_v1.0.xlsx").unlink()
 
     rc = main(["generate", "--epic", "E", "--version", "2.0"])
-    assert rc == 0  # target still succeeds
+    assert rc == 0  # canonical still succeeds
     assert (edir / "contracts" / "history" / "2.0" / "T.yaml").exists()
     assert not (edir / "contracts" / "history" / "1.0" / "T.yaml").exists()
 
 
-def test_backfill_does_not_overwrite_canonical_or_rejected(tmp_path: Path, repo_root: Path, monkeypatch):
-    """Backfill writes only to history/. Canonical and rejected files stay tied to the latest run."""
+def test_generate_does_not_overwrite_unrelated_rejected(tmp_path: Path, repo_root: Path, monkeypatch):
+    """Older-version (history-only) builds never touch canonical/rejected. A
+    pre-existing rejected/OTHER_TABLE.yaml stays intact through a full
+    per-version walk."""
     monkeypatch.chdir(tmp_path)
     edir = _bootstrap_multi_version_epic(tmp_path, repo_root, versions=["1.0", "2.0"])
 
-    # Pre-seed a stale rejected file; backfilling v1.0 must NOT delete it,
-    # because backfill never touches canonical/rejected — only the *target* run does.
+    # Pre-seed a stale rejected file for an unrelated table; the per-version
+    # walk must NOT delete it, because only the *canonical* run's own tables
+    # rewrite canonical/rejected.
     rejected_dir = edir / "contracts" / "rejected"
     rejected_dir.mkdir(parents=True)
     stale_rejected = rejected_dir / "OTHER_TABLE.yaml"
     stale_rejected.write_text("untouched: true\n", encoding="utf-8")
 
-    rc = main(["generate", "--epic", "E", "--version", "2.0"])
+    rc = main(["generate", "--epic", "E"])
     assert rc == 0
     assert stale_rejected.read_text(encoding="utf-8") == "untouched: true\n"

@@ -25,7 +25,7 @@ from data_contract.validation.config import (
 
 def _spec(enabled: bool) -> CheckSpec:
     return CheckSpec(enabled=enabled)
-from tests.conftest import ALL_CHECKS_ENABLED_YAML
+from tests.conftest import ALL_CHECKS_ENABLED_YAML, write_test_parsers_yaml
 
 
 # ---------------------------------------------------------------------------
@@ -140,12 +140,10 @@ def test_parse_check_gates_shorthand_bool_accepted():
 
 
 def _write_yaml(path: Path, content: str) -> Path:
-    """Write validation.yaml fixture, auto-injecting `target: postgres` if the
-    test didn't specify one. validation.yaml requires the target field."""
+    """Write validation.yaml fixture. `target:` no longer lives here -- it's
+    stamped on each generated contract and read back by the runner."""
     path.parent.mkdir(parents=True, exist_ok=True)
     text = dedent(content)
-    if "target:" not in text:
-        text = "target: postgres\n" + text
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -354,11 +352,9 @@ def _build_epic_with_dup_pk(tmp_path: Path) -> Path:
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    # `target:` is required in validation.yaml -- copy target YAMLs into tmp.
+    write_test_parsers_yaml(tmp_path / "configs")
+    # Target overlays are loaded by name (read from each contract). Copy them
+    # into tmp so the runner finds postgres.yaml at lookup time.
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -367,13 +363,13 @@ def _build_epic_with_dup_pk(tmp_path: Path) -> Path:
         )
 
     parent = {
-        "version": "1.0", "epic": "TEST", "table": "PARENT",
-        "source": {"spec_file": "s", "spec_sheet": "PARENT"},
+        "version": "1.0", "epic": "TEST", "table": "PARENT", "target": "postgres",
+        "spec": {"file_path": "s", "sheet_name": "PARENT"},
         "fields": [{"name": "pid", "type": "int64", "nullable": False, "primary_key": True}],
     }
     child = {
-        "version": "1.0", "epic": "TEST", "table": "CHILD",
-        "source": {"spec_file": "s", "spec_sheet": "CHILD"},
+        "version": "1.0", "epic": "TEST", "table": "CHILD", "target": "postgres",
+        "spec": {"file_path": "s", "sheet_name": "CHILD"},
         "fields": [
             {"name": "cid", "type": "int64", "nullable": False, "primary_key": True},
             {"name": "pid", "type": "int64", "nullable": False,
@@ -409,7 +405,6 @@ def _run_with_checks(
     """
     epic = _build_epic_with_dup_pk(tmp_path)
     base = (
-        "target: postgres\n" +
         _full_checks_block(**(global_overrides or {})) +
         'defaults:\n'
         '  format: csv\n'

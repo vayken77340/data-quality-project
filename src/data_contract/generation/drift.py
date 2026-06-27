@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from data_contract._util import now_iso_z
 from data_contract.contract import Contract, FieldContract
 from data_contract.field_constraints import constraint_for_contract_key
 from data_contract.field_constraints.base import DriftChange
+from data_contract.generation.config import version_sort_key
 
 
 @dataclass
@@ -36,6 +38,56 @@ class DriftReport:
             "summary": self.summary(),
             "changes": [c.to_dict() for c in self.changes],
         }
+
+
+def print_drift_summary(table: str, from_version: str, to_version: str, report: "DriftReport") -> None:
+    s = report.summary()
+    print(
+        f"[DRIFT] {table} v{from_version} -> v{to_version}: "
+        f"{s['breaking']} breaking, {s['additive']} additive, {s['cosmetic']} cosmetic"
+    )
+
+
+def discover_history_versions(history_root: Path) -> list[str]:
+    """List every version subdirectory under `contracts/history/`, sorted oldest -> newest."""
+    if not history_root.is_dir():
+        return []
+    versions = [d.name for d in history_root.iterdir() if d.is_dir()]
+    return sorted(versions, key=version_sort_key)
+
+
+def walk_version_pairs(
+    history_root: Path, table: str,
+) -> list[tuple[Path, Path, str, str]]:
+    """Yield `(older_path, newer_path, older_version, newer_version)` for every
+    consecutive history snapshot of `table`. Skips pairs where either snapshot
+    is missing for the requested table -- so a partial history still produces
+    drift files for the contiguous pairs that exist.
+    """
+    versions = discover_history_versions(history_root)
+    out: list[tuple[Path, Path, str, str]] = []
+    for older, newer in zip(versions, versions[1:]):
+        older_path = history_root / older / f"{table}.yaml"
+        newer_path = history_root / newer / f"{table}.yaml"
+        if not (older_path.is_file() and newer_path.is_file()):
+            continue
+        out.append((older_path, newer_path, older, newer))
+    return out
+
+
+def discover_history_tables(history_root: Path) -> list[str]:
+    """Union of `<table>.yaml` filenames across every version directory under history/."""
+    if not history_root.is_dir():
+        return []
+    tables: set[str] = set()
+    for version_dir in history_root.iterdir():
+        if not version_dir.is_dir():
+            continue
+        for p in version_dir.glob("*.yaml"):
+            if p.name == "joins.yaml":
+                continue
+            tables.add(p.stem)
+    return sorted(tables)
 
 
 def diff_contracts(old: Contract, new: Contract, *, now: str | None = None) -> DriftReport:

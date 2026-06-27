@@ -16,26 +16,27 @@ import sys
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
-from data_contract._util import dump_yaml, now_iso_z
+from data_contract._util import now_iso_z
 from data_contract.contract import Contract, Rejection
 from data_contract.errors import RejectionError, SpecReaderError
 from data_contract.generation.builder import (
     build_contract,
-    drift_path_for,
+    history_path_for_table,
+    write_history_only,
     write_outputs,
 )
 from data_contract.generation.config import (
     ALL_TABLES,
     Defaults,
+    EpicConfig,
     MergedConfig,
     SPECS_PARSING_FILENAME,
     TableSelector,
+    discover_version_configs,
     merge,
-    select_version_config,
     version_sort_key,
 )
 from data_contract.generation.docs import load_drift_entries, write_data_dictionary
-from data_contract.generation.drift import DriftReport, diff_contracts
 from data_contract.generation.joins import (
     JoinsContract,
     JoinsRejection,
@@ -92,11 +93,23 @@ def process_epic(
     version: str | None,
     explicit_config: Path | None,
     allow_unknown_types: bool,
-    backfill: bool,
     write: bool,
     skip_self_check: bool,
     settings: Settings,
 ) -> Outcome:
+    """Build contracts for an epic.
+
+    Default behaviour (no `--version`, no `--config`): every version config
+    under `epics/<E>/configs/contracts/` is built. The highest version becomes
+    canonical (writes to `contracts/<table>.yaml` AND
+    `contracts/history/<v>/<table>.yaml`); older versions write history only.
+
+    `--version <x>`: builds only x. If x is the highest known version, the
+    canonical pair is written; otherwise only `history/<x>/` is touched.
+    `--config <path>`: same single-version behaviour, file resolved by path.
+
+    Drift is no longer emitted here -- use `generate-drift` for that.
+    """
     outcome = Outcome()
     epic_dir = epic_root / epic
     epic_configs_dir = epic_dir / "configs"
@@ -104,55 +117,223 @@ def process_epic(
     print(f"--- epic {epic} ---")
 
     try:
-        epic_config, reason = select_version_config(
+        all_configs, canonical_version, build_configs = _resolve_build_set(
             epic_configs_dir,
             version=version,
-            explicit_path=explicit_config,
+            explicit_config=explicit_config,
         )
         defaults = Defaults.from_yaml(specs_parsing_path)
-        merged = merge(defaults, epic_config)
     except ConfigError as e:
         print(f"config error in epic {epic}: {e}", file=sys.stderr)
         outcome.epic_failures.append(epic)
         return outcome
 
-    print(f"using {merged.epic_config_path} ({reason})")
-
-    if backfill and settings.generate_history:
-        from data_contract.generation.backfill import backfill_missing_history
-
-        backfill_missing_history(
+    # Overlay the target on the type registry so `physical_type_for(field)` can
+    # stamp Oracle/Postgres/Iceberg physical names. Per-epic target files
+    # (epics/<E>/configs/targets/<n>.yaml) beat the repo-root file. Picks the
+    # target from the canonical (highest) version -- targets are an
+    # epic-wide attribute, not a per-version one in practice.
+    #
+    # Soft failure: when the target file is missing or malformed, generation
+    # proceeds without the overlay -- physical_type is omitted from every
+    # field but the contract is still valid. Validation is the strict consumer.
+    canonical_cfg = next(c for c in all_configs if c.version == canonical_version)
+    try:
+        from data_contract.targets import load_target_config, resolve_target_path
+        target_path = resolve_target_path(
+            canonical_cfg.target,
+            repo_root=specs_parsing_path.parent.parent,
             epic_dir=epic_dir,
-            epic_configs_dir=epic_configs_dir,
-            defaults=defaults,
-            target_version=epic_config.version,
-            target_config_path=epic_config.path,
-            registry=registry,
-            allow_unknown_types=allow_unknown_types,
-            settings=settings,
+        )
+        target_config = load_target_config(target_path)
+        registry = registry.with_target(target_config)
+    except ConfigError as e:
+        print(
+            f"[WARN] epic {epic}: target overlay unavailable ({e}); "
+            f"contracts will be emitted without `physical_type`",
+            file=sys.stderr,
         )
 
+    canonical_contracts: dict[str, Contract] = {}
+    canonical_joins: JoinsContract | None = None
+    canonical_spec_file_rel: str | None = None
+    canonical_merged: MergedConfig | None = None
+    # Explicit selection (`--version` / `--config`) means the user asked for
+    # this exact version -- they expect a rebuild even if history exists.
+    # The implicit "build all" default keeps the "skip existing history"
+    # safety net so a stray run doesn't wipe a hand-curated older snapshot.
+    explicit_selection = len(build_configs) < len(all_configs) or len(all_configs) == 1 and version is not None
+
+    for cfg in build_configs:
+        try:
+            merged = merge(defaults, cfg)
+        except ConfigError as e:
+            print(f"  (skip v{cfg.version}: {e})", file=sys.stderr)
+            outcome.rejected += 1
+            continue
+
+        is_canonical = cfg.version == canonical_version
+        result = _build_one_version(
+            merged=merged, epic_dir=epic_dir, registry=registry,
+            allow_unknown_types=allow_unknown_types,
+            settings=settings, outcome=outcome,
+            write=write, is_canonical=is_canonical,
+            force_rebuild=explicit_selection,
+        )
+        if is_canonical and result is not None:
+            canonical_contracts, canonical_joins, canonical_spec_file_rel = result
+            canonical_merged = merged
+
+    if write and not skip_self_check and canonical_contracts:
+        self_check_post_build(canonical_contracts, canonical_joins, registry, outcome)
+
+    if write and canonical_contracts and canonical_merged is not None and canonical_spec_file_rel is not None:
+        contracts_dir = epic_dir / "contracts"
+        drift_aggregate = load_drift_entries(contracts_dir)
+        docs_path = write_data_dictionary(
+            epic_dir=epic_dir,
+            epic=canonical_merged.epic,
+            version=canonical_merged.version,
+            spec_file=canonical_spec_file_rel,
+            contracts=list(canonical_contracts.values()),
+            joins=canonical_joins,
+            drift=drift_aggregate,
+        )
+        print(f"[DOCS] {_rel(docs_path, epic_dir)}")
+
+    print(f"epic {epic}: {outcome.built} built, {outcome.rejected} rejected")
+    return outcome
+
+
+def _resolve_build_set(
+    epic_configs_dir: Path,
+    *,
+    version: str | None,
+    explicit_config: Path | None,
+) -> tuple[list[EpicConfig], str, list[EpicConfig]]:
+    """Pick `all_configs`, `canonical_version`, and the subset to build.
+
+    Returns `(all_configs, canonical_version, build_configs)`:
+      - `all_configs` is every discovered version config in the subdir, parsed.
+        Used to determine the canonical (highest) version, even when only a
+        subset is being built so the canonical-vs-history routing is correct.
+      - `canonical_version` is the highest version among `all_configs`. The
+        config matching it gets written to `contracts/<table>.yaml`.
+      - `build_configs` is the subset actually being built this run.
+
+    `--config <path>` and `--version <x>` both narrow `build_configs` to a
+    single entry; the canonical version is still computed from the FULL set
+    so passing `--version <older>` writes only history, not canonical.
+    """
+    if explicit_config is not None and version is not None:
+        raise ConfigError("--version and --config are mutually exclusive")
+
+    if explicit_config is not None:
+        if not explicit_config.is_file():
+            raise ConfigError(f"explicit config not found: {explicit_config}")
+        explicit = EpicConfig.from_yaml(explicit_config)
+        # Still discover siblings so `canonical_version` covers them; an
+        # `--config` of an older sibling stays history-only.
+        all_configs = _load_all_configs(epic_configs_dir, fallback=explicit)
+        canonical_version = _pick_canonical(all_configs)
+        print(f"using {explicit_config} (explicit path)")
+        return all_configs, canonical_version, [explicit]
+
+    all_configs = _load_all_configs(epic_configs_dir, fallback=None)
+    canonical_version = _pick_canonical(all_configs)
+
+    if version is not None:
+        wanted = version.strip()
+        matches = [c for c in all_configs if c.version == wanted]
+        if not matches:
+            raise ConfigError(
+                f"no config with version {wanted!r}; "
+                f"available: {[c.version for c in all_configs]}"
+            )
+        if len(matches) > 1:
+            raise ConfigError(
+                f"multiple configs with version {wanted!r}: "
+                f"{[str(c.path) for c in matches]}"
+            )
+        print(f"using {matches[0].path} (version {wanted})")
+        return all_configs, canonical_version, matches
+
+    print(
+        f"building all versions ({', '.join(c.version for c in all_configs)}); "
+        f"canonical = {canonical_version}"
+    )
+    return all_configs, canonical_version, list(all_configs)
+
+
+def _load_all_configs(
+    epic_configs_dir: Path, *, fallback: EpicConfig | None,
+) -> list[EpicConfig]:
+    """Parse every discoverable version config. `fallback` covers the
+    `--config <path>` case where the explicit file might be outside the
+    subdir -- we still want it in the set so canonical-detection sees it."""
+    paths = discover_version_configs(epic_configs_dir)
+    configs = [EpicConfig.from_yaml(p) for p in paths]
+    if fallback is not None and not any(c.path == fallback.path for c in configs):
+        configs.append(fallback)
+    if not configs:
+        raise ConfigError(f"no version configs found under {epic_configs_dir}")
+    return configs
+
+
+def _pick_canonical(configs: list[EpicConfig]) -> str:
+    return max(configs, key=lambda c: version_sort_key(c.version)).version
+
+
+def _build_one_version(
+    *,
+    merged: MergedConfig,
+    epic_dir: Path,
+    registry: TypeRegistry,
+    allow_unknown_types: bool,
+    settings: Settings,
+    outcome: Outcome,
+    write: bool,
+    is_canonical: bool,
+    force_rebuild: bool = False,
+) -> tuple[dict[str, Contract], JoinsContract | None, str] | None:
+    """Build every table for one version and emit results.
+
+    For the canonical version, writes both `contracts/<table>.yaml` and
+    `contracts/history/<v>/<table>.yaml`. For older versions, only the
+    history snapshot is written -- canonical is left alone so an older
+    backfill never rolls back the latest.
+    """
     spec_path = epic_dir / "specs" / merged.spec_file_name
     contracts_dir = epic_dir / "contracts"
 
     try:
         wb = open_workbook(spec_path)
     except SpecReaderError as e:
-        print(f"spec error in epic {epic}: {e}", file=sys.stderr)
-        outcome.epic_failures.append(epic)
-        return outcome
+        print(f"  (skip v{merged.version}: {e})", file=sys.stderr)
+        outcome.rejected += 1
+        return None
 
     spec_file_rel = str(spec_path).replace("\\", "/")
-    selected = resolve_table_selectors(merged, wb)
-
-    keys_data = read_keys_sheet(wb, merged.keys)
-    pk_index = build_pk_index(keys_data.rows)
-
-    seen_tables: dict[str, str] = {}
-    contracts_by_table: dict[str, Contract] = {}
 
     try:
+        selected = resolve_table_selectors(merged, wb)
+        keys_data = read_keys_sheet(wb, merged.keys)
+        pk_index = build_pk_index(keys_data.rows)
+        seen_tables: dict[str, str] = {}
+        version_contracts: dict[str, Contract] = {}
+
         for selector in selected:
+            # Skip silently when an older version's history already exists --
+            # backfill semantics: the implicit "build all" loop never
+            # overwrites a hand-curated older snapshot. Explicit
+            # `--version <x>` (force_rebuild) always rebuilds.
+            if not is_canonical and not force_rebuild:
+                history_file = history_path_for_table(
+                    contracts_dir, merged.version, selector.table_name,
+                )
+                if history_file.exists():
+                    continue
+
             result = build_one_table(
                 merged, selector, wb,
                 registry=registry,
@@ -164,36 +345,24 @@ def process_epic(
                 settings=settings,
             )
             if isinstance(result, Contract):
-                contracts_by_table[result.table] = result
-            emit_result(result, contracts_dir, outcome, write=write, settings=settings)
+                version_contracts[result.table] = result
+            _emit_version_result(
+                result, contracts_dir, outcome,
+                write=write, is_canonical=is_canonical, version=merged.version,
+            )
 
         joins_contract: JoinsContract | None = None
-        if merged.joins is not None and settings.generate_join_contract:
+        if is_canonical and merged.joins is not None and settings.generate_join_contract:
             joins_contract = emit_joins(
-                merged, wb, contracts_by_table, contracts_dir, spec_file_rel, outcome,
+                merged, wb, version_contracts, contracts_dir, spec_file_rel, outcome,
                 write=write, settings=settings,
             )
     finally:
         wb.close()
 
-    if write and not skip_self_check and contracts_by_table:
-        self_check_post_build(contracts_by_table, joins_contract, registry, outcome)
-
-    if write and contracts_by_table:
-        drift_aggregate = load_drift_entries(contracts_dir)
-        docs_path = write_data_dictionary(
-            epic_dir=epic_dir,
-            epic=merged.epic,
-            version=merged.version,
-            spec_file=spec_file_rel,
-            contracts=list(contracts_by_table.values()),
-            joins=joins_contract,
-            drift=drift_aggregate,
-        )
-        print(f"[DOCS] {_rel(docs_path, epic_dir)}")
-
-    print(f"epic {epic}: {outcome.built} built, {outcome.rejected} rejected")
-    return outcome
+    if is_canonical:
+        return version_contracts, joins_contract, spec_file_rel
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +387,9 @@ def build_one_table(
     check for cross-sheet duplicates. Returns the final `Contract` on success
     or a `Rejection` carrying every collected error.
 
-    Pure: no file writes, no console prints. Both `process_epic` and
-    `backfill_missing_history` call this to share the per-table core; each
-    caller chooses how to persist or report the result.
+    Pure: no file writes, no console prints. `process_epic`'s per-version
+    loop calls this once per (version, table); the caller chooses how to
+    persist or report the result.
     """
     sheet_name = selector.table_name
     read = read_sheet(wb, sheet_name, merged.column_mapping)
@@ -232,6 +401,7 @@ def build_one_table(
             spec_file=spec_file_rel,
             spec_sheet=sheet_name,
             table=sheet_name,
+            target=merged.target,
             errors=keys_data.errors + [read.error],
         )
 
@@ -275,6 +445,7 @@ def check_duplicate_table(
         spec_file=result.spec_file,
         spec_sheet=sheet_name,
         table=distinguished,
+        target=result.target,
         errors=[RejectionError(
             kind="duplicate_table_across_sheets",
             field="table",
@@ -321,7 +492,8 @@ def enrich_with_keys(
             version=contract.version, epic=contract.epic,
             generated_at=contract.generated_at,
             spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, errors=list(keys_data.errors),
+            table=contract.table, target=contract.target,
+            errors=list(keys_data.errors),
         )
 
     rows_for_table = keys_data.rows_for_table(contract.table)
@@ -338,7 +510,7 @@ def enrich_with_keys(
             version=contract.version, epic=contract.epic,
             generated_at=contract.generated_at,
             spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table,
+            table=contract.table, target=contract.target,
             errors=[RejectionError(
                 kind="keys_missing_table", field="table_name", value=contract.table,
                 message=(
@@ -349,7 +521,7 @@ def enrich_with_keys(
             )],
         )
 
-    _, errors, fk_warnings = enrich_field_contract_list(
+    enriched_fields, errors, fk_warnings = enrich_field_contract_list(
         contract.fields, contract.table, rows_for_table, pk_index,
         fk_allow_violations=fk_allow_violations,
     )
@@ -364,8 +536,11 @@ def enrich_with_keys(
             version=contract.version, epic=contract.epic,
             generated_at=contract.generated_at,
             spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, errors=errors,
+            table=contract.table, target=contract.target, errors=errors,
         )
+    # `FieldContract` is frozen; enrichment returns new instances. Rebind the
+    # contract's field list to the enriched copies before returning.
+    contract.fields = enriched_fields
     return contract
 
 
@@ -429,7 +604,7 @@ def emit_joins(
     )
 
     if write:
-        paths = write_joins_outputs(result, contracts_dir, write_history=settings.generate_history)
+        paths = write_joins_outputs(result, contracts_dir)
     else:
         paths = []
 
@@ -460,82 +635,41 @@ def emit_joins(
 # ---------------------------------------------------------------------------
 
 
-def emit_result(
+def _emit_version_result(
     result: Contract | Rejection,
     contracts_dir: Path,
     outcome: Outcome,
     *,
     write: bool,
-    settings: Settings,
+    is_canonical: bool,
+    version: str,
 ) -> None:
-    """Unify the four-way Contract/Rejection x write/lint branching."""
+    """Per-version writer. Canonical = `write_outputs` (canonical + history);
+    older = `write_history_only`. Rejections still surface via `write_outputs`'s
+    rejected/ path regardless of canonical-ness so a bad spec at any version
+    leaves a record."""
+    paths: list[Path] = []
     if write:
-        paths = write_outputs(result, contracts_dir, write_history=settings.generate_history)
-    else:
-        paths = []
+        if is_canonical:
+            paths = write_outputs(result, contracts_dir)
+        elif isinstance(result, Contract):
+            paths = [write_history_only(result, contracts_dir)]
+        else:
+            # Non-canonical rejection: route through write_outputs so the
+            # rejected file still lands -- but it'll be under the same
+            # rejected/<table>.yaml location and could collide with a
+            # canonical rejection. Tag it with the version so older-version
+            # failures don't blow away the latest's rejection record.
+            paths = write_outputs(result, contracts_dir)
     if isinstance(result, Contract):
         outcome.built += 1
-        _print_success(result, paths, contracts_dir, lint=not write)
-        if write and settings.generate_history and settings.generate_drift:
-            emit_drift_for_new_history(result, contracts_dir)
+        _print_success(result, paths, contracts_dir, lint=not write, version_tag=None if is_canonical else version)
     else:
         outcome.rejected += 1
-        _print_rejection(result.table, result.errors, paths, contracts_dir, lint=not write)
-
-
-def emit_drift_for_new_history(contract: Contract, contracts_dir: Path) -> None:
-    """After a history snapshot is written, look for the nearest-older history
-    version and write a drift file if one doesn't already exist."""
-    prior = find_prior_history(contracts_dir, contract.table, contract.version)
-    if prior is None:
-        return
-    prior_path, prior_version = prior
-    drift_file = drift_path_for(contracts_dir, contract.table, prior_version, contract.version)
-    if drift_file.exists():
-        return
-    try:
-        old_contract = Contract.load(prior_path)
-    except Exception as e:
-        print(f"  (skip drift {contract.table} v{prior_version}->v{contract.version}: cannot read prior: {e})", file=sys.stderr)
-        return
-    report = diff_contracts(old_contract, contract)
-    if report.is_empty():
-        return
-    dump_yaml(drift_file, report.to_dict())
-    print_drift_summary(contract.table, prior_version, contract.version, report)
-
-
-def print_drift_summary(table: str, from_version: str, to_version: str, report: DriftReport) -> None:
-    s = report.summary()
-    print(
-        f"[DRIFT] {table} v{from_version} -> v{to_version}: "
-        f"{s['breaking']} breaking, {s['additive']} additive, {s['cosmetic']} cosmetic"
-    )
-
-
-def find_prior_history(contracts_dir: Path, table: str, current_version: str) -> tuple[Path, str] | None:
-    history_root = contracts_dir / "history"
-    if not history_root.is_dir():
-        return None
-    current_key = version_sort_key(current_version)
-    best: tuple[tuple, Path, str] | None = None
-    for version_dir in history_root.iterdir():
-        if not version_dir.is_dir():
-            continue
-        v = version_dir.name
-        if v == current_version:
-            continue
-        key = version_sort_key(v)
-        if key >= current_key:
-            continue
-        candidate = version_dir / f"{table}.yaml"
-        if not candidate.is_file():
-            continue
-        if best is None or key > best[0]:
-            best = (key, candidate, v)
-    if best is None:
-        return None
-    return best[1], best[2]
+        _print_rejection(
+            result.table, result.errors, paths, contracts_dir,
+            lint=not write, version_tag=None if is_canonical else version,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -557,22 +691,35 @@ def _rel(p: Path, base: Path) -> str:
         return str(p).replace("\\", "/")
 
 
-def _print_success(c: Contract, paths: list[Path], contracts_dir: Path, *, lint: bool) -> None:
+def _print_success(
+    c: Contract, paths: list[Path], contracts_dir: Path, *,
+    lint: bool, version_tag: str | None = None,
+) -> None:
     prefix = "[LINT-OK]" if lint else "[OK]"
+    tag = f" v{version_tag}" if version_tag else ""
     if not paths:
-        print(f"{prefix} {c.table} - {len(c.fields)} fields")
+        print(f"{prefix} {c.table}{tag} - {len(c.fields)} fields")
         return
     rels = [_rel(p, contracts_dir) for p in paths]
-    canonical = next((r for r in rels if "/" not in r), rels[0])
+    canonical = next((r for r in rels if "/" not in r), None)
     history = next((r for r in rels if r.startswith("history/")), None)
-    suffix = f" (+ {history})" if history else ""
-    print(f"{prefix} {c.table} - {len(c.fields)} fields -> contracts/{canonical}{suffix}")
+    # Canonical write: "OK table -> contracts/<table>.yaml (+ history/v/<table>.yaml)"
+    # History-only write (older version): "OK table v1.0 -> contracts/history/1.0/<table>.yaml"
+    if canonical is not None:
+        suffix = f" (+ {history})" if history else ""
+        print(f"{prefix} {c.table}{tag} - {len(c.fields)} fields -> contracts/{canonical}{suffix}")
+    else:
+        print(f"{prefix} {c.table}{tag} - {len(c.fields)} fields -> contracts/{history or rels[0]}")
 
 
-def _print_rejection(table: str, errors: list, paths: list[Path], contracts_dir: Path, *, lint: bool) -> None:
+def _print_rejection(
+    table: str, errors: list, paths: list[Path], contracts_dir: Path, *,
+    lint: bool, version_tag: str | None = None,
+) -> None:
     prefix = "[LINT-REJECTED]" if lint else "[REJECTED]"
+    tag = f" v{version_tag}" if version_tag else ""
     if not paths:
-        print(f"{prefix} {table} - {len(errors)} errors", file=sys.stderr)
+        print(f"{prefix} {table}{tag} - {len(errors)} errors", file=sys.stderr)
         return
     rel = _rel(paths[0], contracts_dir)
-    print(f"{prefix} {table} - {len(errors)} errors -> contracts/{rel}", file=sys.stderr)
+    print(f"{prefix} {table}{tag} - {len(errors)} errors -> contracts/{rel}", file=sys.stderr)

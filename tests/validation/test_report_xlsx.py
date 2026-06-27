@@ -9,7 +9,7 @@ import yaml
 from openpyxl import load_workbook
 
 from data_contract.cli import main
-from tests.conftest import ALL_CHECKS_ENABLED_YAML
+from tests.conftest import ALL_CHECKS_ENABLED_YAML, write_test_parsers_yaml
 
 
 def _build_epic(tmp_path: Path, *, target=None) -> Path:
@@ -23,10 +23,7 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -36,7 +33,8 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
 
     contract = {
         "version": "1.0", "epic": "T", "table": "T",
-        "source": {"spec_file": "s", "spec_sheet": "T"},
+        "target": target or "postgres",
+        "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
             {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
             {"name": "label", "type": "string", "nullable": False, "max_length": 3},
@@ -45,9 +43,8 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
     (epic / "contracts" / "T.yaml").write_text(
         yaml.safe_dump(contract, sort_keys=False), encoding="utf-8",
     )
-    target_line = f"target: {target or 'postgres'}\n"
     (epic / "configs" / "validation.yaml").write_text(
-        ALL_CHECKS_ENABLED_YAML + target_line +
+        ALL_CHECKS_ENABLED_YAML +
         dedent("""\
             defaults:
               format: csv
@@ -241,10 +238,7 @@ def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -253,7 +247,8 @@ def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path
         )
     contract = {
         "version": "1.0", "epic": "M", "table": "M",
-        "source": {"spec_file": "s", "spec_sheet": "M"},
+        "target": "postgres",
+        "spec": {"file_path": "s", "sheet_name": "M"},
         "fields": [
             {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
             {"name": "label", "type": "string", "nullable": False, "max_length": 3},
@@ -264,7 +259,7 @@ def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path
         yaml.safe_dump(contract, sort_keys=False), encoding="utf-8",
     )
     (epic / "configs" / "validation.yaml").write_text(
-        ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + dedent("""\
+        ALL_CHECKS_ENABLED_YAML + dedent("""\
             defaults:
               format: csv
               file_pattern: "sample/{table}.csv"
@@ -331,10 +326,7 @@ def test_xlsx_rejected_sheet_uses_source_row_when_no_pk(tmp_path: Path):
         (repo / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     (tmp_path / "configs" / "targets").mkdir()
     for n in ("oracle.yaml", "postgres.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / n).write_text(
@@ -343,7 +335,8 @@ def test_xlsx_rejected_sheet_uses_source_row_when_no_pk(tmp_path: Path):
         )
     contract = {
         "version": "1.0", "epic": "NoPK", "table": "NoPK",
-        "source": {"spec_file": "s", "spec_sheet": "NoPK"},
+        "target": "postgres",
+        "spec": {"file_path": "s", "sheet_name": "NoPK"},
         "fields": [
             {"name": "label", "type": "string", "nullable": False, "max_length": 3},
         ],
@@ -352,7 +345,7 @@ def test_xlsx_rejected_sheet_uses_source_row_when_no_pk(tmp_path: Path):
         yaml.safe_dump(contract, sort_keys=False), encoding="utf-8",
     )
     (epic / "configs" / "validation.yaml").write_text(
-        ALL_CHECKS_ENABLED_YAML + "target: postgres\n" + dedent("""\
+        ALL_CHECKS_ENABLED_YAML + dedent("""\
             defaults:
               format: csv
               file_pattern: "sample/{table}.csv"

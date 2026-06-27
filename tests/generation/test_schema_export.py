@@ -79,7 +79,7 @@ def test_write_schema_idempotent(tmp_path: Path):
 
 
 def test_validate_against_schema_accepts_real_epic_1118_contract(repo_root: Path):
-    contract_path = repo_root / "epics" / "1118" / "contracts" / "PROJECT.yaml"
+    contract_path = repo_root / "epics" / "1118" / "contracts" / "ipn_project.yaml"
     contract_dict = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     errors = validate_against_schema(contract_dict)
     assert errors == [], f"unexpected schema errors: {errors}"
@@ -90,7 +90,7 @@ def test_validate_against_schema_rejects_unknown_field_property():
         "version": "1.0",
         "epic": "X",
         "generated_at": "t",
-        "source": {"spec_file": "s", "spec_sheet": "S"},
+        "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
         "fields": [
             {"name": "x", "type": "int64", "bogus_field": "nope"},
@@ -103,7 +103,7 @@ def test_validate_against_schema_rejects_unknown_field_property():
 def test_validate_against_schema_rejects_unknown_type():
     bad_contract = {
         "version": "1.0", "epic": "X", "generated_at": "t",
-        "source": {"spec_file": "s", "spec_sheet": "S"},
+        "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
         "fields": [{"name": "x", "type": "quaternion"}],
     }
@@ -114,7 +114,7 @@ def test_validate_against_schema_rejects_unknown_type():
 def test_validate_against_schema_accepts_structured_min_value():
     contract = {
         "version": "1.0", "epic": "X", "generated_at": "t",
-        "source": {"spec_file": "s", "spec_sheet": "S"},
+        "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
         "fields": [
             {
@@ -130,7 +130,7 @@ def test_validate_against_schema_rejects_flat_min_value():
     """Legacy flat min_value: 5 must fail the structured-shape constraint."""
     contract = {
         "version": "1.0", "epic": "X", "generated_at": "t",
-        "source": {"spec_file": "s", "spec_sheet": "S"},
+        "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
         "fields": [{"name": "amount", "type": "float64", "min_value": 5}],
     }

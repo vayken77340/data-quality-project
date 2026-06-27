@@ -14,6 +14,7 @@ from textwrap import dedent
 import yaml
 
 from data_contract.cli import main
+from tests.conftest import write_test_parsers_yaml
 
 
 def _write_epic(
@@ -40,10 +41,7 @@ def _write_epic(
         (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    (tmp_path / "configs" / "parsers.yaml").write_text(
-        (repo_root / "configs" / "parsers.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_test_parsers_yaml(tmp_path / "configs")
     (tmp_path / "configs" / "targets").mkdir()
     for name in ("postgres.yaml", "oracle.yaml", "iceberg.yaml"):
         (tmp_path / "configs" / "targets" / name).write_text(
@@ -55,8 +53,9 @@ def _write_epic(
         "version": "1.0",
         "epic": "TEST",
         "generated_at": "2026-06-09T00:00:00Z",
-        "source": {"spec_file": "spec.xlsx", "spec_sheet": "T"},
+        "spec": {"file_path": "spec.xlsx", "sheet_name": "T"},
         "table": "T",
+        "target": target,
         "fields": [
             {"name": "id", "type": "int32", "nullable": False, "primary_key": True},
             {"name": "label", "type": "string", "nullable": False, "max_length": 3},
@@ -95,8 +94,6 @@ def _write_epic(
         "checks": checks_block,
         "metrics": metrics_block,
     }
-    # `target:` is required -- callers pass an explicit target name.
-    validation_yaml["target"] = target
     (epic_dir / "configs" / "validation.yaml").write_text(
         yaml.safe_dump(validation_yaml, sort_keys=False), encoding="utf-8",
     )

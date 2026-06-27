@@ -37,14 +37,16 @@ def build_contract_json_schema() -> dict[str, Any]:
     type_enum = [t.value for t in Type]
 
     field_properties: dict[str, Any] = {
-        "name":         {"type": "string", "minLength": 1},
-        "type":         {"type": "string", "enum": type_enum},
-        "nullable":     {"type": "boolean"},
-        "description":  {"type": "string"},
-        "max_length":   {"type": "integer", "minimum": 0},
-        "precision":    {"type": "integer", "minimum": 0},
-        "scale":        {"type": "integer", "minimum": 0},
-        "primary_key":  {"type": "boolean"},
+        "name":          {"type": "string", "minLength": 1},
+        "source_name":   {"type": "string"},
+        "type":          {"type": "string", "enum": type_enum},
+        "physical_type": {"type": "string"},
+        "nullable":      {"type": "boolean"},
+        "description":   {"type": "string"},
+        "max_length":    {"type": "integer", "minimum": 0},
+        "precision":     {"type": "integer", "minimum": 0},
+        "scale":         {"type": "integer", "minimum": 0},
+        "primary_key":   {"type": "boolean"},
         "foreign_key": {
             "type": "object",
             "properties": {
@@ -80,14 +82,15 @@ def build_contract_json_schema() -> dict[str, Any]:
             "version":      {"type": "string"},
             "epic":         {"type": "string"},
             "generated_at": {"type": "string"},
-            "source": {
+            "spec": {
                 "type": "object",
                 "properties": {
-                    "spec_file":  {"type": "string"},
-                    "spec_sheet": {"type": "string"},
+                    "file_path":  {"type": "string"},
+                    "sheet_name": {"type": "string"},
                 },
             },
             "table":  {"type": "string", "minLength": 1},
+            "target": {"type": "string"},
             "fields": {
                 "type": "array",
                 "items": {"$ref": "#/$defs/Field"},

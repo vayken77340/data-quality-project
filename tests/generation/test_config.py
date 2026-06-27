@@ -45,6 +45,15 @@ def _make_epic_dir(tmp_path: Path) -> Path:
     return cfgs
 
 
+def _make_versions_dir(tmp_path: Path) -> Path:
+    """Return (and create) the per-version contract configs subdir
+    `<tmp_path>/configs/contracts/`. Always called alongside `_make_epic_dir`
+    when a test needs version YAMLs on disk."""
+    versions = tmp_path / "configs" / "contracts"
+    versions.mkdir(parents=True, exist_ok=True)
+    return versions
+
+
 def test_defaults_loads(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     defaults = Defaults.from_yaml(cfgs / "specs_parsing.yaml")
@@ -63,8 +72,9 @@ def test_defaults_missing_file_returns_empty(tmp_path):
 
 def test_select_highest_version_numeric(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
+    versions = _make_versions_dir(tmp_path)
     for v in ["1.0", "1.10", "2.0"]:
-        _write(cfgs / f"cfg_{v}.yaml", f"epic: X\nversion: '{v}'\nspec_file_name: f.xlsx\ntables: all\n")
+        _write(versions / f"cfg_{v}.yaml", f"epic: X\nversion: '{v}'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     chosen, reason = select_version_config(cfgs)
     assert chosen.version == "2.0"
     assert "highest" in reason
@@ -72,16 +82,18 @@ def test_select_highest_version_numeric(tmp_path):
 
 def test_select_highest_version_handles_1_10_as_greater_than_1_2(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    _write(cfgs / "a.yaml", "epic: X\nversion: '1.2'\nspec_file_name: f.xlsx\ntables: all\n")
-    _write(cfgs / "b.yaml", "epic: X\nversion: '1.10'\nspec_file_name: f.xlsx\ntables: all\n")
+    versions = _make_versions_dir(tmp_path)
+    _write(versions / "a.yaml", "epic: X\nversion: '1.2'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
+    _write(versions / "b.yaml", "epic: X\nversion: '1.10'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     chosen, _ = select_version_config(cfgs)
     assert chosen.version == "1.10"
 
 
 def test_select_explicit_version(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    _write(cfgs / "a.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n")
-    _write(cfgs / "b.yaml", "epic: X\nversion: '2.0'\nspec_file_name: f.xlsx\ntables: all\n")
+    versions = _make_versions_dir(tmp_path)
+    _write(versions / "a.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
+    _write(versions / "b.yaml", "epic: X\nversion: '2.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     chosen, reason = select_version_config(cfgs, version="1.0")
     assert chosen.version == "1.0"
     assert "1.0" in reason
@@ -89,7 +101,13 @@ def test_select_explicit_version(tmp_path):
 
 def test_select_explicit_path_wins(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    p = _write(cfgs / "weird.yaml", "epic: X\nversion: '7.7'\nspec_file_name: f.xlsx\ntables: all\n")
+    versions = _make_versions_dir(tmp_path)
+    # Make discovery non-empty so the test exercises the "explicit overrides
+    # discovery" path rather than the "no discoverable configs" path.
+    _write(versions / "v1.0.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
+    # The explicit path lives outside the contracts/ subdir, which is fine --
+    # --config <path> is path-based, not subdir-discovery-based.
+    p = _write(cfgs / "weird.yaml", "epic: X\nversion: '7.7'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     chosen, reason = select_version_config(cfgs, explicit_path=p)
     assert chosen.version == "7.7"
     assert "explicit" in reason
@@ -97,27 +115,23 @@ def test_select_explicit_path_wins(tmp_path):
 
 def test_select_explicit_and_version_are_mutually_exclusive(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    p = _write(cfgs / "a.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n")
+    versions = _make_versions_dir(tmp_path)
+    p = _write(versions / "a.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     with pytest.raises(ConfigError):
         select_version_config(cfgs, version="1.0", explicit_path=p)
 
 
 def test_select_empty_dir_raises(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    with pytest.raises(ConfigError):
-        select_version_config(cfgs)
-
-
-def test_defaults_yaml_is_never_picked_as_a_version(tmp_path):
-    cfgs = _make_epic_dir(tmp_path)
-    # Only specs_parsing.yaml exists in the dir; no version configs.
-    with pytest.raises(ConfigError):
+    # No `configs/contracts/` subdir at all -> contract-version discovery
+    # surfaces the canonical error message.
+    with pytest.raises(ConfigError, match="no contract version configs found at"):
         select_version_config(cfgs)
 
 
 def test_tables_all_sentinel(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    p = _write(cfgs / "v.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n")
+    p = _write(cfgs / "v.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     cfg = EpicConfig.from_yaml(p)
     assert cfg.tables == ALL_TABLES
 
@@ -126,7 +140,7 @@ def test_tables_list(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     p = _write(
         cfgs / "v.yaml",
-        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables:\n  - table_name: PROJECT\n",
+        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables:\n  - table_name: PROJECT\n",
     )
     cfg = EpicConfig.from_yaml(p)
     assert isinstance(cfg.tables, list)
@@ -135,7 +149,7 @@ def test_tables_list(tmp_path):
 
 def test_merge_uses_defaults_column_mapping(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    p = _write(cfgs / "v.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n")
+    p = _write(cfgs / "v.yaml", "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     defaults = Defaults.from_yaml(cfgs / "specs_parsing.yaml")
     cfg = EpicConfig.from_yaml(p)
     merged = merge(defaults, cfg)
@@ -145,7 +159,7 @@ def test_merge_uses_defaults_column_mapping(tmp_path):
 def test_merge_overrides_partial_column_mapping(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     override_yaml = (
-        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n"
+        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n"
         "fields:\n"
         "  column_mapping:\n"
         "    description:\n"
@@ -162,7 +176,7 @@ def test_merge_overrides_partial_column_mapping(tmp_path):
 
 def test_missing_version_raises(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
-    p = _write(cfgs / "v.yaml", "epic: X\nspec_file_name: f.xlsx\ntables: all\n")
+    p = _write(cfgs / "v.yaml", "epic: X\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n")
     with pytest.raises(ConfigError):
         EpicConfig.from_yaml(p)
 
@@ -191,7 +205,7 @@ fields:
       default_value: null
 """ + minimal_keys_block_yaml())
     override_yaml = (
-        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntables: all\n"
+        "epic: X\nversion: '1.0'\nspec_file_name: f.xlsx\ntarget: postgres\ntables: all\n"
         "fields:\n"
         "  column_mapping:\n"
         "    description:\n"

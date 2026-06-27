@@ -12,12 +12,12 @@ def _bootstrap_epic(tmp_path: Path, repo_root: Path, *, bad_type: bool = False) 
     (tmp_path / "configs").mkdir(parents=True)
     copy2(repo_root / "configs" / "types.yaml", tmp_path / "configs" / "types.yaml")
     edir = tmp_path / "epics" / "E"
-    (edir / "configs").mkdir(parents=True)
+    (edir / "configs" / "contracts").mkdir(parents=True)
     (edir / "specs").mkdir(parents=True)
     (edir / "contracts").mkdir(parents=True)
     (tmp_path / "configs" / "specs_parsing.yaml").write_text(minimal_defaults_yaml(), encoding="utf-8")
-    (edir / "configs" / "v1.0.yaml").write_text(
-        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: T\n",
         encoding="utf-8",
     )
@@ -83,15 +83,15 @@ def test_lint_rejection_prefix(tmp_path: Path, repo_root: Path, monkeypatch, cap
     assert "[LINT-REJECTED]" in (captured.out + captured.err)
 
 
-def test_drift_command_between_two_history_snapshots(tmp_path: Path, repo_root: Path, monkeypatch):
+def test_generate_drift_between_two_history_snapshots(tmp_path: Path, repo_root: Path, monkeypatch):
     edir = _bootstrap_epic(tmp_path, repo_root)
     # Build v1.0
     monkeypatch.chdir(tmp_path)
     assert main(["generate", "--epic", "E"]) == 0
     # Hand-author a v2.0 snapshot by editing the spec and re-generating under v2.0.
-    (edir / "configs" / "v1.0.yaml").unlink()
-    (edir / "configs" / "v2.0.yaml").write_text(
-        "epic: E\nversion: '2.0'\nspec_file_name: spec.xlsx\n"
+    (edir / "configs" / "contracts" / "v1.0.yaml").unlink()
+    (edir / "configs" / "contracts" / "v2.0.yaml").write_text(
+        "epic: E\nversion: '2.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
         "tables:\n  - table_name: T\n",
         encoding="utf-8",
     )
@@ -103,8 +103,8 @@ def test_drift_command_between_two_history_snapshots(tmp_path: Path, repo_root: 
     wb.save(edir / "specs" / "spec.xlsx")
     assert main(["generate", "--epic", "E", "--version", "2.0"]) == 0
 
-    # Standalone drift command (no rebuild)
-    rc = main(["drift", "--epic", "E", "--table", "T", "--from", "1.0", "--to", "2.0", "--write"])
+    # Standalone generate-drift command (no rebuild). Writes by default.
+    rc = main(["generate-drift", "--epic", "E", "--table", "T", "--from", "1.0", "--to", "2.0"])
     assert rc == 0
     drift_file = edir / "contracts" / "drift" / "T__v1.0_to_v2.0.yaml"
     assert drift_file.exists()

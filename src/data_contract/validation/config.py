@@ -2,7 +2,6 @@
 
 YAML shape (top level):
 
-    target: oracle
     contracts_folder: "epics/1118/contracts"   # optional
     defaults:                                  # optional
       format: excel
@@ -45,8 +44,6 @@ YAML shape (top level):
         file_pattern: "calendar*.csv"          # overrides defaults.file_pattern
         parser_overrides:                      # per-format parser params,
           field_matching_policy: similarity    #   allowlist enforced per parser
-        field_mapping:                         # explicit source -> contract
-          "Report No.": "Record Number"        #   rename after the policy
         checks:                                # partial override allowed
           field:
             unique: true
@@ -64,15 +61,15 @@ Per-table keys recognized under `tables.<T>:`:
                        "similarity") is added automatically by the
                        FileParser base; the global similarity_threshold
                        comes from .env.
-  field_mapping     -- explicit source-name -> contract-field rename
-                       applied AFTER the parser's policy-driven rename.
-                       Use this for genuine semantic mappings the
-                       policy can't infer (e.g. "Report No." ->
-                       "Record Number"). For typos / case / spacing /
-                       word-order variants, the "similarity" policy
-                       handles it without listing each one here.
   checks            -- per-tier partial overrides on the global gates.
   metrics           -- same shape as checks.
+
+`target:` and `field_mapping:` were removed. Target lives on each
+generated contract (the runner reads it from the loaded contracts).
+Per-field source-vs-database renames live on the contract as well:
+each `FieldContract` carries `source_name` (the raw spec header) and
+`name` (the database identifier). Spec authors override the auto-slug
+via a `Nom BDD` cell in the spec when needed.
 
 Operator toggles (`rejected_row_cap`, `extra_columns_severity`,
 `similarity_threshold`) live in `.env` so they can vary by environment
@@ -86,13 +83,12 @@ Owned by each parser via the generic `field_matching_policy` param
     i-th contract field. Header text is ignored. Rename happens per
     file inside `FileParser._apply_field_matching`, before multi-file
     concat, so CSVs with disagreeing headers still align.
-  * `exact` (JSON default) -- columns whose names already equal a
-    contract field name bind by string equality. Mismatched columns
-    surface via `column_missing` / `extra_column`.
-  * `similarity` -- fuzzy match against contract field names with the
-    global `similarity_threshold` (.env). Catches typos / case /
-    spacing / punctuation / word-order variants; does NOT catch
-    semantic equivalents -- use `field_mapping` above for those.
+  * `exact` (JSON default) -- columns whose names match a contract
+    field's `source_name` (preferred) or `name` bind by string equality.
+    Mismatched columns surface via `column_missing` / `extra_column`.
+  * `similarity` -- fuzzy match against `source_name` (preferred) /
+    `name` with the global `similarity_threshold` (.env). Catches
+    typos, case, spacing, punctuation, and word-order variants.
 
 `checks.structural.field_names_from_sample` and
 `checks.structural.field_types_from_sample` are pure DRIFT checks: each
@@ -202,7 +198,6 @@ class TableValidationConfig:
     format: str
     file_pattern: str
     parser_overrides: dict[str, Any] = field(default_factory=dict)
-    field_mapping: dict[str, str] = field(default_factory=dict)
     checks: Gates = field(default_factory=Gates)
     metrics: Gates = field(default_factory=Gates)
 
@@ -224,7 +219,6 @@ class ValidationConfig:
     defaults: _DefaultsBlock = field(default_factory=_DefaultsBlock)
     tables: dict[str, TableValidationConfig] = field(default_factory=dict)
     declared_table_filter: tuple[str, ...] = ()
-    target: str = ""
     checks: Gates = field(default_factory=Gates)
     metrics: Gates = field(default_factory=Gates)
 
@@ -247,16 +241,12 @@ class ValidationConfig:
                 )
             contracts_folder = Path(contracts_folder_raw)
 
-        target_raw = raw.get("target")
-        if target_raw is None:
+        if "target" in raw:
             raise ConfigError(
-                f"{validation_yaml}: 'target' is required. Declare which target "
-                f"database the data is validated against -- e.g. `target: postgres` "
-                f"at the top level."
-            )
-        if not isinstance(target_raw, str) or not target_raw:
-            raise ConfigError(
-                f"{validation_yaml}: 'target' must be a non-empty string"
+                f"{validation_yaml}: the 'target:' field was moved to the epic "
+                f"version config (e.g. configs/contracts/v1.0.yaml) and is now stamped "
+                f"onto each generated contract. Remove 'target:' from "
+                f"validation.yaml; the runner reads it from the contracts."
             )
 
         global_checks = _parse_check_gates(
@@ -314,7 +304,6 @@ class ValidationConfig:
             defaults=defaults_block,
             tables=tables,
             declared_table_filter=tuple(declared_filter),
-            target=target_raw,
             checks=global_checks,
             metrics=global_metrics,
         )
@@ -417,17 +406,14 @@ def _resolve_table(
         merged, ctx=f"{validation_yaml}: tables.{table_name} parser_overrides",
     )
 
-    mapping_raw = table_raw.get("field_mapping", {}) or {}
-    if not isinstance(mapping_raw, dict):
+    if "field_mapping" in table_raw:
         raise ConfigError(
-            f"{validation_yaml}: tables.{table_name}.field_mapping must be a mapping"
+            f"{validation_yaml}: tables.{table_name}.field_mapping was removed. "
+            f"Per-field renames now live on the contract: each FieldContract "
+            f"carries `source_name` (the raw header) and `name` (the database "
+            f"identifier). Declare an explicit `Nom BDD` cell in the spec when "
+            f"the auto-slugified database name needs an override."
         )
-    for k, v in mapping_raw.items():
-        if not isinstance(k, str) or not isinstance(v, str):
-            raise ConfigError(
-                f"{validation_yaml}: tables.{table_name}.field_mapping keys and values "
-                f"must be strings; got {k!r}: {v!r}"
-            )
 
     for misplaced in ("sheet_name", "encoding", "delimiter", "header_row", "null_tokens", "quote_char"):
         if misplaced in table_raw:
@@ -453,7 +439,6 @@ def _resolve_table(
         format=fmt,
         file_pattern=file_pattern,
         parser_overrides=dict(table_overrides_raw),
-        field_mapping=dict(mapping_raw),
         checks=effective_checks,
         metrics=effective_metrics,
     )
