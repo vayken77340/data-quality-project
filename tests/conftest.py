@@ -213,6 +213,33 @@ def add_keys_sheet(
         ws.append(padded[:4])
 
 
+def workbook_with_sheet(
+    headers: tuple[str, ...] | list[str],
+    rows: list[tuple],
+    *,
+    sheet_name: str,
+    header_row: int = 1,
+    placeholder_sheet_title: str = "Other",
+) -> WorkbookType:
+    """Build a Workbook with one named sheet carrying `headers` + `rows`.
+
+    A placeholder default sheet (title `placeholder_sheet_title`) is created
+    alongside so the spec-reader's sheet-search logic has noise to skip past.
+    Each row is padded to `len(headers)`; rows longer than `headers` are
+    truncated. `header_row > 1` pads with blank rows above the header.
+    """
+    wb = Workbook()
+    wb.active.title = placeholder_sheet_title
+    ws = wb.create_sheet(sheet_name)
+    for _ in range(header_row - 1):
+        ws.append([None] * len(headers))
+    ws.append(list(headers))
+    for row in rows:
+        padded = list(row) + [None] * (len(headers) - len(row))
+        ws.append(padded[: len(headers)])
+    return wb
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     return REPO_ROOT

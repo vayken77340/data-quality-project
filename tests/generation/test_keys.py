@@ -33,8 +33,8 @@ from data_contract.generation.spec_reader import open_workbook
 from data_contract.type_mapping import Type
 
 from tests.conftest import (
-    add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml,
-    write_test_parsers_yaml,
+    KEYS_HEADERS, add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml,
+    workbook_with_sheet, write_test_parsers_yaml,
 )
 
 
@@ -62,10 +62,7 @@ def _keys_spec(yaml_str: str) -> KeysSpec:
 
 
 def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_name: str = "Keys") -> Workbook:
-    wb = Workbook()
-    wb.active.title = "Other"  # leave a non-keys sheet around
-    add_keys_sheet(wb, rows, sheet_name=sheet_name)
-    return wb
+    return workbook_with_sheet(KEYS_HEADERS, rows, sheet_name=sheet_name)
 
 
 # NOTE: kept local instead of routing through tests/conftest.py's

@@ -33,7 +33,9 @@ from data_contract.generation.joins import (
 )
 from data_contract.type_mapping import Type
 
-from tests.conftest import add_keys_sheet, minimal_defaults_yaml, write_test_parsers_yaml
+from tests.conftest import (
+    add_keys_sheet, minimal_defaults_yaml, workbook_with_sheet, write_test_parsers_yaml,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,16 +65,9 @@ def _joins_spec(yaml_str: str = _DEFAULT_JOINS_SPEC_YAML) -> JoinsSpec:
 
 
 def _wb_with_joins(rows: list[tuple], *, sheet_name: str = "Joins", header_row: int = 1) -> Workbook:
-    wb = Workbook()
-    wb.active.title = "Other"
-    ws = wb.create_sheet(sheet_name)
-    for _ in range(header_row - 1):
-        ws.append([None] * len(_JOINS_HEADERS))
-    ws.append(list(_JOINS_HEADERS))
-    for row in rows:
-        padded = list(row) + [None] * (len(_JOINS_HEADERS) - len(row))
-        ws.append(padded[: len(_JOINS_HEADERS)])
-    return wb
+    return workbook_with_sheet(
+        _JOINS_HEADERS, rows, sheet_name=sheet_name, header_row=header_row,
+    )
 
 
 # NOTE: kept local instead of using tests/conftest.py's `contract()` because
