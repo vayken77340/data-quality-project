@@ -58,7 +58,7 @@ column_mapping:
 _JOINS_HEADERS = ("Source Table", "Target Table", "Source Col", "Target Col", "Type", "Card", "Comment", "Description")
 
 
-def _spec(yaml_str: str = _DEFAULT_JOINS_SPEC_YAML) -> JoinsSpec:
+def _joins_spec(yaml_str: str = _DEFAULT_JOINS_SPEC_YAML) -> JoinsSpec:
     return JoinsSpec.from_dict(yaml.safe_load(yaml_str))
 
 
@@ -100,7 +100,7 @@ def _contract(table: str, fields: list[str]) -> Contract:
 def test_joins_sheet_not_found():
     wb = Workbook()
     wb.active.title = "Only"
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "joins_sheet_not_found" for e in result.errors)
 
 
@@ -109,7 +109,7 @@ def test_joins_sheet_ambiguous():
     wb.active.title = "Joins"
     other = wb.create_sheet("joins ")
     other.append(["x"])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "joins_sheet_ambiguous" for e in result.errors)
 
 
@@ -122,7 +122,7 @@ def test_joins_header_missing_required_column():
     wb = Workbook()
     ws = wb.create_sheet("Joins")
     ws.append(["Source Table", "Target Table"])  # missing required columns
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "header_not_found" for e in result.errors)
 
 
@@ -131,13 +131,13 @@ def test_joins_header_on_third_row():
         [("PROJECT", "PROJWBS", "proj_id", "proj_id", "LEFT JOIN", "1:n", None, None)],
         header_row=3,
     )
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert not result.errors
     assert result.rows[0].sheet_row == 4
 
 
 def test_joins_optional_columns_absent_ok():
-    spec = _spec("""
+    spec = _joins_spec("""
 sheet_name: Joins
 column_mapping:
   source_table:  { spec_name: Source Table }
@@ -164,31 +164,31 @@ column_mapping:
 
 def test_joins_row_missing_mandatory_source_table():
     wb = _wb_with_joins([(None, "PROJWBS", "x", "x", "LEFT")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "missing_mandatory" and e.field == "source_table" for e in result.errors)
 
 
 def test_joins_row_missing_mandatory_target_table():
     wb = _wb_with_joins([("PROJECT", None, "x", "x", "LEFT")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "missing_mandatory" and e.field == "target_table" for e in result.errors)
 
 
 def test_joins_row_missing_mandatory_source_column():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", None, "x", "LEFT")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "missing_mandatory" and e.field == "source_column" for e in result.errors)
 
 
 def test_joins_row_missing_mandatory_target_column():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", None, "LEFT")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "missing_mandatory" and e.field == "target_column" for e in result.errors)
 
 
 def test_joins_row_missing_mandatory_join_type():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", None)])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "missing_mandatory" and e.field == "join_type" for e in result.errors)
 
 
@@ -211,14 +211,14 @@ def test_joins_row_missing_mandatory_join_type():
 ])
 def test_join_type_normalization(raw, expected):
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", raw)])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert not result.errors
     assert result.rows[0].join_type == expected
 
 
 def test_invalid_join_type():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "FOOBAR JOIN")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "invalid_join_type" for e in result.errors)
 
 
@@ -248,13 +248,13 @@ def test_invalid_cardinality_returns_none():
 
 def test_invalid_cardinality_row_rejects():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", "manyish")])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert any(e.kind == "invalid_cardinality" for e in result.errors)
 
 
 def test_cardinality_blank_ok():
     wb = _wb_with_joins([("PROJECT", "PROJWBS", "x", "x", "LEFT", None)])
-    result = read_joins_sheet(wb, _spec())
+    result = read_joins_sheet(wb, _joins_spec())
     assert not result.errors
     assert result.rows[0].cardinality is None
 
@@ -557,7 +557,7 @@ def test_cardinality_custom_separator_with_spaces():
 def test_cardinality_separator_flows_from_config_through_reader():
     """End-to-end: defaults declares `separator: "->"`, the parser rejects
     `1:n` style values from the spec but accepts `1 -> n`."""
-    spec_strict = _spec("""
+    spec_strict = _joins_spec("""
 sheet_name: Joins
 column_mapping:
   source_table:  { spec_name: Source Table }

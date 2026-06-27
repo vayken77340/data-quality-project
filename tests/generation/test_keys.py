@@ -53,11 +53,11 @@ column_mapping:
 """
 
 
-def _spec_default() -> KeysSpec:
+def _keys_spec_default() -> KeysSpec:
     return KeysSpec.from_dict(yaml.safe_load(_DEFAULT_KEYS_SPEC_YAML))
 
 
-def _spec(yaml_str: str) -> KeysSpec:
+def _keys_spec(yaml_str: str) -> KeysSpec:
     return KeysSpec.from_dict(yaml.safe_load(yaml_str))
 
 
@@ -85,7 +85,7 @@ def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> F
 def test_keys_sheet_not_found():
     wb = Workbook()
     wb.active.title = "Only"  # no Keys sheet at all
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert len(result.errors) == 1
     assert result.errors[0].kind == "keys_sheet_not_found"
 
@@ -96,7 +96,7 @@ def test_keys_sheet_ambiguous():
     other = wb.create_sheet("keys ")  # trailing space — normalizes to "keys"
     other.append(["Table", "PK"])
     # Both should normalize to "keys"
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert any(e.kind == "keys_sheet_ambiguous" for e in result.errors)
 
 
@@ -107,7 +107,7 @@ def test_keys_sheet_case_insensitive_match():
     ws.append(["Table", "PK", "FK", "Comments"])
     ws.append(["T", "x", None, None])
     # Spec asks for "Keys"; the workbook has "KEYS" — should match.
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert not result.errors
     assert len(result.rows) == 1
     assert result.rows[0].table_name == "T"
@@ -123,7 +123,7 @@ def test_keys_header_missing_required_column():
     ws = wb.create_sheet("Keys")
     ws.append(["Table", "Comments"])  # missing PK column
     ws.append(["T", "anything"])
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert any(e.kind == "header_not_found" for e in result.errors)
 
 
@@ -134,7 +134,7 @@ def test_keys_header_on_third_row():
     ws.append([None, None, None, None])
     ws.append(["Table", "PK", "FK", "Comments"])
     ws.append(["T", "x", None, None])
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert not result.errors
     assert result.rows[0].sheet_row == 4
 
@@ -144,7 +144,7 @@ def test_keys_optional_columns_absent():
     ws = wb.create_sheet("Keys")
     ws.append(["Table", "PK"])  # no FK column, no Comments
     ws.append(["T", "x"])
-    spec = _spec("""
+    spec = _keys_spec("""
 sheet_name: Keys
 column_mapping:
   table_name:  { spec_name: Table }
@@ -162,26 +162,26 @@ column_mapping:
 
 def test_keys_row_missing_mandatory_table_name():
     wb = _wb_with_keys([(None, "x", None, None)])  # type: ignore[list-item]
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert any(e.kind == "missing_mandatory" and e.field == "table_name" for e in result.errors)
 
 
 def test_keys_row_missing_mandatory_primary_key():
     wb = _wb_with_keys([("T", None, None, None)])  # type: ignore[list-item]
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert any(e.kind == "missing_mandatory" and e.field == "primary_key" for e in result.errors)
 
 
 def test_keys_row_blank_optional_fk_ok():
     wb = _wb_with_keys([("T", "x", None, None)])
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert not result.errors
     assert result.rows[0].foreign_keys == []
 
 
 def test_keys_row_blank_comments_ok():
     wb = _wb_with_keys([("T", "x", None, None)])
-    result = read_keys_sheet(wb, _spec_default())
+    result = read_keys_sheet(wb, _keys_spec_default())
     assert not result.errors
 
 
@@ -203,7 +203,7 @@ def test_separator_split_drops_empty_pieces():
 
 
 def test_custom_separator():
-    spec = _spec("""
+    spec = _keys_spec("""
 sheet_name: Keys
 column_mapping:
   table_name:  { spec_name: Table }
@@ -504,7 +504,7 @@ keys:
 
 
 def test_keys_block_partial_columns_only_required_two():
-    spec = _spec("""
+    spec = _keys_spec("""
 sheet_name: Keys
 column_mapping:
   table_name:  { spec_name: Table }
@@ -516,7 +516,7 @@ column_mapping:
 
 def test_keys_separator_required_non_empty():
     with pytest.raises(ConfigError, match="separator"):
-        _spec("""
+        _keys_spec("""
 sheet_name: Keys
 column_mapping:
   table_name:  { spec_name: Table }
