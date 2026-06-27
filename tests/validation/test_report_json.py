@@ -123,7 +123,7 @@ def test_json_run_block_populated(tmp_path: Path):
     run = p["run"]
     assert run["epic"] == "T"
     assert run["status"] == "PASS"
-    assert run["tool_version"]
+    assert isinstance(run["tool_version"], str) and run["tool_version"].strip()
     assert run["target"] is not None
     assert run["target"]["name"] == "postgres"
     assert "fk_existence" in run["checks"]["enabled"]
@@ -281,7 +281,7 @@ def test_column_missing_routes_to_run_issues(tmp_path: Path):
     assert i["severity"] == "error"
     assert i["check_label"] == "Column missing in source"
     assert i["dimension"] == "completeness"
-    assert i["hint"]
+    assert isinstance(i["hint"], str) and i["hint"].strip()
     # And it does NOT appear in the row-level Top-issues aggregation.
     tbl = next(t for t in p["tables"] if t["table"] == "T")
     assert not any(v["kind"] == "column_missing" for v in tbl["violations"])
