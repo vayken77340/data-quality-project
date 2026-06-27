@@ -1,9 +1,9 @@
 """Tests for the generic `field_matching_policy` system on FileParser.
 
-The policy lives on the base class and is exercised end-to-end via
-`FileParser.read()` (which calls `_apply_field_matching` per file). These
-tests use a tiny in-memory parser whose `parse_file` emits a known
-LazyFrame; the focus is the policy itself, not any particular file format.
+The policy implementation lives in `data_parsers.field_matching`; FileParser
+calls `apply_policy(...)` once per file inside its `read()` loop. These tests
+use a tiny in-memory parser whose `parse_file` emits a known LazyFrame; the
+focus is the policy itself, not any particular file format.
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ from data_contract.data_parsers.base import (
     FileParser,
     ParsedFile,
     ParserSchema,
+)
+from data_contract.data_parsers.field_matching import (
     _normalize_for_matching,
     _similarity_score,
 )

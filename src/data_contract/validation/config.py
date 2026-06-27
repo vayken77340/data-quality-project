@@ -81,8 +81,8 @@ Owned by each parser via the generic `field_matching_policy` param
 (in `parser_overrides`):
   * `positional` (CSV / Excel default) -- the i-th data column is the
     i-th contract field. Header text is ignored. Rename happens per
-    file inside `FileParser._apply_field_matching`, before multi-file
-    concat, so CSVs with disagreeing headers still align.
+    file inside `data_parsers.field_matching.apply_policy`, before
+    multi-file concat, so CSVs with disagreeing headers still align.
   * `exact` (JSON default) -- columns whose names match a contract
     field's `source_name` (preferred) or `name` bind by string equality.
     Mismatched columns surface via `column_missing` / `extra_column`.

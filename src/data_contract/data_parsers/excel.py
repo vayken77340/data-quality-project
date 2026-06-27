@@ -23,9 +23,9 @@ class ExcelParser(FileParser):
                     `field_matching_policy` (default "positional" -- see
                     `default_field_matching_policy` below) is added by the
                     base class; column binding is handled uniformly in
-                    `FileParser._apply_field_matching` after `parse_file`
-                    returns. This parser just emits rows under the sheet's
-                    actual header text.
+                    `data_parsers.field_matching.apply_policy` after
+                    `parse_file` returns. This parser just emits rows under
+                    the sheet's actual header text.
     Reads via:      python-calamine (Rust-based xlsx reader). Every cell is
                     stringified via `_to_string` -- no Excel-specific
                     rendering, no format-string interpretation. Sheet

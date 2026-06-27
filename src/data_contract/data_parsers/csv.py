@@ -14,7 +14,7 @@ class CsvParser(FileParser):
                     The generic `field_matching_policy` (default
                     "positional" -- see `default_field_matching_policy`
                     below) is added by the base class; column binding is
-                    handled uniformly in `FileParser._apply_field_matching`
+                    handled uniformly in `data_parsers.field_matching.apply_policy`
                     after `parse_file` returns. This parser just emits the
                     LazyFrame with the actual CSV header as its column names.
     Reads via:      polars.scan_csv (lazy; predicate pushdown supported).
