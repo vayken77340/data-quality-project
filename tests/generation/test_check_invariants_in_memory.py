@@ -1,4 +1,4 @@
-"""Direct tests for `validate_contract.check_invariants_in_memory`."""
+"""Direct tests for `invariants.check_invariants_in_memory`."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from data_contract.contract import Contract, FieldContract
-from data_contract.generation.validate_contract import check_invariants_in_memory
+from data_contract.generation.invariants import check_invariants_in_memory
 from data_contract.type_mapping import Type, load_type_registry
 from tests.conftest import TYPES_YAML
 

@@ -232,7 +232,7 @@ def test_self_check_directly_via_check_invariants_catches_dangling_fk(repo_root)
     a fk_target_exists error."""
     from data_contract.contract import Contract, FieldContract
     from data_contract.type_mapping import Type, load_type_registry
-    from data_contract.generation.validate_contract import check_invariants
+    from data_contract.generation.invariants import check_invariants
 
     registry = load_type_registry(repo_root / "configs" / "types.yaml")
     contract = Contract(

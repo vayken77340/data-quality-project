@@ -56,7 +56,7 @@ from data_contract.generation.spec_reader import (
     open_workbook,
     read_sheet,
 )
-from data_contract.generation.validate_contract import check_invariants_in_memory
+from data_contract.generation.invariants import check_invariants_in_memory
 from data_contract.errors import ConfigError
 from data_contract.settings import Settings
 from data_contract.targets import load_target_config, resolve_target_path
