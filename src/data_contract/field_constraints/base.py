@@ -362,7 +362,9 @@ class FieldConstraint(ABC):
             field=self.name,
             message=(
                 f"field {self.name!r} (column {self.column.spec_name!r}) "
-                f"requires a value but the cell is empty"
+                f"requires a value but the cell is empty. Declare "
+                f"`default_value` on this column in specs_parsing.yaml "
+                f"to make blanks acceptable."
             ),
         )
 

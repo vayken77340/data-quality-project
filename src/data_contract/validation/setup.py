@@ -96,6 +96,10 @@ def prepare_run(
 
     target_name = _try_setup("", lambda: _resolve_target_name(contracts_by_table))
 
+    # NOTE: shape similar to generation/pipeline.py's `_overlay_target_or_warn`
+    # but with RunSetupError (hard fail) policy; the generator's site uses
+    # WARN-and-continue. Parameterising was considered + rejected in audit
+    # v7/v8 -- the different error policies dominate the shared shape.
     def _load_target():
         target_path = resolve_target_path(
             target_name, repo_root=types_path.parent.parent, epic_dir=epic_dir,

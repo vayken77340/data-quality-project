@@ -11,6 +11,9 @@ from data_contract.field_constraints.base import (
 from data_contract.type_mapping import Type
 
 
+# NOTE: shape ~85% overlaps with min_value.py; a `_NumericBoundConstraint`
+# shared base was considered + rejected in audit v7/v8. See min_value.py for
+# the rationale.
 class MaxValueConstraint(FieldConstraint):
     """An inclusive (or strict) upper bound on a field's values.
 

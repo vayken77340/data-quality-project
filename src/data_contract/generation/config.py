@@ -34,7 +34,11 @@ from data_contract.generation.nullable import NullableMapping
 def _check_required(raw: dict[str, Any], required: set[str], *, ctx: str) -> None:
     missing = required - raw.keys()
     if missing:
-        raise ConfigError(f"{ctx} missing required entries: {sorted(missing)}")
+        raise ConfigError(
+            f"{ctx} missing required entries: {sorted(missing)}. "
+            f"Declare them in configs/specs_parsing.yaml under the matching "
+            f"section; see configs/specs_parsing.yaml for the full shape."
+        )
 
 
 def _make_col_parser(raw: dict[str, Any], *, prefix: str) -> Callable[[str], ColumnRef]:

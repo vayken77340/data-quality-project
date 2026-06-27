@@ -58,8 +58,8 @@ Spaces are allowed but mean every CLI invocation needs quotes — `python -m dat
 - `generate-drift --epic E [--table T] [--from V1 --to V2] [--no-write]` — generate drift files. Default: walks every consecutive history pair (`v_n-1 → v_n`) for every table and writes one drift file per non-empty pair. `--from/--to` narrows to a specific pair; `--table` narrows to one table. `--no-write` is the dry-run mode.
 - `export-schema [--out PATH]` — render the contract JSON Schema (default `docs/contract-schema.json`). Idempotent: only writes when content changes.
 - `validate-contract [--epic E | --file PATH]` — validate a contract YAML on disk against the JSON Schema and the semantic invariants (PK not nullable, max_length on strings only, FK targets exist, etc.). Different from `lint`: `lint` re-runs spec→contract, `validate-contract` checks a YAML file as-is. Exit codes same as `generate`.
-- `validate-data --epic E [--table T]` — load the contracts, glob the sample data per `validation.yaml.file_pattern`, run the configured checks and metrics, write the JSON / Markdown / HTML / XLSX reports.
-- `regen-docs [--path docs/constraints.md]` — rewrite the auto-generated catalog and format-token tables in `docs/constraints.md`.
+- `validate-data --epic E [--table T]` — load the contracts, glob the sample data per `validation.yaml.file_pattern`, run the configured checks and metrics, write the reports. All four formats (JSON, Markdown, HTML, XLSX) are written by default to `epics/<epic>/validations/`; `--json` adds a stdout echo of the JSON report on top of the file emission (it does NOT switch from "files" to "stdout").
+- `regen-docs [--path docs/constraints.md]` — rewrite the auto-generated catalog and format-token tables in `docs/constraints.md`. Run after adding/removing a `FieldConstraint` subclass or a format token; `lint` gates freshness (see above) and will fail in CI until this is re-run and the diff is committed.
 
 ## Field naming
 

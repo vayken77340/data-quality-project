@@ -275,6 +275,11 @@ def _overlay_target_or_warn(
     Soft failure: when the target file is missing or malformed, generation
     proceeds without the overlay -- `physical_type` is omitted from every
     field but the contract is still valid. Validation is the strict consumer.
+
+    NOTE: shape similar to validation/setup.py's target-overlay block but
+    with WARN-and-continue policy; the validator's site uses RunSetupError
+    (hard fail). Parameterising was considered + rejected in audit v7/v8 --
+    the different error policies dominate the shared shape.
     """
     try:
         target_path = resolve_target_path(

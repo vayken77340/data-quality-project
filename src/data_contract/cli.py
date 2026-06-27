@@ -136,7 +136,11 @@ def _build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--table", default=None, help="Restrict to one table.")
     drift.add_argument("--from", dest="from_version", default=None, help="Older history version, e.g. 1.0. Requires --to.")
     drift.add_argument("--to", dest="to_version", default=None, help="Newer history version, e.g. 2.0. Requires --from.")
-    drift.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
+    drift.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
+        "Root directory of the per-epic spec/config trees "
+        "(epics/<name>/spec/, configs/, contracts/). "
+        "Default: epics/. Override only for tests or non-standard layouts."
+    ))
     drift.add_argument(
         "--no-write",
         action="store_true",
@@ -162,8 +166,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Validate every <epic>/contracts/*.yaml.",
     )
     validate_c.add_argument("--file", default=None, help="Validate a single YAML file. Mutually exclusive with --epic.")
-    validate_c.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
-    validate_c.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
+    validate_c.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
+        "Root directory of the per-epic spec/config trees "
+        "(epics/<name>/spec/, configs/, contracts/). "
+        "Default: epics/. Override only for tests or non-standard layouts."
+    ))
+    validate_c.add_argument("--types", default=str(DEFAULT_TYPES_PATH), help=(
+        "Path to the global type registry YAML (canonical types + per-target "
+        "overrides). Default: configs/types.yaml."
+    ))
     validate_c.add_argument(
         "--allow-unknown-constraints",
         action="store_true",
@@ -206,9 +217,23 @@ def _build_parser() -> argparse.ArgumentParser:
             "Relative paths resolve under the epic dir; absolute paths are used as-is."
         ),
     )
-    validate_d.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
-    validate_d.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
-    validate_d.add_argument("--strict-columns", action="store_true", help="Extra columns -> error (default: warning).")
+    validate_d.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
+        "Root directory of the per-epic spec/config trees "
+        "(epics/<name>/spec/, configs/, contracts/). "
+        "Default: epics/. Override only for tests or non-standard layouts."
+    ))
+    validate_d.add_argument("--types", default=str(DEFAULT_TYPES_PATH), help=(
+        "Path to the global type registry YAML (canonical types + per-target "
+        "overrides). Default: configs/types.yaml."
+    ))
+    validate_d.add_argument(
+        "--strict-columns",
+        action="store_true",
+        help=(
+            "Treat extra columns in sample data as ERROR (default: WARNING). "
+            "Use when fail-fast on unknown headers is desired."
+        ),
+    )
     validate_d.add_argument("--json", action="store_true", help="Also emit the structured JSON report to stdout.")
 
     return p
@@ -224,10 +249,32 @@ def _add_generate_args(p: argparse.ArgumentParser) -> None:
         ),
     )
     p.add_argument("--version", default=None, help="Pick a specific version config (mutually exclusive with --config).")
-    p.add_argument("--config", default=None, help="Explicit path to a version config (requires --epic; mutually exclusive with --version).")
-    p.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT))
-    p.add_argument("--types", default=str(DEFAULT_TYPES_PATH))
-    p.add_argument("--allow-unknown-types", action="store_true")
+    p.add_argument(
+        "--config", default=None,
+        help=(
+            "Explicit path to a version config under epics/<epic>/configs/contracts/ "
+            "(e.g. epics/1118/configs/contracts/v1.0.yaml). "
+            "Requires --epic; mutually exclusive with --version."
+        ),
+    )
+    p.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
+        "Root directory of the per-epic spec/config trees "
+        "(epics/<name>/spec/, configs/, contracts/). "
+        "Default: epics/. Override only for tests or non-standard layouts."
+    ))
+    p.add_argument("--types", default=str(DEFAULT_TYPES_PATH), help=(
+        "Path to the global type registry YAML (canonical types + per-target "
+        "overrides). Default: configs/types.yaml."
+    ))
+    p.add_argument(
+        "--allow-unknown-types",
+        action="store_true",
+        help=(
+            "Don't fail on column types in the spec that aren't declared in "
+            "configs/types.yaml. Use to onboard a spec with custom types "
+            "before the registry catches up."
+        ),
+    )
     p.add_argument("-v", "--verbose", action="store_true")
 
 

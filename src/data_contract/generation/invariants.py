@@ -123,7 +123,11 @@ def check_invariants(
             out.append(InvariantError(
                 kind="max_length_only_on_string",
                 table=contract.table, field=f.name,
-                message=f"max_length is set on a {f.type.value!r} field (only string carries max_length)",
+                message=(
+                    f"max_length is set on a {f.type.value!r} field "
+                    f"(only string carries max_length). Remove `max_length` from "
+                    f"field {f.name!r}, or change its type to `string`."
+                ),
             ))
 
         # precision/scale apply to decimal only. IEEE float types do NOT carry

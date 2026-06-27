@@ -10,6 +10,12 @@ from data_contract.field_constraints.base import (
 )
 
 
+# NOTE: shape ~85% overlaps with max_value.py; a `_NumericBoundConstraint`
+# shared base was considered + rejected in audit v7/v8. The per-side constants
+# (`>=`/`>` vs `<=`/`<`, breaking-direction semantics) thread through every
+# method, so the shared base would mostly carry per-side parameters rather
+# than shared behaviour. Leave the duplication; revisit only if a third
+# numeric-bound constraint shows up.
 class MinValueConstraint(FieldConstraint):
     """An inclusive (or strict) lower bound on a field's values.
 
