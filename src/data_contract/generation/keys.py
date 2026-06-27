@@ -15,12 +15,13 @@ rejections through the existing quarantine pattern.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field, replace
 
 from openpyxl.workbook.workbook import Workbook
 
 from data_contract.generation.config import KeysSpec
-from data_contract.contract import FieldContract
+from data_contract.contract import Contract, FieldContract, Rejection
 from data_contract.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
 from data_contract.generation.sheet_io import (
@@ -314,5 +315,90 @@ def enrich_field_contract_list(
     # preserving the original order.
     new_fields = [by_name[f.name] for f in fields]
     return new_fields, errors, fk_warnings
+
+
+def enrich_with_keys(
+    result: Contract | Rejection,
+    keys_data: "KeysData",
+    pk_index: dict[str, set[str]],
+    *,
+    fk_allow_violations: bool = False,
+    allow_missing_primary_keys: bool = False,
+) -> Contract | Rejection:
+    """Apply keys-sheet PK/FK enrichment to a fresh build result.
+
+    - If `result` is already a Rejection: prepend any keys-sheet structural
+      errors so reviewers see the upstream cause.
+    - If `result` is a Contract and the keys-sheet had structural errors:
+      convert to a Rejection carrying those errors.
+    - If `result` is a Contract and the table has no row in the keys sheet:
+      * `allow_missing_primary_keys=True` -> return the contract unchanged
+        (no PK enrichment; pk_uniqueness will have nothing to check, so
+        duplicates in the sample become tolerated).
+      * Otherwise -> Rejection (keys_missing_table).
+    - Otherwise: enrich in place; convert to Rejection only if enrichment
+      collects any errors.
+    """
+    if isinstance(result, Rejection):
+        if keys_data.errors:
+            result.errors = list(keys_data.errors) + result.errors
+        return result
+
+    contract = result
+    if keys_data.errors:
+        return Rejection(
+            version=contract.version, epic=contract.epic,
+            generated_at=contract.generated_at,
+            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
+            table=contract.table, target=contract.target,
+            errors=list(keys_data.errors),
+        )
+
+    rows_for_table = keys_data.rows_for_table(contract.table)
+    if not rows_for_table:
+        if allow_missing_primary_keys:
+            print(
+                f"[WARN] {contract.table}: no row in the keys sheet; "
+                f"emitting the contract without a primary key "
+                f"(allow_missing_primary_keys=true)",
+                file=sys.stderr,
+            )
+            return contract
+        return Rejection(
+            version=contract.version, epic=contract.epic,
+            generated_at=contract.generated_at,
+            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
+            table=contract.table, target=contract.target,
+            errors=[RejectionError(
+                kind="keys_missing_table", field="table_name", value=contract.table,
+                message=(
+                    f"keys sheet has no row for table {contract.table!r}; "
+                    f"every generated table must have an entry in the keys sheet "
+                    f"(set allow_missing_primary_keys=true in .env to relax)"
+                ),
+            )],
+        )
+
+    enriched_fields, errors, fk_warnings = enrich_field_contract_list(
+        contract.fields, contract.table, rows_for_table, pk_index,
+        fk_allow_violations=fk_allow_violations,
+    )
+    for w in fk_warnings:
+        print(
+            f"[WARN] {contract.table}: skipped FK enrichment ({w.kind}) on field {w.field!r} "
+            f"because allow_foreign_key_violation=true (.env)",
+            file=sys.stderr,
+        )
+    if errors:
+        return Rejection(
+            version=contract.version, epic=contract.epic,
+            generated_at=contract.generated_at,
+            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
+            table=contract.table, target=contract.target, errors=errors,
+        )
+    # `FieldContract` is frozen; enrichment returns new instances. Rebind the
+    # contract's field list to the enriched copies before returning.
+    contract.fields = enriched_fields
+    return contract
 
 

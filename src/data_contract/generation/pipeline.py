@@ -16,11 +16,10 @@ import sys
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
-from data_contract._util import now_iso_z
-from data_contract.contract import Contract, Rejection
-from data_contract.errors import RejectionError, SpecReaderError
+from data_contract.contract import Contract
+from data_contract.errors import SpecReaderError
 from data_contract.generation.builder import (
-    build_contract,
+    build_one_table,
     history_path_for_table,
     write_history_only,
     write_outputs,
@@ -44,17 +43,10 @@ from data_contract.generation.joins import (
     read_joins_sheet,
     write_joins_outputs,
 )
-from data_contract.generation.keys import (
-    KeysData,
-    build_pk_index,
-    enrich_field_contract_list,
-    read_keys_sheet,
-)
+from data_contract.generation.keys import build_pk_index, read_keys_sheet
 from data_contract.generation.spec_reader import (
-    iter_field_rows,
     list_table_spec_sheets,
     open_workbook,
-    read_sheet,
 )
 from data_contract.generation.invariants import check_invariants_in_memory
 from data_contract.errors import ConfigError
@@ -380,185 +372,6 @@ def _build_one_version(
     if is_canonical:
         return version_contracts, joins_contract, spec_file_rel
     return None
-
-
-# ---------------------------------------------------------------------------
-# Build-result transformations (Contract | Rejection -> Contract | Rejection)
-# ---------------------------------------------------------------------------
-
-
-def build_one_table(
-    merged: MergedConfig,
-    selector: TableSelector,
-    wb,
-    *,
-    registry: TypeRegistry,
-    spec_file_rel: str,
-    allow_unknown_types: bool,
-    keys_data: KeysData,
-    pk_index: dict[str, set[str]],
-    seen_tables: dict[str, str],
-    settings: Settings,
-) -> Contract | Rejection:
-    """Build one table end-to-end: read sheet, build contract, enrich with keys,
-    check for cross-sheet duplicates. Returns the final `Contract` on success
-    or a `Rejection` carrying every collected error.
-
-    Pure: no file writes, no console prints. `process_epic`'s per-version
-    loop calls this once per (version, table); the caller chooses how to
-    persist or report the result.
-    """
-    sheet_name = selector.table_name
-    read = read_sheet(wb, sheet_name, merged.column_mapping)
-    if read.error is not None:
-        return Rejection(
-            version=merged.version,
-            epic=merged.epic,
-            generated_at=now_iso_z(),
-            spec_file=spec_file_rel,
-            spec_sheet=sheet_name,
-            table=sheet_name,
-            target=merged.target,
-            errors=keys_data.errors + [read.error],
-        )
-
-    sheet_spec = read.spec
-    assert sheet_spec is not None
-    rows = list(iter_field_rows(wb, sheet_spec))
-    result = build_contract(
-        merged, sheet_spec, rows,
-        type_registry=registry,
-        spec_file_rel=spec_file_rel,
-        table_name_from_config=sheet_name,
-        allow_unknown_types=allow_unknown_types,
-    )
-    result = enrich_with_keys(
-        result, keys_data, pk_index,
-        fk_allow_violations=settings.allow_foreign_key_violation,
-        allow_missing_primary_keys=settings.allow_missing_primary_keys,
-    )
-    result = check_duplicate_table(result, sheet_name, seen_tables)
-    return result
-
-
-def check_duplicate_table(
-    result: Contract | Rejection,
-    sheet_name: str,
-    seen_tables: dict[str, str],
-) -> Contract | Rejection:
-    """If `result.table` was already produced by an earlier sheet, convert it
-    into a duplicate-table rejection and route to a disambiguated filename so
-    the earlier sheet's canonical/history output isn't overwritten."""
-    prior_sheet = seen_tables.get(result.table)
-    if prior_sheet is None:
-        seen_tables[result.table] = sheet_name
-        return result
-
-    distinguished = f"{result.table}__from_sheet_{sheet_name}"
-    return Rejection(
-        version=result.version,
-        epic=result.epic,
-        generated_at=result.generated_at,
-        spec_file=result.spec_file,
-        spec_sheet=sheet_name,
-        table=distinguished,
-        target=result.target,
-        errors=[RejectionError(
-            kind="duplicate_table_across_sheets",
-            field="table",
-            value=result.table,
-            message=(
-                f"sheet {sheet_name!r} resolves to table {result.table!r}, "
-                f"which was already produced by sheet {prior_sheet!r} earlier in this run; "
-                f"check the spec's Table column for cross-sheet inconsistency"
-            ),
-        )],
-    )
-
-
-def enrich_with_keys(
-    result: Contract | Rejection,
-    keys_data: KeysData,
-    pk_index: dict[str, set[str]],
-    *,
-    fk_allow_violations: bool = False,
-    allow_missing_primary_keys: bool = False,
-) -> Contract | Rejection:
-    """Apply keys-sheet PK/FK enrichment to a fresh build result.
-
-    - If `result` is already a Rejection: prepend any keys-sheet structural
-      errors so reviewers see the upstream cause.
-    - If `result` is a Contract and the keys-sheet had structural errors:
-      convert to a Rejection carrying those errors.
-    - If `result` is a Contract and the table has no row in the keys sheet:
-      * `allow_missing_primary_keys=True` -> return the contract unchanged
-        (no PK enrichment; pk_uniqueness will have nothing to check, so
-        duplicates in the sample become tolerated).
-      * Otherwise -> Rejection (keys_missing_table).
-    - Otherwise: enrich in place; convert to Rejection only if enrichment
-      collects any errors.
-    """
-    if isinstance(result, Rejection):
-        if keys_data.errors:
-            result.errors = list(keys_data.errors) + result.errors
-        return result
-
-    contract = result
-    if keys_data.errors:
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target,
-            errors=list(keys_data.errors),
-        )
-
-    rows_for_table = keys_data.rows_for_table(contract.table)
-    if not rows_for_table:
-        if allow_missing_primary_keys:
-            print(
-                f"[WARN] {contract.table}: no row in the keys sheet; "
-                f"emitting the contract without a primary key "
-                f"(allow_missing_primary_keys=true)",
-                file=sys.stderr,
-            )
-            return contract
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target,
-            errors=[RejectionError(
-                kind="keys_missing_table", field="table_name", value=contract.table,
-                message=(
-                    f"keys sheet has no row for table {contract.table!r}; "
-                    f"every generated table must have an entry in the keys sheet "
-                    f"(set allow_missing_primary_keys=true in .env to relax)"
-                ),
-            )],
-        )
-
-    enriched_fields, errors, fk_warnings = enrich_field_contract_list(
-        contract.fields, contract.table, rows_for_table, pk_index,
-        fk_allow_violations=fk_allow_violations,
-    )
-    for w in fk_warnings:
-        print(
-            f"[WARN] {contract.table}: skipped FK enrichment ({w.kind}) on field {w.field!r} "
-            f"because allow_foreign_key_violation=true (.env)",
-            file=sys.stderr,
-        )
-    if errors:
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target, errors=errors,
-        )
-    # `FieldContract` is frozen; enrichment returns new instances. Rebind the
-    # contract's field list to the enriched copies before returning.
-    contract.fields = enriched_fields
-    return contract
 
 
 # ---------------------------------------------------------------------------

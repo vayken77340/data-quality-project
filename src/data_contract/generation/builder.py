@@ -35,9 +35,16 @@ from data_contract.core.slugify import slugify
 from data_contract.core.yaml_io import dump_yaml
 from data_contract.errors import ErrorCollector, RejectionError
 from data_contract.field_constraints.base import ConstraintContext
-from data_contract.generation.config import MergedConfig
+from data_contract.generation.config import MergedConfig, TableSelector
+from data_contract.generation.keys import KeysData, enrich_with_keys
 from data_contract.generation.nullable import parse_nullable
-from data_contract.generation.spec_reader import RawField, SheetSpec
+from data_contract.generation.spec_reader import (
+    RawField,
+    SheetSpec,
+    iter_field_rows,
+    read_sheet,
+)
+from data_contract.settings import Settings
 from data_contract.type_mapping import (
     ParsedType,
     Type,
@@ -293,6 +300,100 @@ def build_contract(
     if collector.has_errors():
         return Rejection(**common, errors=collector.errors)
     return Contract(**common, fields=fields)
+
+
+# ---------------------------------------------------------------------------
+# Per-table build pipeline
+# ---------------------------------------------------------------------------
+
+
+def build_one_table(
+    merged: MergedConfig,
+    selector: TableSelector,
+    wb,
+    *,
+    registry: TypeRegistry,
+    spec_file_rel: str,
+    allow_unknown_types: bool,
+    keys_data: KeysData,
+    pk_index: dict[str, set[str]],
+    seen_tables: dict[str, str],
+    settings: Settings,
+) -> Contract | Rejection:
+    """Build one table end-to-end: read sheet, build contract, enrich with keys,
+    check for cross-sheet duplicates. Returns the final `Contract` on success
+    or a `Rejection` carrying every collected error.
+
+    Pure: no file writes, no console prints. `process_epic`'s per-version
+    loop calls this once per (version, table); the caller chooses how to
+    persist or report the result.
+    """
+    sheet_name = selector.table_name
+    read = read_sheet(wb, sheet_name, merged.column_mapping)
+    if read.error is not None:
+        return Rejection(
+            version=merged.version,
+            epic=merged.epic,
+            generated_at=now_iso_z(),
+            spec_file=spec_file_rel,
+            spec_sheet=sheet_name,
+            table=sheet_name,
+            target=merged.target,
+            errors=keys_data.errors + [read.error],
+        )
+
+    sheet_spec = read.spec
+    assert sheet_spec is not None
+    rows = list(iter_field_rows(wb, sheet_spec))
+    result = build_contract(
+        merged, sheet_spec, rows,
+        type_registry=registry,
+        spec_file_rel=spec_file_rel,
+        table_name_from_config=sheet_name,
+        allow_unknown_types=allow_unknown_types,
+    )
+    result = enrich_with_keys(
+        result, keys_data, pk_index,
+        fk_allow_violations=settings.allow_foreign_key_violation,
+        allow_missing_primary_keys=settings.allow_missing_primary_keys,
+    )
+    result = check_duplicate_table(result, sheet_name, seen_tables)
+    return result
+
+
+def check_duplicate_table(
+    result: Contract | Rejection,
+    sheet_name: str,
+    seen_tables: dict[str, str],
+) -> Contract | Rejection:
+    """If `result.table` was already produced by an earlier sheet, convert it
+    into a duplicate-table rejection and route to a disambiguated filename so
+    the earlier sheet's canonical/history output isn't overwritten."""
+    prior_sheet = seen_tables.get(result.table)
+    if prior_sheet is None:
+        seen_tables[result.table] = sheet_name
+        return result
+
+    distinguished = f"{result.table}__from_sheet_{sheet_name}"
+    return Rejection(
+        version=result.version,
+        epic=result.epic,
+        generated_at=result.generated_at,
+        spec_file=result.spec_file,
+        spec_sheet=sheet_name,
+        table=distinguished,
+        target=result.target,
+        errors=[RejectionError(
+            kind="duplicate_table_across_sheets",
+            field="table",
+            value=result.table,
+            message=(
+                f"sheet {sheet_name!r} resolves to table {result.table!r}, "
+                f"which was already produced by sheet {prior_sheet!r} earlier in this run; "
+                f"check the spec's Table column for cross-sheet inconsistency"
+            ),
+        )],
+    )
 
 
 # ---------------------------------------------------------------------------

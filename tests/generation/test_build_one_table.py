@@ -1,4 +1,4 @@
-"""Direct tests for `pipeline.build_one_table` -- the per-table core shared
+"""Direct tests for `builder.build_one_table` -- the per-table core shared
 by `process_epic` and `backfill_missing_history`."""
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ import pytest
 from openpyxl import Workbook
 
 from data_contract.contract import Contract, Rejection
+from data_contract.generation.builder import build_one_table
 from data_contract.generation.config import (
     ColumnMapping, KeysSpec, MergedConfig, TableSelector,
 )
 from data_contract.generation.keys import build_pk_index, read_keys_sheet
-from data_contract.generation.pipeline import build_one_table
 from data_contract.generation.spec_reader import open_workbook
 from data_contract.settings import Settings
 from data_contract.type_mapping import load_type_registry
