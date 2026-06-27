@@ -68,9 +68,12 @@ def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_
     return wb
 
 
+# NOTE: kept local instead of routing through tests/conftest.py's
+# `field_contract` because PK-enrichment tests need `nullable=False` as the
+# default (the canonical factory uses `nullable=True`, which would trip the
+# `nullable_primary_key` invariant on every PK callsite). Renaming 15+
+# callsites to pass `nullable=False` explicitly was rejected in audit v7/v8.
 def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> FieldContract:
-    """Default `nullable=False` so PK-enriched fields don't trip the
-    `nullable_primary_key` rule unless a test explicitly sets it."""
     return FieldContract(name=name, type=type_, nullable=nullable, description=None)
 
 

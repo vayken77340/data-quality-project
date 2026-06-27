@@ -9,10 +9,7 @@ from data_contract.contract import FieldContract
 from data_contract.type_mapping import Type
 from data_contract.validation.emit import emit_from_lazy, extract_pk_values
 from data_contract.validation.models import TableReport
-
-
-def _field(name: str, t: Type = Type.STRING) -> FieldContract:
-    return FieldContract(name=name, type=t, nullable=True, description=None)
+from tests.conftest import field_contract as _field
 
 
 def _report() -> TableReport:

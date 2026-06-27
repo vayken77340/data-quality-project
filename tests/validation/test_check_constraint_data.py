@@ -10,6 +10,7 @@ from data_contract.field_constraints.min_value import MinValueConstraint
 from data_contract.field_constraints.pattern import PatternConstraint
 from data_contract.field_constraints.unique import UniqueConstraint
 from data_contract.type_mapping import Type
+from tests.conftest import field_contract as _field
 
 
 def _frame(rows: list[dict]) -> pl.LazyFrame:
@@ -24,10 +25,6 @@ def _check(cls, value, params=None) -> FieldCheck:
         value=value,
         params=params or {},
     )
-
-
-def _field(name: str, t: Type = Type.STRING) -> FieldContract:
-    return FieldContract(name=name, type=t, nullable=True, description=None)
 
 
 # ---------------------------------------------------------------------------

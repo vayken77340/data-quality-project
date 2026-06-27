@@ -6,6 +6,31 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.workbook.workbook import Workbook as WorkbookType
 
+from data_contract.contract import FieldContract
+from data_contract.type_mapping import Type
+
+
+def field_contract(
+    name: str,
+    type_: Type = Type.STRING,
+    *,
+    nullable: bool = True,
+    max_length: int | None = None,
+    description: str | None = None,
+) -> FieldContract:
+    """Canonical FieldContract factory for tests.
+
+    Default `nullable=True` matches FieldContract's natural shape for column
+    checks / data validation tests. PK-enrichment tests in
+    `tests/generation/test_keys.py` keep a local `_field()` wrapper with
+    `nullable=False` so PK fields don't trip the `nullable_primary_key`
+    invariant -- see that file for the rationale.
+    """
+    return FieldContract(
+        name=name, type=type_, nullable=nullable,
+        description=description, max_length=max_length,
+    )
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EPIC_1118 = REPO_ROOT / "epics" / "1118"
 SAMPLE_SPEC = EPIC_1118 / "specs" / "Spec_example.xlsx"
