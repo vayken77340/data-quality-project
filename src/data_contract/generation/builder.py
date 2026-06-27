@@ -374,15 +374,9 @@ def check_duplicate_table(
         seen_tables[result.table] = sheet_name
         return result
 
-    distinguished = f"{result.table}__from_sheet_{sheet_name}"
-    return Rejection(
-        version=result.version,
-        epic=result.epic,
-        generated_at=result.generated_at,
-        spec_file=result.spec_file,
+    return result.reject(
         spec_sheet=sheet_name,
-        table=distinguished,
-        target=result.target,
+        table=f"{result.table}__from_sheet_{sheet_name}",
         errors=[RejectionError(
             kind="duplicate_table_across_sheets",
             field="table",

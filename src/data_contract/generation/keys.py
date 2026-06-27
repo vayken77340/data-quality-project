@@ -341,18 +341,12 @@ def enrich_with_keys(
     """
     if isinstance(result, Rejection):
         if keys_data.errors:
-            result.errors = list(keys_data.errors) + result.errors
+            result.prepend(keys_data.errors)
         return result
 
     contract = result
     if keys_data.errors:
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target,
-            errors=list(keys_data.errors),
-        )
+        return contract.reject(errors=list(keys_data.errors))
 
     rows_for_table = keys_data.rows_for_table(contract.table)
     if not rows_for_table:
@@ -364,20 +358,14 @@ def enrich_with_keys(
                 file=sys.stderr,
             )
             return contract
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target,
-            errors=[RejectionError(
-                kind="keys_missing_table", field="table_name", value=contract.table,
-                message=(
-                    f"keys sheet has no row for table {contract.table!r}; "
-                    f"every generated table must have an entry in the keys sheet "
-                    f"(set allow_missing_primary_keys=true in .env to relax)"
-                ),
-            )],
-        )
+        return contract.reject(errors=[RejectionError(
+            kind="keys_missing_table", field="table_name", value=contract.table,
+            message=(
+                f"keys sheet has no row for table {contract.table!r}; "
+                f"every generated table must have an entry in the keys sheet "
+                f"(set allow_missing_primary_keys=true in .env to relax)"
+            ),
+        )])
 
     enriched_fields, errors, fk_warnings = enrich_field_contract_list(
         contract.fields, contract.table, rows_for_table, pk_index,
@@ -390,12 +378,7 @@ def enrich_with_keys(
             file=sys.stderr,
         )
     if errors:
-        return Rejection(
-            version=contract.version, epic=contract.epic,
-            generated_at=contract.generated_at,
-            spec_file=contract.spec_file, spec_sheet=contract.spec_sheet,
-            table=contract.table, target=contract.target, errors=errors,
-        )
+        return contract.reject(errors=errors)
     # `FieldContract` is frozen; enrichment returns new instances. Rebind the
     # contract's field list to the enriched copies before returning.
     contract.fields = enriched_fields

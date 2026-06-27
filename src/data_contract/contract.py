@@ -201,6 +201,32 @@ class _Provenance:
             out["target"] = self.target
         return out
 
+    def reject(
+        self,
+        *,
+        errors: list[RejectionError],
+        spec_sheet: str | None = None,
+        table: str | None = None,
+    ) -> "Rejection":
+        """Produce a `Rejection` that mirrors this Contract/Rejection's
+        provenance, carrying the supplied errors.
+
+        Optional `spec_sheet` / `table` overrides let cross-sheet duplicate
+        detection emit a Rejection under a disambiguated table name without
+        re-listing every other provenance field. Adding a new provenance
+        field on `_Provenance` automatically propagates through this method.
+        """
+        return Rejection(
+            version=self.version,
+            epic=self.epic,
+            generated_at=self.generated_at,
+            spec_file=self.spec_file,
+            spec_sheet=spec_sheet if spec_sheet is not None else self.spec_sheet,
+            table=table if table is not None else self.table,
+            target=self.target,
+            errors=errors,
+        )
+
 
 @dataclass
 class Contract(_Provenance):
@@ -261,6 +287,13 @@ class Rejection(_Provenance):
         out = self._provenance_dict()
         out["errors"] = [e.to_dict() for e in self.errors]
         return out
+
+    def prepend(self, errors: list[RejectionError]) -> "Rejection":
+        """Splice `errors` to the front of this Rejection's error list and
+        return self. Used to surface upstream causes (e.g. keys-sheet
+        structural errors) ahead of the rejection's own errors."""
+        self.errors = list(errors) + self.errors
+        return self
 
 
 BuildResult = Union[Contract, Rejection]
