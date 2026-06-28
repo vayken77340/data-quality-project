@@ -251,3 +251,39 @@ def test_supported_constraint_names_lists_current_set():
     assert supported_constraint_names() == (
         "allowed_values", "format", "max_value", "min_value", "pattern", "unique",
     )
+
+
+# ---------------------------------------------------------------------------
+# Oracle dialect parity
+# Predicate SQL is portable across Trino <-> Oracle for every Stream A
+# constraint; these tests pin that by re-running each predicate with
+# dialect="oracle" and asserting the identical SQL string.
+# ---------------------------------------------------------------------------
+
+
+import pytest
+
+
+@pytest.mark.parametrize("constraint_cls, value, params, table_name, field_type", [
+    (MinValueConstraint, 0, {"strict": False}, "t", Type.INT64),
+    (MaxValueConstraint, 100, {"strict": True}, "t", Type.INT64),
+    (AllowedValuesConstraint, ["A", "B"], {}, "t", Type.STRING),
+    (PatternConstraint, r"^[A-Z]{3}$", {}, "t", Type.STRING),
+    (UniqueConstraint, True, {}, "my_table", Type.INT64),
+])
+def test_predicate_sql_is_identical_across_dialects(
+    constraint_cls, value, params, table_name, field_type,
+):
+    field = _field("col", field_type)
+    check = _check(constraint_cls, value, **params)
+    trino_p = to_sql_pushdown(field, check, table_name=table_name, dialect="trino")
+    oracle_p = to_sql_pushdown(field, check, table_name=table_name, dialect="oracle")
+    assert trino_p == oracle_p
+
+
+def test_format_predicate_sql_is_identical_across_dialects():
+    field = _field("contact_email", Type.STRING)
+    check = _check(FormatConstraint, "email")
+    trino_p = to_sql_pushdown(field, check, table_name="t", dialect="trino")
+    oracle_p = to_sql_pushdown(field, check, table_name="t", dialect="oracle")
+    assert trino_p == oracle_p

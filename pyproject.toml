@@ -23,6 +23,9 @@ validate-data = [
 validate-warehouse = [
     "trino>=0.330",
 ]
+validate-warehouse-oracle = [
+    "oracledb>=2.0",
+]
 
 [project.scripts]
 data-contract = "data_contract.cli:main"
