@@ -19,11 +19,12 @@ def test_clean_run_exits_zero_and_writes_four_reports(warehouse_epic, fake_conne
     assert (out_dir / "quality_report.html").is_file()
     assert (out_dir / "quality_report.md").is_file()
     assert (out_dir / "quality_report.xlsx").is_file()
-    # Sanity-check that all three constraints were dispatched.
-    assert len(fake.executed) == 3
+    # Three constraint pushdowns + one nullable check (pk is nullable: false).
+    assert len(fake.executed) == 4
     assert any('"amount"' in q for q in fake.executed)
     assert any('"quota"' in q for q in fake.executed)
     assert any('"status"' in q for q in fake.executed)
+    assert any('"pk" IS NULL' in q for q in fake.executed)
 
 
 def test_violations_path_exits_two_and_reports_counts(warehouse_epic, fake_connector_factory):
@@ -97,3 +98,43 @@ def test_output_dir_override_lands_at_absolute_path(warehouse_epic, fake_connect
     assert rc == 0
     assert (custom_out / "quality_report.json").is_file()
     assert not (warehouse_epic / "1118" / "validations_warehouse" / "quality_report.json").exists()
+
+
+def test_nullable_pass_emits_violation_on_nonzero_count(warehouse_epic, fake_connector_factory):
+    # pk is nullable:false in the warehouse_epic fixture; canned count
+    # of 5 on `"pk" IS NULL` should produce one nullable_violation.
+    fake_connector_factory({'"pk" IS NULL': 5})
+    rc = run_validate_warehouse(
+        epic="1118", table="synth", connector_name="trino",
+        epic_root=warehouse_epic, output_dir=None,
+    )
+    assert rc == 2
+    payload = json.loads(
+        (warehouse_epic / "1118" / "validations_warehouse" / "quality_report.json")
+        .read_text(encoding="utf-8")
+    )
+    nullables = [
+        v for v in payload["run_issues"]
+        if v["kind"] == "nullable_violation"
+    ]
+    assert len(nullables) == 1
+    v = nullables[0]
+    assert v["field"] == "pk"
+    assert v["offending_value"] == 5
+    assert v["expected"] == "not null"
+
+
+def test_nullable_pass_skips_nullable_true_fields(warehouse_epic, fake_connector_factory):
+    # Make a query against `"amount" IS NULL` return nonzero just in
+    # case; amount is nullable:true so the runner should NOT issue that
+    # query.
+    fake = fake_connector_factory({'"amount" IS NULL': 99})
+    rc = run_validate_warehouse(
+        epic="1118", table="synth", connector_name="trino",
+        epic_root=warehouse_epic, output_dir=None,
+    )
+    assert rc == 0
+    # Only nullable: false fields trigger an IS NULL scan.
+    null_queries = [q for q in fake.executed if "IS NULL" in q]
+    assert len(null_queries) == 1
+    assert '"pk" IS NULL' in null_queries[0]

@@ -28,6 +28,7 @@ from dq_core.report_models import TableReport
 from dq_core.violations import Violation
 from warehouse_validation import emit_sql
 from warehouse_validation.setup import RunSetupError, prepare_run
+from warehouse_validation.sql_predicates import not_null as _not_null
 from warehouse_validation.sql_predicates import to_sql_pushdown
 
 
@@ -92,6 +93,39 @@ def run_validate_warehouse(
                 field=f.name,
                 offending_value=count,
                 expected=describe_constraint(check),
+            ))
+
+    # Nullable pass: fields with `nullable: false` aren't surfaced by
+    # iter_field_checks (nullability isn't a registered constraint
+    # class), so the runner checks them explicitly here.
+    for f in setup.contract.fields:
+        if f.nullable is not False:
+            continue
+        pushdown = _not_null.predicate(
+            f, table_name=setup.config.table_name,
+            dialect=setup.connector.dialect,
+        )
+        sql = (
+            f'SELECT COUNT(*) FROM "{setup.config.table_name}" '
+            f'WHERE {pushdown.sql}'
+        )
+        try:
+            count = setup.connector.execute_count(sql)
+        except Exception as e:
+            print(
+                f"validate-warehouse: connector failure on "
+                f"{setup.config.table_name}.{f.name}.nullable: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        if count > 0:
+            table_report.violations.append(Violation(
+                kind="nullable_violation",
+                severity="error",
+                table=setup.config.table_name,
+                field=f.name,
+                offending_value=count,
+                expected="not null",
             ))
 
     duration_ms = int((time.perf_counter() - started) * 1000)
