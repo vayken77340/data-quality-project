@@ -95,7 +95,7 @@ or `min_value.py` when adding a new one.
 
 ## 5. How to add a constraint
 
-1. Drop a new module under `src/data_contract/field_constraints/`.
+1. Drop a new module under `src/dq_core/field_constraints/`.
 2. Subclass `FieldConstraint` (or `_BoolConstraint` for OUI/NON-style booleans).
 3. Set class-level `name`, `contract_key`, `SPEC_PARSING_FIELDS`,
    `CONTRACT_FIELDS`, plus the docstring with the three required headers.

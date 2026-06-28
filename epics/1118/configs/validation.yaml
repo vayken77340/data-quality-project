@@ -35,9 +35,9 @@ defaults:
 #                 checks are added by introducing a new Type in
 #                 configs/types.yaml, not by registering a new check).
 #   table      -- table_checks/ registry. Pluggable: drop a TableCheck
-#                 subclass in src/data_contract/table_checks/.
+#                 subclass in src/dq_core/table_checks/.
 #   field      -- field_constraints/ registry. Pluggable: drop a
-#                 FieldConstraint subclass in src/data_contract/field_constraints/.
+#                 FieldConstraint subclass in src/dq_core/field_constraints/.
 checks:
   structural:
     type_coercion: true
@@ -65,7 +65,7 @@ checks:
 
 # Tier-keyed metrics block. `field` metrics emit one value per contract
 # field; `table` metrics emit a single scalar per table. Devs can drop a
-# new TableMetric subclass into src/data_contract/metrics/ and it will be
+# new TableMetric subclass into src/dq_core/metrics/ and it will be
 # required here at load time.
 metrics:
   field:

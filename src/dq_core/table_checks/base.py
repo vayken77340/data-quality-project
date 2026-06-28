@@ -15,7 +15,7 @@ Three things differentiate this tier from `FieldConstraint`:
    post-all-tables phase.
 
 Adding a new table check:
-1. Drop a new module under `data_contract/table_checks/` defining a
+1. Drop a new module under `dq_core/table_checks/` defining a
    `TableCheck` subclass.
 2. Register it in `_BUILTIN_MODULES` in `__init__.py` (or call
    `register(MyCheck)` manually from another package).

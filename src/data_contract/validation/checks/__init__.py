@@ -1,8 +1,8 @@
 """Structural-tier data checks (type system derived).
 
 Per-constraint check logic lives ON each FieldConstraint subclass via
-`check_data` (see `data_contract/field_constraints/`). Whole-table and
-cross-table checks live in `data_contract/table_checks/`.
+`check_data` (see `dq_core/field_constraints/`). Whole-table and
+cross-table checks live in `dq_core/table_checks/`.
 
 This subpackage carries only the structural tier -- the checks that are
 derived from the contract's type system (`Type`, `nullable`, `max_length`)

@@ -12,7 +12,7 @@ Metrics are reported alongside violations: violations answer "what is
 broken?", metrics answer "what does the data look like?".
 
 Adding a new metric:
-1. Drop a new module under `data_contract/metrics/` defining a subclass
+1. Drop a new module under `dq_core/metrics/` defining a subclass
    of `TableMetric` with `name`, `scope`, `description`.
 2. Register it in `_BUILTIN_MODULES` in `__init__.py` (or call
    `register(MyMetric)` from another package).
