@@ -692,7 +692,6 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         merged, sheet, rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="T",
         now="2026-06-02T14:00:00Z",
     )
     assert isinstance(result, Contract)

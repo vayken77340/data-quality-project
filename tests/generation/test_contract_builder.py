@@ -74,7 +74,6 @@ def test_happy_path(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
         now="2026-06-02T14:00:00Z",
     )
     assert isinstance(result, Contract)
@@ -100,7 +99,6 @@ def test_table_value_from_table_column(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     assert isinstance(result, Contract)
     assert result.table == "ACTUAL_TABLE"
@@ -115,7 +113,6 @@ def test_table_value_defaults_to_sheet_name(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     assert isinstance(result, Contract)
     assert result.table == "PROJECT"
@@ -132,7 +129,6 @@ def test_duplicate_field_name_rejects(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     assert isinstance(result, Rejection)
     assert any(e.kind == "duplicate_field" for e in result.errors)
@@ -149,7 +145,6 @@ def test_multi_table_in_sheet(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     assert isinstance(result, Rejection)
     assert any(e.kind == "multi_table_in_sheet" for e in result.errors)
@@ -168,7 +163,6 @@ def test_write_outputs_success_creates_history_and_deletes_rejected(tmp_path: Pa
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     paths = write_outputs(result, contracts_dir)
     canonical = contracts_dir / "PROJECT.yaml"
@@ -198,7 +192,6 @@ def test_write_outputs_rejection_deletes_canonical_and_keeps_history(tmp_path: P
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     paths = write_outputs(result, contracts_dir)
     rejected = contracts_dir / "rejected" / "PROJECT.yaml"

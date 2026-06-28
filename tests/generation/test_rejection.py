@@ -71,7 +71,6 @@ def test_multiple_errors_collected_not_first_only(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
     )
     assert isinstance(result, Rejection)
     kinds = sorted(e.kind for e in result.errors)
@@ -89,7 +88,6 @@ def test_allow_unknown_types_downgrades(registry):
         rows,
         type_registry=registry,
         spec_file_rel="x.xlsx",
-        table_name_from_config="PROJECT",
         allow_unknown_types=True,
     )
     assert isinstance(result, Contract)

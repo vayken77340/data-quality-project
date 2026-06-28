@@ -226,7 +226,6 @@ def build_contract(
     *,
     type_registry: TypeRegistry,
     spec_file_rel: str,
-    table_name_from_config: str,
     allow_unknown_types: bool = False,
     now: str | None = None,
 ) -> BuildResult:
@@ -349,7 +348,6 @@ def build_one_table(
         merged, sheet_spec, rows,
         type_registry=registry,
         spec_file_rel=spec_file_rel,
-        table_name_from_config=sheet_name,
         allow_unknown_types=allow_unknown_types,
     )
     result = enrich_with_keys(
