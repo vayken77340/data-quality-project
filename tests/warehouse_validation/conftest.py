@@ -11,6 +11,20 @@ import pytest
 from warehouse_validation.connectors.base import Connector
 
 
+@pytest.fixture
+def duckdb_connection():
+    """In-memory DuckDB connection for the pushdown-parity tests.
+
+    Each test gets a fresh database. Skipped at fixture level when
+    duckdb isn't installed (an optional dev dependency)."""
+    duckdb = pytest.importorskip("duckdb")
+    conn = duckdb.connect(":memory:")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 class FakeConnector(Connector):
     """In-memory Connector for runner tests. Matches incoming SQL against
     `canned_counts` keys via substring lookup (so tests don't have to
