@@ -30,7 +30,7 @@ epics/<epic>/
 ```bat
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e .[dev] -r requirements-dev.txt
+pip install -e . -r requirements-dev.txt
 python -m data_contract generate --epic 1118
 ```
 
@@ -75,7 +75,7 @@ Each generated contract carries `target: <name>` (stamped from the epic version 
 
 ## Field constraints
 
-Beyond `name`/`type`/`description`/`nullable`, the contract carries optional constraint fields driven by extra columns in the spec. Add a column-mapping entry under `fields.column_mapping` in the epic's `defaults.yaml`:
+Beyond `name`/`type`/`description`/`nullable`, the contract carries optional constraint fields driven by extra columns in the spec. Add a column-mapping entry under `fields.column_mapping` in the epic's `specs_parsing.yaml`:
 
 | YAML key | Contract key | Cell type | spec_parsing knobs | contract_params knobs |
 |---|---|---|---|---|
@@ -194,28 +194,7 @@ class StartsWithConstraint(FieldConstraint):
         return DriftChange(kind="starts_with_changed", severity="breaking", field=field_name)
 ```
 
-Add the module path to `_BUILTIN_MODULES` in `field_constraints/__init__.py` (auto-discovery picks up `FieldConstraint` subclasses defined in those modules). Then reference `starts_with` from any epic's `defaults.yaml` under `fields.column_mapping`.
-
-## History backfill
-
-When you generate version N, any sibling configs with versions < N whose history snapshot is missing get auto-generated into `history/<X>/<table>.yaml` — never into the canonical or rejected paths. Backfill is silent and idempotent:
-
-- Existing `history/<X>/<table>.yaml` files are never overwritten.
-- If an older version's spec file is missing or would now reject, that version is skipped with a stderr warning and the target run continues.
-- Disable with `--no-backfill`.
-
-Each generated version also copies the source spec into `history/<X>/spec/<original_filename>`, so the historical truth is recoverable byte-for-byte even if the spec is later edited in place.
-
-## Drift detection
-
-After each successful build (target and backfilled versions), the CLI compares the new contract against the nearest-older history snapshot and writes a structured changelog to `contracts/drift/<table>__v<prev>_to_v<new>.yaml` if drift exists. The file is written only once per version pair — re-running the same target doesn't duplicate.
-
-Severity classification:
-- **breaking**: field removed, type changed, nullable tightened, max_length tightened, list added or values removed, pattern added, PK changed, unique added, min raised, max lowered.
-- **additive**: field added (nullable), nullable relaxed, max_length relaxed, list values added, pattern removed, unique removed, min lowered, max raised.
-- **cosmetic**: description changed.
-
-No drift if there's nothing to compare against (single-version epic, first run).
+Add the module path to `_BUILTIN_MODULES` in `field_constraints/__init__.py` (auto-discovery picks up `FieldConstraint` subclasses defined in those modules). Then reference `starts_with` from any epic's `specs_parsing.yaml` under `fields.column_mapping`.
 
 ## Data dictionary
 
@@ -231,8 +210,8 @@ Sheets have a frozen header row + auto-filter so the business consumer can sort/
 
 1. Create `epics/<epic>/{configs,specs,contracts}/`.
 2. Drop the spec xlsx in `specs/`.
-3. Add `configs/defaults.yaml` describing how the spec's columns map onto `name`, `type`, `nullable`, `description`, optional `table`, plus any optional constraints. Constraint column mappings live under `fields.column_mapping`; the keys sheet under `keys.column_mapping`; joins under `joins.column_mapping`.
-4. Add `configs/<anything>.yaml` with `epic`, `version`, `spec_file_name`, `tables`.
+3. Add `configs/specs_parsing.yaml` describing how the spec's columns map onto `name`, `type`, `nullable`, `description`, optional `table`, plus any optional constraints. Constraint column mappings live under `fields.column_mapping`; the keys sheet under `keys.column_mapping`; joins under `joins.column_mapping`.
+4. Add `configs/contracts/<anything>.yaml` with `epic`, `version`, `spec_file_name`, `tables`.
 5. Run `python -m data_contract generate --epic <epic>`.
 
 ## Spec rejection
