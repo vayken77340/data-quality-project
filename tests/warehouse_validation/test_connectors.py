@@ -86,9 +86,12 @@ def test_get_connector_trino_returns_instance(_stub_trino_package, _trino_env):
 
 def test_get_connector_unknown_name_raises_config_error():
     with pytest.raises(ConfigError) as exc:
-        get_connector("oracle")
-    assert "oracle" in str(exc.value)
-    assert "trino" in str(exc.value)
+        get_connector("snowflake")
+    msg = str(exc.value)
+    assert "snowflake" in msg
+    # Error lists both supported connectors so the operator can pick one.
+    assert "trino" in msg
+    assert "oracle" in msg
 
 
 def test_trino_execute_count_unwraps_scalar(_stub_trino_package, _trino_env):
@@ -219,3 +222,150 @@ def test_fake_connector_execute_columns_unknown_table_returns_empty_set(
     fc = fake_connector_factory()
     assert fc.execute_columns("missing") == set()
     assert fc.column_lookups == ["missing"]
+
+
+def test_fake_connector_dialect_defaults_to_trino(fake_connector_factory):
+    fc = fake_connector_factory()
+    assert fc.dialect == "trino"
+
+
+def test_fake_connector_dialect_override_to_oracle(fake_connector_factory):
+    fc = fake_connector_factory(dialect="oracle")
+    assert fc.dialect == "oracle"
+
+
+# -- Oracle connector ---------------------------------------------------------
+
+
+from warehouse_validation.connectors.oracle import OracleConnector
+
+
+class _FakeOracleCursor:
+    """Minimal cursor that records the SQL + bind kwargs from execute()."""
+
+    def __init__(self, rows: list[tuple] | None = None) -> None:
+        self._rows = list(rows) if rows is not None else [(7,)]
+        self.last_sql: str | None = None
+        self.last_kwargs: dict | None = None
+
+    def execute(self, sql, **kwargs):
+        self.last_sql = sql
+        self.last_kwargs = kwargs
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _FakeOracleConnection:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.next_rows: list[tuple] | None = None
+        self._last_cursor: _FakeOracleCursor | None = None
+
+    def cursor(self):
+        cur = _FakeOracleCursor(self.next_rows)
+        self._last_cursor = cur
+        return cur
+
+
+@pytest.fixture
+def _stub_oracledb_package(monkeypatch):
+    fake_oracledb = types.ModuleType("oracledb")
+    fake_oracledb.connect = lambda **kwargs: _FakeOracleConnection(**kwargs)
+    monkeypatch.setitem(sys.modules, "oracledb", fake_oracledb)
+    return fake_oracledb
+
+
+@pytest.fixture
+def _oracle_env(monkeypatch):
+    monkeypatch.setenv("ORACLE_USER", "dq_app")
+    monkeypatch.setenv("ORACLE_PASSWORD", "secret")
+    monkeypatch.setenv("ORACLE_DSN", "warehouse.example.com:1521/prod")
+    monkeypatch.delenv("ORACLE_SCHEMA", raising=False)
+
+
+def test_registry_has_oracle():
+    assert CONNECTOR_REGISTRY["oracle"] is OracleConnector
+
+
+def test_get_connector_oracle_returns_instance(_stub_oracledb_package, _oracle_env):
+    conn = get_connector("oracle")
+    assert isinstance(conn, Connector)
+    assert isinstance(conn, OracleConnector)
+    assert conn.dialect == "oracle"
+
+
+def test_oracle_default_schema_is_user(_stub_oracledb_package, _oracle_env):
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    assert conn.schema == "dq_app"
+
+
+def test_oracle_schema_env_overrides_user(_stub_oracledb_package, monkeypatch):
+    monkeypatch.setenv("ORACLE_USER", "dq_app")
+    monkeypatch.setenv("ORACLE_PASSWORD", "secret")
+    monkeypatch.setenv("ORACLE_DSN", "warehouse:1521/prod")
+    monkeypatch.setenv("ORACLE_SCHEMA", "REPORTING")
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    assert conn.schema == "REPORTING"
+
+
+def test_oracle_missing_required_env_raises(_stub_oracledb_package, monkeypatch):
+    monkeypatch.delenv("ORACLE_USER", raising=False)
+    monkeypatch.setenv("ORACLE_PASSWORD", "secret")
+    monkeypatch.setenv("ORACLE_DSN", "warehouse:1521/prod")
+    with pytest.raises(ConfigError) as exc:
+        OracleConnector()
+    assert "ORACLE_USER" in str(exc.value)
+
+
+def test_oracle_missing_package_raises_helpful_config_error(monkeypatch, _oracle_env):
+    monkeypatch.setitem(sys.modules, "oracledb", None)
+    with pytest.raises(ConfigError) as exc:
+        OracleConnector()
+    msg = str(exc.value)
+    assert "validate-warehouse-oracle" in msg
+
+
+def test_oracle_execute_columns_two_part_name(_stub_oracledb_package, _oracle_env):
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    conn._conn.next_rows = [("PROJ_ID",), ("AMOUNT",)]  # type: ignore[attr-defined]
+    cols = conn.execute_columns("reporting.projects")
+    assert cols == {"PROJ_ID", "AMOUNT"}
+    cur = conn._conn._last_cursor  # type: ignore[attr-defined]
+    assert cur is not None
+    assert "all_tab_columns" in cur.last_sql
+    # Bind params are upper-cased to match Oracle's stored identifier case.
+    assert cur.last_kwargs == {"owner": "REPORTING", "tname": "PROJECTS"}
+
+
+def test_oracle_execute_columns_bare_name_uses_default_schema(
+    _stub_oracledb_package, _oracle_env,
+):
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    conn._conn.next_rows = [("PK",)]  # type: ignore[attr-defined]
+    conn.execute_columns("orders")
+    cur = conn._conn._last_cursor  # type: ignore[attr-defined]
+    assert cur.last_kwargs == {"owner": "DQ_APP", "tname": "ORDERS"}
+
+
+def test_oracle_execute_columns_three_part_name_raises(_stub_oracledb_package, _oracle_env):
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    with pytest.raises(ConfigError) as exc:
+        conn.execute_columns("cat.sch.tbl")
+    msg = str(exc.value)
+    assert "no catalog layer" in msg
+
+
+def test_oracle_execute_count_unwraps_scalar(_stub_oracledb_package, _oracle_env):
+    conn = get_connector("oracle")
+    assert isinstance(conn, OracleConnector)
+    conn._conn.next_rows = [(99,)]  # type: ignore[attr-defined]
+    assert conn.execute_count("SELECT COUNT(*) FROM projects") == 99

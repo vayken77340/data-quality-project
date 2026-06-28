@@ -1,17 +1,19 @@
-"""Connector registry. Phase 2 ships Trino only; later phases add
-pyiceberg-direct and Oracle via the same shape: drop a Connector subclass
-in this package, register it in CONNECTOR_REGISTRY.
+"""Connector registry. Phase 2 shipped Trino; coverage-expansion adds
+Oracle. Future connectors (pyiceberg, ...) drop in via the same shape:
+subclass Connector, register it here.
 """
 
 from __future__ import annotations
 
 from dq_core.errors import ConfigError
 from warehouse_validation.connectors.base import Connector
+from warehouse_validation.connectors.oracle import OracleConnector
 from warehouse_validation.connectors.trino import TrinoConnector
 
 
 CONNECTOR_REGISTRY: dict[str, type[Connector]] = {
-    "trino": TrinoConnector,
+    "trino":  TrinoConnector,
+    "oracle": OracleConnector,
 }
 
 

@@ -97,7 +97,7 @@ def _add_common_args(
     p.add_argument(
         "--connector", required=True,
         choices=sorted(CONNECTOR_REGISTRY),
-        help="Connector name. Phase 3 ships: trino.",
+        help="Connector name. Currently supported: trino, oracle.",
     )
     p.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
         "Root directory of the per-epic trees. Default: epics/."

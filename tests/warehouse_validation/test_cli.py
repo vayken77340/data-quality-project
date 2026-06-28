@@ -24,12 +24,15 @@ def test_unknown_connector_rejected_by_argparse(capsys):
     with pytest.raises(SystemExit) as exc:
         main([
             "validate-warehouse",
-            "--epic", "1118", "--table", "synth", "--connector", "oracle",
+            "--epic", "1118", "--table", "synth", "--connector", "snowflake",
         ])
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "oracle" in err
+    assert "snowflake" in err
+    # argparse's invalid-choice message lists every valid choice; both
+    # supported connectors must appear.
     assert "trino" in err
+    assert "oracle" in err
 
 
 def test_missing_contract_returns_one(tmp_path, fake_connector_factory, capsys):
