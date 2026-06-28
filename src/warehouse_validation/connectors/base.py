@@ -14,7 +14,16 @@ from abc import ABC, abstractmethod
 
 
 class Connector(ABC):
-    """Read-only warehouse access. One instance = one CLI invocation."""
+    """Read-only warehouse access. One instance = one CLI invocation.
+
+    Subclasses MUST set `dialect` to a short identifier ("trino",
+    "oracle", ...) that the SQL pushdown dispatch reads when picking
+    dialect-specific syntax. The base default is "trino" so existing
+    subclasses that pre-date the dialect attribute keep working
+    unchanged; new connectors override at class scope.
+    """
+
+    dialect: str = "trino"
 
     @abstractmethod
     def execute_scalar(self, sql: str) -> int | float | str | None:

@@ -23,6 +23,7 @@ from warehouse_validation.connectors.base import Connector
 
 class TrinoConnector(Connector):
     name = "trino"
+    dialect = "trino"
 
     def __init__(self) -> None:
         try:

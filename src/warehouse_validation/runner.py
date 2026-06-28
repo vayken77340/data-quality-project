@@ -1,12 +1,13 @@
 """Silver-conformance runner: one table end-to-end via SQL pushdown.
 
 For each (field, FieldCheck) on the contract:
-  * Ask sql_predicates.to_sql_predicate for the SQL fragment selecting
-    violating rows. If None (no pushdown registered), skip.
-  * Issue `SELECT COUNT(*) FROM "<table>" WHERE <predicate>` via the
-    connector.
-  * If count > 0, append a Violation whose `offending_value` is the count
-    (not a row -- we never pull rows on the warehouse side).
+  * Ask sql_predicates.to_sql_pushdown for the SQL pushdown. If None
+    (no pushdown registered), skip.
+  * For `kind="where"`, wrap in `SELECT COUNT(*) FROM "<table>" WHERE
+    <sql>` and execute. For `kind="count_query"`, execute the SQL
+    verbatim.
+  * If count > 0, append a Violation whose `offending_value` is the
+    count (not a row -- we never pull rows on the warehouse side).
 
 Aggregate into a TableReport + ValidationReport and hand off to emit_sql.
 
@@ -27,7 +28,7 @@ from dq_core.report_models import TableReport
 from dq_core.violations import Violation
 from warehouse_validation import emit_sql
 from warehouse_validation.setup import RunSetupError, prepare_run
-from warehouse_validation.sql_predicates import to_sql_predicate
+from warehouse_validation.sql_predicates import to_sql_pushdown
 
 
 def run_validate_warehouse(
@@ -59,13 +60,20 @@ def run_validate_warehouse(
     )
 
     for f, check in setup.contract.iter_field_checks():
-        predicate = to_sql_predicate(f, check)
-        if predicate is None:
-            continue
-        sql = (
-            f'SELECT COUNT(*) FROM "{setup.config.table_name}" '
-            f'WHERE {predicate}'
+        pushdown = to_sql_pushdown(
+            f, check,
+            table_name=setup.config.table_name,
+            dialect=setup.connector.dialect,
         )
+        if pushdown is None:
+            continue
+        if pushdown.kind == "where":
+            sql = (
+                f'SELECT COUNT(*) FROM "{setup.config.table_name}" '
+                f'WHERE {pushdown.sql}'
+            )
+        else:  # "count_query"
+            sql = pushdown.sql
         try:
             count = setup.connector.execute_count(sql)
         except Exception as e:
