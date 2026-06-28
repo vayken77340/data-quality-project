@@ -1,10 +1,16 @@
-"""Pre-run setup: resolve epic, load the contract, instantiate the
-connector, build the WarehouseValidationConfig.
+"""Pre-run setup: resolve epic, instantiate the connector, optionally
+load the contract.
 
-Mirrors the data_contract.validation.setup.prepare_run shape (epic
-validation, contract load, RunSetupError -> exit 1 path) but stripped to
-what the warehouse runner needs. There is no validation.yaml on the
-warehouse side -- the gates come from the registered SQL pushdowns.
+Three entry points share one bootstrap helper:
+  * `prepare_run`       -- silver / bronze / reconcile. Loads a contract
+                            and builds a per-table WarehouseValidationConfig.
+  * `prepare_gold_run`  -- gold assertions. Returns GoldRunSetup without
+                            a contract (each rule carries its own table
+                            metadata; sidecar contracts are optional).
+
+The shared chunk (epic-name validation, output-dir resolution,
+connector instantiation) lives in `_prepare_common` so the two paths
+stay aligned and the per-subcommand error prefix is set once.
 """
 
 from __future__ import annotations
@@ -25,46 +31,49 @@ DEFAULT_OUTPUT_SUBDIR = "validations_warehouse"
 
 
 class RunSetupError(Exception):
-    """Setup failed. The message is the full stderr line to print (already
-    prefixed with `validate-warehouse:`). Runner's single catch maps it
-    to exit 1.
+    """Setup failed. The message is the full stderr line to print
+    (already prefixed with the subcommand label, e.g. `validate-warehouse:`).
+    Each runner's single catch maps it to exit 1.
     """
 
 
 @dataclass(frozen=True)
 class RunSetup:
+    """Silver/bronze/reconcile setup: one contract, one table."""
     epic: str
     contract: Contract
     connector: Connector
     config: WarehouseValidationConfig
 
 
-def prepare_run(
+@dataclass(frozen=True)
+class GoldRunSetup:
+    """Gold setup: no per-table contract. Each rule carries its own
+    table metadata; the runner loads sidecar contracts opportunistically.
+    """
+    epic: str
+    epic_dir: Path
+    connector: Connector
+    output_dir: Path
+
+
+def _prepare_common(
     *,
+    cmd_label: str,
     epic: str,
-    table: str,
     connector_name: str,
     epic_root: Path,
     output_dir: Path | None,
-) -> RunSetup:
-    """Run every pre-validation setup step. Raises RunSetupError (with the
-    full stderr line as its message) on any failure."""
+) -> tuple[str, Path, Path, Connector]:
+    """Shared bootstrap. Returns (epic_clean, epic_dir, resolved_out,
+    connector). Raises RunSetupError on any failure with messages
+    prefixed by `cmd_label:`."""
     try:
         epic_clean = validate_epic_name(epic)
     except InvalidEpicName as e:
-        raise RunSetupError(f"validate-warehouse: {e}") from e
+        raise RunSetupError(f"{cmd_label}: {e}") from e
 
     epic_dir = epic_root / epic_clean
-    contract_path = epic_dir / "contracts" / f"{table}.yaml"
-    if not contract_path.is_file():
-        raise RunSetupError(
-            f"validate-warehouse: contract not found: {contract_path}"
-        )
-
-    try:
-        contract = Contract.load(contract_path)
-    except (ConfigError, OSError) as e:
-        raise RunSetupError(f"validate-warehouse: {e}") from e
 
     if output_dir is None:
         resolved_out = epic_dir / DEFAULT_OUTPUT_SUBDIR
@@ -76,7 +85,44 @@ def prepare_run(
     try:
         connector = get_connector(connector_name)
     except ConfigError as e:
-        raise RunSetupError(f"validate-warehouse: {e}") from e
+        raise RunSetupError(f"{cmd_label}: {e}") from e
+
+    return epic_clean, epic_dir, resolved_out, connector
+
+
+def prepare_run(
+    *,
+    epic: str,
+    table: str,
+    connector_name: str,
+    epic_root: Path,
+    output_dir: Path | None,
+    cmd_label: str = "validate-warehouse",
+) -> RunSetup:
+    """Run every pre-validation setup step for a contract-bound run.
+    Raises RunSetupError (with the full stderr line as its message)
+    on any failure.
+
+    `cmd_label` lets bronze/reconcile reuse this helper while keeping
+    their own subcommand prefix in error messages. Defaults to
+    `validate-warehouse` for backwards compatibility with the silver
+    runner."""
+    epic_clean, epic_dir, resolved_out, connector = _prepare_common(
+        cmd_label=cmd_label,
+        epic=epic, connector_name=connector_name,
+        epic_root=epic_root, output_dir=output_dir,
+    )
+
+    contract_path = epic_dir / "contracts" / f"{table}.yaml"
+    if not contract_path.is_file():
+        raise RunSetupError(
+            f"{cmd_label}: contract not found: {contract_path}"
+        )
+
+    try:
+        contract = Contract.load(contract_path)
+    except (ConfigError, OSError) as e:
+        raise RunSetupError(f"{cmd_label}: {e}") from e
 
     checks = Gates(
         specs={
@@ -95,3 +141,26 @@ def prepare_run(
     )
 
     return RunSetup(epic=epic_clean, contract=contract, connector=connector, config=config)
+
+
+def prepare_gold_run(
+    *,
+    epic: str,
+    connector_name: str,
+    epic_root: Path,
+    output_dir: Path | None,
+) -> GoldRunSetup:
+    """Bootstrap a gold run: epic + connector + output_dir, but no
+    contract load. The runner walks epic_dir/rules/gold/ and may
+    opportunistically read sidecar contracts per rule.target_table."""
+    epic_clean, epic_dir, resolved_out, connector = _prepare_common(
+        cmd_label="validate-gold",
+        epic=epic, connector_name=connector_name,
+        epic_root=epic_root, output_dir=output_dir,
+    )
+    return GoldRunSetup(
+        epic=epic_clean,
+        epic_dir=epic_dir,
+        connector=connector,
+        output_dir=resolved_out,
+    )
