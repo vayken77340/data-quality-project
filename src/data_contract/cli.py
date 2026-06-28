@@ -132,7 +132,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "With --table, --from, --to, narrows to a specific pair."
         ),
     )
-    drift.add_argument("--epic", required=True, type=_epic_arg_type)
+    drift.add_argument("--epic", required=True, type=_epic_arg_type, help=(
+        "Epic name (e.g. 1118, 1118_MVP). Letters/digits/spaces/.-_; "
+        "1-64 chars; must start and end with a letter or digit."
+    ))
     drift.add_argument("--table", default=None, help="Restrict to one table.")
     drift.add_argument("--from", dest="from_version", default=None, help="Older history version, e.g. 1.0. Requires --to.")
     drift.add_argument("--to", dest="to_version", default=None, help="Newer history version, e.g. 2.0. Requires --from.")
@@ -196,7 +199,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "validate-data",
         help="Validate sample data against an epic's contracts.",
     )
-    validate_d.add_argument("--epic", required=True, type=_epic_arg_type)
+    validate_d.add_argument("--epic", required=True, type=_epic_arg_type, help=(
+        "Epic name (e.g. 1118, 1118_MVP). Letters/digits/spaces/.-_; "
+        "1-64 chars; must start and end with a letter or digit."
+    ))
     validate_d.add_argument("--table", default=None, help="Restrict to one table.")
     validate_d.add_argument(
         "--input-dir",
@@ -275,7 +281,6 @@ def _add_generate_args(p: argparse.ArgumentParser) -> None:
             "before the registry catches up."
         ),
     )
-    p.add_argument("-v", "--verbose", action="store_true")
 
 
 # ---------------------------------------------------------------------------

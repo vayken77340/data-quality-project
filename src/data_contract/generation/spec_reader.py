@@ -1,3 +1,16 @@
+"""Spec workbook reader: open, locate headers, iterate raw field rows.
+
+The thin layer between openpyxl and the build pipeline. Locates each
+table's spec sheet, finds the header row (header may not be row 1 --
+spec authors sometimes leave a title block above), maps configured
+column names to column indexes via `header_matcher`, and streams one
+`RawField` per data row.
+
+Everything returned is RAW -- no type parsing, no nullable normalisation,
+no slugify. Those are `generation/builder.py`'s concern. This module is
+the only generation-side module that touches openpyxl directly.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

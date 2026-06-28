@@ -1,3 +1,19 @@
+"""Field-constraint plugin base + the shared spec-cell parsing template.
+
+Owns `FieldConstraint` -- the ABC every constraint subclass extends -- plus
+the dataclasses (`ConstraintContext`, `DriftChange`) and helpers that all
+constraints share. The blank/default-value handling, the parse-error wrapping,
+the contract-key / drift-kind plumbing, and the `register()` validation that
+gates a subclass into `REGISTRY` all live here. Per-constraint modules
+(min_value, pattern, allowed_values, ...) only implement the cell parser and
+the diff rule.
+
+Generation-side only: this module is imported by `generation/config.py` to
+parse the `column_mapping` block and by individual constraint modules; the
+validator imports `REGISTRY` from `field_constraints/__init__.py` for the
+data-side checks.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

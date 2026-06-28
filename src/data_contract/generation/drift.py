@@ -1,3 +1,17 @@
+"""Structured contract-to-contract drift: compute, classify, write.
+
+Diffs an older contract against a newer one and emits a `DriftReport`
+listing every field/constraint change classified as `breaking`, `additive`,
+or `cosmetic`. The CLI calls this after each successful build to write
+`contracts/drift/<table>__v<prev>_to_v<new>.yaml` files.
+
+Per-constraint diff rules live on each `FieldConstraint` subclass
+(`FieldConstraint.diff()`); this module owns the field-level orchestration
+(added/removed/renamed fields, type/nullable/length/precision changes) and
+the YAML serialisation. The write step is idempotent -- re-running the
+same target version is a no-op when the drift file already exists.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,3 +1,16 @@
+"""Per-epic generation config: column mappings, version configs, merge rules.
+
+Owns the dataclasses that model the two YAML inputs the build pipeline reads:
+`specs_parsing.yaml` (column-mapping + keys/joins sheet shapes, shared across
+versions; `Defaults`) and `configs/contracts/<version>.yaml` (per-version
+overrides, including `target` and `tables`; `EpicConfig`). `merge()` combines
+the two into the `MergedConfig` consumed by `generation/pipeline.py`.
+
+Also owns the spec-column reference parsers (`ColumnMapping`, `KeysSpec`,
+`JoinsSpec`) plus the version-discovery / version-ordering utilities the CLI
+uses to walk every config under `configs/contracts/`.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -75,6 +75,77 @@ def _check_mandatory_blank(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_name(
+    row: RawField,
+    cm,
+    errors: list[RejectionError],
+) -> tuple[str | None, str | None]:
+    """Resolve the spec row's name cells into `(source_name, name)`.
+
+    `name` is the database identifier: the `Nom BDD` override when present,
+    otherwise `slugify(source_name)`. None when source_name is blank.
+
+    `source_name` is the verbatim spec value -- but returned as None when it
+    already equals `name`. Suppressing it there keeps already-clean rows
+    quiet in the contract YAML; the validator falls back to `name` for
+    header matching when `source_name` is absent.
+
+    Blank-mandatory errors are appended to `errors`.
+    """
+    source_name_value, err = _check_mandatory_blank(
+        row.name_raw, cm.name, field_name="name", sheet_row=row.sheet_row,
+    )
+    if err: errors.append(err)
+
+    # Optional `Nom BDD` override: when present, used verbatim as the field's
+    # `name` (skipping slugify). When absent, `name` is `slugify(source_name)`.
+    db_name_override: str | None = None
+    if cm.db_name is not None and row.db_name_raw is not None:
+        db_raw = str(row.db_name_raw).strip()
+        if db_raw:
+            db_name_override = db_raw
+
+    if not source_name_value:
+        return None, None
+
+    name_value = db_name_override or slugify(source_name_value)
+    if source_name_value == name_value:
+        return None, name_value
+    return source_name_value, name_value
+
+
+def _resolve_constraints(
+    row: RawField,
+    cm,
+    parsed_type: ParsedType | None,
+    errors: list[RejectionError],
+) -> dict[str, Any]:
+    """Parse each declared constraint cell into its contract value.
+
+    Returns the constraint dict for `FieldContract`. Empty when the type
+    didn't parse (constraints depend on the field's type for parsing) or
+    when no constraints are declared on the column mapping. Per-constraint
+    parse errors are appended to `errors`.
+    """
+    constraint_values: dict[str, Any] = {}
+    if parsed_type is None or not cm.constraints:
+        return constraint_values
+
+    ctx = ConstraintContext(
+        sheet_row=row.sheet_row,
+        field_type=parsed_type.type,
+        field_max_length=parsed_type.max_length,
+    )
+    for c_name, constraint in cm.constraints.items():
+        value, err = constraint.parse_cell(row.extras.get(c_name), ctx)
+        if err is not None:
+            errors.append(err)
+            continue
+        if value is not None:
+            constraint_values[constraint.contract_key] = constraint.to_contract_value(value)
+    return constraint_values
+
+
 def _build_one_field(
     row: RawField,
     cm,
@@ -96,23 +167,7 @@ def _build_one_field(
     """
     errors: list[RejectionError] = []
 
-    source_name_value, err = _check_mandatory_blank(
-        row.name_raw, cm.name, field_name="name", sheet_row=row.sheet_row,
-    )
-    if err: errors.append(err)
-
-    # Optional `Nom BDD` override: when present, used verbatim as the field's
-    # `name` (skipping slugify). When absent, `name` is `slugify(source_name)`.
-    db_name_override: str | None = None
-    if cm.db_name is not None and row.db_name_raw is not None:
-        db_raw = str(row.db_name_raw).strip()
-        if db_raw:
-            db_name_override = db_raw
-
-    if source_name_value:
-        name_value: str | None = db_name_override or slugify(source_name_value)
-    else:
-        name_value = None
+    source_name_value, name_value = _resolve_name(row, cm, errors)
 
     description_value, err = _check_mandatory_blank(
         row.description_raw, cm.description, field_name="description", sheet_row=row.sheet_row,
@@ -162,20 +217,7 @@ def _build_one_field(
         if tval is not None:
             table_value = tval
 
-    constraint_values: dict[str, Any] = {}
-    if parsed_type is not None and cm.constraints:
-        ctx = ConstraintContext(
-            sheet_row=row.sheet_row,
-            field_type=parsed_type.type,
-            field_max_length=parsed_type.max_length,
-        )
-        for c_name, constraint in cm.constraints.items():
-            value, err = constraint.parse_cell(row.extras.get(c_name), ctx)
-            if err is not None:
-                errors.append(err)
-                continue
-            if value is not None:
-                constraint_values[constraint.contract_key] = constraint.to_contract_value(value)
+    constraint_values = _resolve_constraints(row, cm, parsed_type, errors)
 
     if name_value is None or parsed_type is None:
         return None, errors, table_value
@@ -191,16 +233,9 @@ def _build_one_field(
                 literal: sorted(tokens) for literal, tokens in base_tokens.items()
             }
 
-    # Emit `source_name` only when it differs from the database `name`. Holds
-    # the verbatim spec value ("Reference Number") so the validator can match
-    # raw CSV/Excel/JSON headers without needing a separate field_mapping block.
-    field_source_name: str | None = None
-    if source_name_value and source_name_value != name_value:
-        field_source_name = source_name_value
-
     field = FieldContract(
         name=name_value,
-        source_name=field_source_name,
+        source_name=source_name_value,
         type=parsed_type.type,
         nullable=nullable_value,
         description=description_value,
