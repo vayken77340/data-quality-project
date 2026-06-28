@@ -21,6 +21,7 @@ from typing import Callable
 from warehouse_validation.sql_predicates._util import PushdownSQL
 from warehouse_validation.sql_predicates import (
     allowed_values,
+    format as _format,
     max_value,
     min_value,
 )
@@ -30,6 +31,7 @@ _DISPATCH: dict[str, Callable[..., "PushdownSQL | None"]] = {
     "min_value":      min_value.predicate,
     "max_value":      max_value.predicate,
     "allowed_values": allowed_values.predicate,
+    "format":         _format.predicate,
 }
 
 

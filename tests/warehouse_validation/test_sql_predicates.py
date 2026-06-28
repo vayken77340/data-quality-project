@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dq_core.contract import FieldCheck, FieldContract
 from dq_core.field_constraints.allowed_values import AllowedValuesConstraint
+from dq_core.field_constraints.format import FormatConstraint
 from dq_core.field_constraints.max_value import MaxValueConstraint
 from dq_core.field_constraints.min_value import MinValueConstraint
 from dq_core.field_constraints.pattern import PatternConstraint
@@ -124,14 +125,54 @@ def test_allowed_values_empty_list_renders_empty_not_in():
 
 
 # ---------------------------------------------------------------------------
+# format
+# ---------------------------------------------------------------------------
+
+
+def test_format_known_token_emits_regexp_like():
+    p = to_sql_pushdown(
+        _field("contact_email", Type.STRING),
+        _check(FormatConstraint, "email"),
+        table_name="t",
+    )
+    assert p is not None
+    assert p.kind == "where"
+    assert '"contact_email" IS NOT NULL' in p.sql
+    assert 'regexp_like("contact_email"' in p.sql
+    # The email token's pattern is inlined as a quoted SQL string.
+    assert "'^[A-Za-z0-9._%+-]+@" in p.sql
+
+
+def test_format_unknown_token_returns_none():
+    p = to_sql_pushdown(
+        _field("x", Type.STRING),
+        _check(FormatConstraint, "no_such_format"),
+        table_name="t",
+    )
+    assert p is None
+
+
+def test_format_token_without_pattern_returns_none(monkeypatch):
+    # Register a pattern-less token and verify the predicate skips it.
+    from dq_core.field_constraints.format import FORMAT_REGISTRY, FormatToken
+    monkeypatch.setitem(
+        FORMAT_REGISTRY, "info_only",
+        FormatToken(name="info_only", description="d", pattern=None),
+    )
+    p = to_sql_pushdown(
+        _field("x", Type.STRING),
+        _check(FormatConstraint, "info_only"),
+        table_name="t",
+    )
+    assert p is None
+
+
+# ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 
 
 def test_to_sql_pushdown_returns_none_for_unregistered_constraint():
-    # PatternConstraint is registered later in this iteration; here we
-    # exercise the dispatch's None path with a stub constraint whose
-    # name is guaranteed not to be in _DISPATCH.
     class _UnregisteredConstraint:
         name = "<<never-registered>>"
         contract_key = "<<never-registered>>"
@@ -144,9 +185,18 @@ def test_to_sql_pushdown_returns_none_for_unregistered_constraint():
     assert p is None
 
 
+def test_pattern_constraint_returns_none_until_a4_lands():
+    # Pattern's predicate ships in A4; until then dispatch returns None.
+    p = to_sql_pushdown(
+        _field("code", Type.STRING),
+        _check(PatternConstraint, r"^\d{3}$"),
+        table_name="t",
+    )
+    assert p is None
+
+
 def test_supported_constraint_names_lists_current_set():
-    # As each new constraint lands, the assertion below grows. Pattern
-    # joins the set in commit A4; tracked here so additions are explicit.
+    # As each new constraint lands, the assertion below grows.
     assert supported_constraint_names() == (
-        "allowed_values", "max_value", "min_value",
+        "allowed_values", "format", "max_value", "min_value",
     )
