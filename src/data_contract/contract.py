@@ -315,12 +315,14 @@ class Rejection(_TableProvenance):
         out["errors"] = [e.to_dict() for e in self.errors]
         return out
 
-    def prepend(self, errors: list[RejectionError]) -> "Rejection":
-        """Splice `errors` to the front of this Rejection's error list and
-        return self. Used to surface upstream causes (e.g. keys-sheet
-        structural errors) ahead of the rejection's own errors."""
+    def prepend(self, errors: list[RejectionError]) -> None:
+        """Splice `errors` to the front of this Rejection's error list.
+
+        Side-effect only; mutates `self.errors` in place. Used to surface
+        upstream causes (e.g. keys-sheet structural errors) ahead of the
+        rejection's own errors.
+        """
         self.errors = list(errors) + self.errors
-        return self
 
 
 BuildResult = Union[Contract, Rejection]

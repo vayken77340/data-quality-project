@@ -14,7 +14,7 @@ Why phases instead of free-flowing code:
     a hunt-the-right-spot insertion.
 
 Cross-table FK doesn't appear here -- it runs in a second pass after every
-table has been loaded; see `_run_cross_table_fk` in runner.py.
+table has been loaded; see `run_cross_table_fk` in validation/fk_pass.py.
 """
 
 from __future__ import annotations

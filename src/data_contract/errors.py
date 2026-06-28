@@ -1,3 +1,19 @@
+"""Cross-cutting error types shared by generation and validation.
+
+  * `ConfigError` / `SpecReaderError` -- raised for unrecoverable problems
+    that abort the run (bad YAML config, missing keys, missing workbook or
+    sheet). Anything that throws stops the pipeline immediately.
+  * `RejectionError` -- the structured, accumulated error type. The build
+    and validation pipelines never raise; they collect `RejectionError`s
+    into an `ErrorCollector` and emit them as a Rejection YAML, so a single
+    bad row doesn't mask the rest. The wire shape is what lands in
+    `rejected/<table>.yaml` -- adding a new field here changes that shape.
+
+Both generation and validation depend on this module; it must stay
+framework-internal-import-free (zero contract / generation / validation
+imports) so any layer can import it without cycles.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
-from data_contract.contract import Contract
+from data_contract.contract import Contract, Rejection
 from data_contract.errors import SpecReaderError
 from data_contract.generation.builder import (
     build_one_table,

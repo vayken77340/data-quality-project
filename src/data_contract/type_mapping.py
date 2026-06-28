@@ -1,3 +1,21 @@
+"""Universal canonical type system + per-target overlays.
+
+Owns three things the rest of the codebase consumes:
+  * `Type` -- the canonical enum (`STRING`, `BIGINT`, `BOOLEAN`, ...) carried
+    in every generated contract YAML. Source-side aliases (Oracle's
+    `VARCHAR`, French `Nombre entier`, etc.) resolve into one of these.
+  * `TypeRegistry` -- the merged view of `configs/types.yaml` + the active
+    `configs/targets/<name>.yaml` overlay. Resolves a raw spec type string
+    to a `Type`, computes the physical type, and exposes per-type numeric
+    bounds, length unit, and parse formats to the validator.
+  * `load_type_registry` -- the YAML reader the build pipeline and the
+    validator both use to construct a registry.
+
+This module is framework-internal-import-free (only `core.yaml_io` and
+`errors`), so contract.py can pull `Type` in without dragging generation
+code along.
+"""
+
 from __future__ import annotations
 
 import re
