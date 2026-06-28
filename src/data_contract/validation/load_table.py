@@ -18,13 +18,73 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from data_contract.contract import Contract
+from dq_core.contract import Contract
 from data_contract.data_parsers import get_by_name
-from data_contract.settings import Settings
+from dq_core.settings import Settings
 from data_contract.validation.config import TableValidationConfig, ValidationConfig
-from data_contract.validation.models import TableReport
-from data_contract.validation.post import diagnose_missing_inputs
-from data_contract.violations import Violation
+from dq_core.report_models import TableReport
+from dq_core.violations import Violation
+
+
+_MAX_SAMPLE_FILES_LISTED = 10
+
+
+def diagnose_missing_inputs(
+    *,
+    input_dir: Path,
+    file_pattern: str,
+    resolved_pattern: str,
+) -> dict[str, Any]:
+    """Build a friendly explanation for a `no_input_files` violation.
+
+    Reports the absolute base dir that was searched, the pattern as-declared,
+    the pattern after `{table}` substitution, and a sample of files that DO
+    live in the search dir (to help spot typos in the file_pattern).
+    """
+    abs_base = input_dir.resolve()
+    if input_dir.is_dir():
+        existing = sorted(
+            (p.name + ("/" if p.is_dir() else ""))
+            for p in input_dir.iterdir()
+        )
+        sub_listing: list[str] | None = None
+        slash_idx = resolved_pattern.find("/")
+        if slash_idx > 0:
+            subdir = input_dir / resolved_pattern[:slash_idx]
+            if subdir.is_dir():
+                sub_listing = sorted(
+                    (p.name + ("/" if p.is_dir() else ""))
+                    for p in subdir.iterdir()
+                )
+
+        expected = (
+            f"at least one file matching glob {file_pattern!r} "
+            f"(resolved to {resolved_pattern!r}) under base \"{abs_base}\""
+        )
+        offending: dict[str, Any] = {
+            "searched_base": str(abs_base),
+            "file_pattern": file_pattern,
+            "resolved_pattern": resolved_pattern,
+            "existing_top_level": existing[:_MAX_SAMPLE_FILES_LISTED],
+            "existing_top_level_count": len(existing),
+        }
+        if sub_listing is not None:
+            offending["subdir_searched"] = resolved_pattern[:slash_idx]
+            offending["existing_in_subdir"] = sub_listing[:_MAX_SAMPLE_FILES_LISTED]
+            offending["existing_in_subdir_count"] = len(sub_listing)
+    else:
+        expected = (
+            f"at least one file matching glob {file_pattern!r} "
+            f"(resolved to {resolved_pattern!r}) under base \"{abs_base}\", "
+            f"but the base directory does not exist"
+        )
+        offending = {
+            "searched_base": str(abs_base),
+            "file_pattern": file_pattern,
+            "resolved_pattern": resolved_pattern,
+            "base_exists": False,
+        }
+    return {"expected": expected, "offending_value": offending}
 
 
 @dataclass

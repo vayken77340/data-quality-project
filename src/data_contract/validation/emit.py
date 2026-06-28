@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from data_contract.contract import FieldContract
-from data_contract.validation.models import TableReport
-from data_contract.violations import Violation
+from dq_core.contract import FieldContract
+from dq_core.report_models import TableReport
+from dq_core.violations import Violation
 
 
 def emit_from_lazy(

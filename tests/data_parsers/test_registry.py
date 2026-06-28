@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 from data_contract.data_parsers import (
     REGISTRY,
     FileParser,

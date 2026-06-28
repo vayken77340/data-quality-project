@@ -5,8 +5,8 @@ from pathlib import Path
 
 import yaml
 
-from data_contract.field_constraints import REGISTRY
-from data_contract.field_constraints.format import FORMAT_REGISTRY
+from dq_core.field_constraints import REGISTRY
+from dq_core.field_constraints.format import FORMAT_REGISTRY
 from data_contract.generation.schema_export import (
     build_contract_json_schema,
     validate_against_schema,

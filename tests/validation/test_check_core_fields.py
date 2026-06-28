@@ -5,8 +5,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from data_contract.contract import FieldContract
-from data_contract.type_mapping import Type, TypeRegistry, load_type_registry, _MappingEntry
+from dq_core.contract import FieldContract
+from dq_core.type_mapping import Type, TypeRegistry, load_type_registry, _MappingEntry
 from data_contract.validation.checks.core_fields import (
     check_boolean_coercion,
     check_max_length,
@@ -156,7 +156,7 @@ def test_boolean_tokens_from_real_types_yaml(repo_root: Path):
 
 @pytest.fixture(scope="module")
 def date_registry() -> TypeRegistry:
-    from data_contract.type_mapping import _MappingEntry  # noqa: F401 (already imported)
+    from dq_core.type_mapping import _MappingEntry  # noqa: F401 (already imported)
     return TypeRegistry(entries=[
         _MappingEntry(
             canonical=Type.DATE,

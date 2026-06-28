@@ -27,7 +27,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 _VALID_FIELD_MATCHING_POLICIES = frozenset({"positional", "exact", "similarity"})

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Iterable
 
 from data_contract.data_parsers.field_matching import apply_policy, validate_policy
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 # ---------------------------------------------------------------------------

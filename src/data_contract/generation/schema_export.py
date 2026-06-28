@@ -20,8 +20,8 @@ from typing import Any
 
 import jsonschema
 
-from data_contract.field_constraints import REGISTRY
-from data_contract.type_mapping import Type
+from dq_core.field_constraints import REGISTRY
+from dq_core.type_mapping import Type
 
 
 SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"

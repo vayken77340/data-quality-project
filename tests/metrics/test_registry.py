@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract.errors import ConfigError
-from data_contract.metrics import REGISTRY, get, register
-from data_contract.metrics.base import TableMetric
+from dq_core.errors import ConfigError
+from dq_core.metrics import REGISTRY, get, register
+from dq_core.metrics.base import TableMetric
 
 
 def test_load_builtins_populates_expected_names():

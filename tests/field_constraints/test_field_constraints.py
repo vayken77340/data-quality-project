@@ -2,30 +2,30 @@ from pathlib import Path
 
 import pytest
 
-from data_contract import field_constraints
+from dq_core import field_constraints
 from data_contract.generation.config import ColumnMapping
 from data_contract.generation.builder import build_contract
-from data_contract.errors import RejectionError
-from data_contract.field_constraints.base import (
+from dq_core.errors import RejectionError
+from dq_core.field_constraints.base import (
     ConstraintContext,
     DriftChange,
     FieldConstraint,
     parse_column_ref,
 )
-from data_contract.field_constraints.unique import UniqueConstraint
-from data_contract.field_constraints.allowed_values import AllowedValuesConstraint
-from data_contract.field_constraints.pattern import PatternConstraint
-from data_contract.field_constraints.min_value import MinValueConstraint
-from data_contract.field_constraints.max_value import MaxValueConstraint
-from data_contract.field_constraints.format import (
+from dq_core.field_constraints.unique import UniqueConstraint
+from dq_core.field_constraints.allowed_values import AllowedValuesConstraint
+from dq_core.field_constraints.pattern import PatternConstraint
+from dq_core.field_constraints.min_value import MinValueConstraint
+from dq_core.field_constraints.max_value import MaxValueConstraint
+from dq_core.field_constraints.format import (
     FORMAT_REGISTRY,
     FormatConstraint,
     register_format,
 )
-from data_contract.field_constraints.default_value import DefaultValueConstraint
-from data_contract.field_constraints.base import unwrap_structured_value
+from dq_core.field_constraints.default_value import DefaultValueConstraint
+from dq_core.field_constraints.base import unwrap_structured_value
 from data_contract.generation.spec_reader import RawField, SheetSpec
-from data_contract.type_mapping import Type, load_type_registry
+from dq_core.type_mapping import Type, load_type_registry
 
 
 def _ctx(field_type=Type.INT64, max_length=None, sheet_row=2):
@@ -79,7 +79,7 @@ def test_allowed_values_drift_values_removed_is_breaking():
 
 
 def test_constraint_unknown_subblock_key_raises():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError):
         AllowedValuesConstraint.from_config({
             "spec_name": "Values",
@@ -116,7 +116,7 @@ def test_max_value_strict_default_emits_dict():
 
 
 def test_min_value_strict_must_be_bool():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError):
         MinValueConstraint.from_config({
             "spec_name": "Min",
@@ -191,7 +191,7 @@ def test_max_value_lowered_is_breaking():
 
 
 def test_unknown_constraint_in_column_mapping_is_config_error():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError):
         ColumnMapping.from_dict({
             "name": {"spec_name": "N"},
@@ -258,7 +258,7 @@ def test_extensibility_register_custom_constraint(tmp_path):
 
 
 def test_contract_key_uniqueness_enforced_at_register():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
 
     class CollidingConstraint(FieldConstraint):
         """Collides with pattern's contract_key.
@@ -284,7 +284,7 @@ def test_contract_key_uniqueness_enforced_at_register():
 
 
 def test_constraint_without_docstring_rejected_at_register():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
 
     class NoDocConstraint(FieldConstraint):
         name = "no_doc"
@@ -305,7 +305,7 @@ def test_constraint_without_docstring_rejected_at_register():
 
 
 def test_constraint_docstring_missing_required_headers_rejected():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
 
     class SparseDocConstraint(FieldConstraint):
         """Just a one-liner; no required headers."""
@@ -393,7 +393,7 @@ def test_format_register_duplicate_same_definition_idempotent():
 
 
 def test_format_register_duplicate_different_definition_rejects():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError):
         register_format("email", description="something else")
 
@@ -473,7 +473,7 @@ def test_default_value_invalid_for_type_rejects():
 
 
 def test_default_value_null_tokens_must_be_list():
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="null_tokens"):
         DefaultValueConstraint.from_config({
             "spec_name": "Default",
@@ -507,7 +507,7 @@ def test_default_value_drift_changed_is_breaking():
 
 
 def _field_with_constraints(name: str, constraints: dict) -> "FieldContract":
-    from data_contract.contract import FieldContract
+    from dq_core.contract import FieldContract
     return FieldContract(
         name=name, type=Type.STRING, nullable=True, description=None,
         constraints=dict(constraints),
@@ -554,14 +554,14 @@ def test_iter_checks_skips_unregistered_contract_key():
 
 
 def test_iter_checks_returns_constraint_class():
-    from data_contract.field_constraints.pattern import PatternConstraint
+    from dq_core.field_constraints.pattern import PatternConstraint
     f = _field_with_constraints("x", {"pattern": "^a$"})
     chk = next(iter(f.iter_checks()))
     assert chk.constraint_cls is PatternConstraint
 
 
 def test_iter_field_checks_walks_all_fields():
-    from data_contract.contract import Contract
+    from dq_core.contract import Contract
     c = Contract(
         version="1.0", epic="E", generated_at="t",
         spec_file="s.xlsx", spec_sheet="S", table="T",
@@ -576,7 +576,7 @@ def test_iter_field_checks_walks_all_fields():
 
 
 def test_primary_key_fields_returns_pk_subset():
-    from data_contract.contract import Contract, FieldContract
+    from dq_core.contract import Contract, FieldContract
     c = Contract(
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
@@ -591,7 +591,7 @@ def test_primary_key_fields_returns_pk_subset():
 
 
 def test_foreign_key_fields_returns_fk_subset():
-    from data_contract.contract import Contract, FieldContract
+    from dq_core.contract import Contract, FieldContract
     c = Contract(
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
@@ -607,7 +607,7 @@ def test_foreign_key_fields_returns_fk_subset():
 
 
 def test_field_name_set_returns_just_names():
-    from data_contract.contract import Contract, FieldContract
+    from dq_core.contract import Contract, FieldContract
     c = Contract(
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
@@ -687,7 +687,7 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         ),
     ]
     registry = load_type_registry(types_yaml_path)
-    from data_contract.contract import Contract
+    from dq_core.contract import Contract
     result = build_contract(
         merged, sheet, rows,
         type_registry=registry,

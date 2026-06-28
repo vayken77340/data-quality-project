@@ -16,8 +16,8 @@ import sys
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
-from data_contract.contract import Contract, Rejection
-from data_contract.errors import SpecReaderError
+from dq_core.contract import Contract, Rejection
+from dq_core.errors import SpecReaderError
 from data_contract.generation.builder import (
     build_one_table,
     history_path_for_table,
@@ -49,10 +49,10 @@ from data_contract.generation.spec_reader import (
     open_workbook,
 )
 from data_contract.generation.invariants import check_invariants_in_memory
-from data_contract.errors import ConfigError
-from data_contract.settings import Settings
-from data_contract.targets import load_target_config, resolve_target_path
-from data_contract.type_mapping import TypeRegistry
+from dq_core.errors import ConfigError
+from dq_core.settings import Settings
+from dq_core.targets import load_target_config, resolve_target_path
+from dq_core.type_mapping import TypeRegistry
 
 
 # ---------------------------------------------------------------------------

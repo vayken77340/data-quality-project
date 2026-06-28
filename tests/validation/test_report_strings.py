@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract.validation.report.strings import ReportStrings, load_strings
+from dq_core.report.strings import ReportStrings, load_strings
 
 
 # Every key path the XLSX writer reads, in (path-tuple, expected-leaf-type) form.

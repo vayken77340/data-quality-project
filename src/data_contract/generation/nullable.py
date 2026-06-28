@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from data_contract.core.column_ref import UNSET
-from data_contract.errors import ConfigError, RejectionError
+from dq_core.column_ref import UNSET
+from dq_core.errors import ConfigError, RejectionError
 
 
 @dataclass(frozen=True)

@@ -25,11 +25,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from data_contract._util import now_iso_z
-from data_contract.contract import Contract
-from data_contract.errors import ConfigError
-from data_contract.settings import Settings
-from data_contract.type_mapping import TypeRegistry
+from dq_core._util import now_iso_z
+from dq_core.contract import Contract
+from dq_core.errors import ConfigError
+from dq_core.settings import Settings
+from dq_core.type_mapping import TypeRegistry
 from data_contract.validation.config import (
     TableValidationConfig,
     ValidationConfig,
@@ -37,12 +37,12 @@ from data_contract.validation.config import (
 from data_contract.validation.emit import emit_from_lazy
 from data_contract.validation.fk_pass import run_cross_table_fk
 from data_contract.validation.load_table import load_table
-from data_contract.validation.models import (
+from dq_core.report_models import (
     TableReport,
     ValidationReport,
 )
 from data_contract.validation.phases import PHASES, PhaseContext
-from data_contract.validation.post import (
+from dq_core.report_build import (
     build_rejected_rows,
     build_run_metadata,
     populate_by_check,
@@ -145,14 +145,14 @@ def run_validate_data(
         settings=rs.settings, run_metadata=run_metadata,
     )
 
-    from data_contract.validation.report.writer import write_all
+    from dq_core.report.writer import write_all
     rs.out_dir.mkdir(parents=True, exist_ok=True)
     write_all(final_report, rs.out_dir, rs.contracts_by_table)
     _print_console_summary(final_report, rs.out_dir)
 
     if json_to_stdout:
         import json as _json
-        from data_contract.validation.report.json_report import render_json
+        from dq_core.report.json_report import render_json
         print(_json.dumps(render_json(final_report, rs.contracts_by_table), indent=2))
 
     return 2 if final_report.has_errors else 0
@@ -252,8 +252,8 @@ def _finalize_reports(
     type_registry: TypeRegistry,
     target_config,
 ) -> None:
-    from data_contract.validation.report.dimensions import compute_table_score
-    from data_contract.validation.report.profile import build_table_profile
+    from dq_core.report.dimensions import compute_table_score
+    from dq_core.report.profile import build_table_profile
 
     for tr in table_reports:
         contract = contracts_by_table[tr.table]

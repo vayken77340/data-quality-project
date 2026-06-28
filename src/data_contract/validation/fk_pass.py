@@ -15,12 +15,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.table_checks.fk_existence import FkExistenceCheck as _FkCheckCls
+from dq_core.contract import Contract, FieldContract
+from dq_core.table_checks.fk_existence import FkExistenceCheck as _FkCheckCls
 from data_contract.validation.config import TableValidationConfig
 from data_contract.validation.emit import emit_from_lazy
-from data_contract.validation.models import TableReport
-from data_contract.violations import Violation
+from dq_core.report_models import TableReport
+from dq_core.violations import Violation
 
 
 def run_cross_table_fk(

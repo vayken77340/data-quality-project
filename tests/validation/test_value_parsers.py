@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 import pytest
 
-from data_contract.type_mapping import Type
+from dq_core.type_mapping import Type
 from data_contract.validation.checks.value_parsers import (
     get_parser,
     parse_boolean,

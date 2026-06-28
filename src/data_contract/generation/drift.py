@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from data_contract._util import now_iso_z
-from data_contract.contract import Contract, FieldContract
-from data_contract.field_constraints import constraint_for_contract_key
-from data_contract.field_constraints.base import DriftChange
+from dq_core._util import now_iso_z
+from dq_core.contract import Contract, FieldContract
+from dq_core.field_constraints import constraint_for_contract_key
+from dq_core.field_constraints.base import DriftChange
 from data_contract.generation.config import version_sort_key
 
 

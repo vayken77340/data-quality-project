@@ -25,10 +25,10 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook as WorkbookType
 
-from data_contract._util import now_iso_z
-from data_contract.core.yaml_io import load_yaml
+from dq_core._util import now_iso_z
+from dq_core.yaml_io import load_yaml
 from data_contract.generation.config import version_sort_key
-from data_contract.contract import Contract, FieldContract
+from dq_core.contract import Contract, FieldContract
 from data_contract.generation.joins import JoinsContract, JoinRow
 
 

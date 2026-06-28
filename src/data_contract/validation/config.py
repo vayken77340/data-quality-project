@@ -107,10 +107,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from data_contract.core.gates import Gates, GateSpec, parse_tier_gates
-from data_contract.core.yaml_io import load_yaml_mapping
+from dq_core.gates import Gates, GateSpec, parse_tier_gates
+from dq_core.yaml_io import load_yaml_mapping
 from data_contract.data_parsers import get_by_name, load_parser_yaml_overrides
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 # Structural checks are derived from the contract type system; the set is
@@ -138,8 +138,8 @@ def _tier_check_names() -> dict[str, frozenset[str]]:
     violation; contract-only constraints (default_value) have no data-side
     check and shouldn't appear as a togglable gate.
     """
-    from data_contract import field_constraints as fc_pkg
-    from data_contract import table_checks as tc_pkg
+    from dq_core import field_constraints as fc_pkg
+    from dq_core import table_checks as tc_pkg
     field_names = {
         name for name, cls in fc_pkg.REGISTRY.items()
         if isinstance(cls.VIOLATION_KIND, str) and cls.VIOLATION_KIND
@@ -153,7 +153,7 @@ def _tier_check_names() -> dict[str, frozenset[str]]:
 
 def _tier_metric_names() -> dict[str, frozenset[str]]:
     """Per-tier set of valid metric names, grouped by each metric's `scope`."""
-    from data_contract import metrics as metrics_pkg
+    from dq_core import metrics as metrics_pkg
     out: dict[str, set[str]] = {tier: set() for tier in METRIC_TIER_KEYS}
     for name, cls in metrics_pkg.REGISTRY.items():
         if cls.scope in out:

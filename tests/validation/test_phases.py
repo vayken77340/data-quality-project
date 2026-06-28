@@ -10,11 +10,11 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.core.gates import Gates, GateSpec
-from data_contract.type_mapping import Type, load_type_registry
+from dq_core.contract import Contract, FieldContract
+from dq_core.gates import Gates, GateSpec
+from dq_core.type_mapping import Type, load_type_registry
 from data_contract.validation.emit import emit_from_lazy
-from data_contract.validation.models import TableReport
+from dq_core.report_models import TableReport
 from data_contract.validation.phases import (
     PHASES,
     PhaseContext,

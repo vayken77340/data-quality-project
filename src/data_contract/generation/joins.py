@@ -20,10 +20,10 @@ from typing import Any
 
 from openpyxl.workbook.workbook import Workbook
 
-from data_contract._util import dump_yaml, now_iso_z
+from dq_core._util import dump_yaml, now_iso_z
 from data_contract.generation.config import JoinsSpec
-from data_contract.contract import Contract, _Provenance
-from data_contract.errors import RejectionError
+from dq_core.contract import Contract, _Provenance
+from dq_core.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
 from data_contract.generation.sheet_io import (
     HEADER_SEARCH_DEPTH,

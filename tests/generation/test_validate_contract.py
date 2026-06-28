@@ -230,8 +230,8 @@ def test_self_check_directly_via_check_invariants_catches_dangling_fk(repo_root)
     """Direct unit test of the self-check engine: a Contract whose FK targets
     a peer-set entry that doesn't carry the referenced column should produce
     a fk_target_exists error."""
-    from data_contract.contract import Contract, FieldContract
-    from data_contract.type_mapping import Type, load_type_registry
+    from dq_core.contract import Contract, FieldContract
+    from dq_core.type_mapping import Type, load_type_registry
     from data_contract.generation.invariants import check_invariants
 
     registry = load_type_registry(repo_root / "configs" / "types.yaml")

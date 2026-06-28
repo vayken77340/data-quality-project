@@ -21,8 +21,8 @@ from dataclasses import dataclass, field, replace
 from openpyxl.workbook.workbook import Workbook
 
 from data_contract.generation.config import KeysSpec
-from data_contract.contract import Contract, FieldContract, Rejection
-from data_contract.errors import RejectionError
+from dq_core.contract import Contract, FieldContract, Rejection
+from dq_core.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
 from data_contract.generation.sheet_io import (
     HEADER_SEARCH_DEPTH,

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import polars as pl
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.table_checks.fk_existence import FkExistenceCheck
-from data_contract.table_checks.pk_uniqueness import PkUniquenessCheck
-from data_contract.type_mapping import Type
+from dq_core.contract import Contract, FieldContract
+from dq_core.table_checks.fk_existence import FkExistenceCheck
+from dq_core.table_checks.pk_uniqueness import PkUniquenessCheck
+from dq_core.type_mapping import Type
 from tests.conftest import contract as _contract
 
 

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.targets import load_target_config
-from data_contract.type_mapping import Type, load_type_registry
-from data_contract.validation.report.profile import (
+from dq_core.contract import Contract, FieldContract
+from dq_core.targets import load_target_config
+from dq_core.type_mapping import Type, load_type_registry
+from dq_core.report.profile import (
     FieldProfile,
     TableProfile,
     build_table_profile,

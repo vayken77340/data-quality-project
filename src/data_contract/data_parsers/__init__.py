@@ -21,15 +21,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from data_contract.core.registry import BaseRegistry, IndexSpec, RegistrySpec
-from data_contract.core.yaml_io import load_yaml_mapping
+from dq_core.registry import BaseRegistry, IndexSpec, RegistrySpec
+from dq_core.yaml_io import load_yaml_mapping
 from data_contract.data_parsers.base import (
     FileParser,
     ParsedFile,
     ParserSchema,
     ReadResult,
 )
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 _BUILTIN_MODULES = (

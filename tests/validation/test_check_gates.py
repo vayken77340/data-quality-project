@@ -14,8 +14,8 @@ import pytest
 import yaml
 
 from data_contract.cli import main
-from data_contract.errors import ConfigError
-from data_contract.core.gates import Gates, GateSpec
+from dq_core.errors import ConfigError
+from dq_core.gates import Gates, GateSpec
 from data_contract.validation.config import (
     ValidationConfig,
     _parse_check_gates,

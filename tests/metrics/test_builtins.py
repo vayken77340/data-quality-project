@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import polars as pl
 
-from data_contract.contract import Contract
-from data_contract.metrics.completeness import CompletenessMetric
-from data_contract.metrics.distinct_count import DistinctCountMetric
-from data_contract.metrics.duplicate_pct import DuplicatePctMetric
-from data_contract.metrics.null_count import NullCountMetric
-from data_contract.metrics.null_percentage import NullPercentageMetric
-from data_contract.metrics.row_count import RowCountMetric
+from dq_core.contract import Contract
+from dq_core.metrics.completeness import CompletenessMetric
+from dq_core.metrics.distinct_count import DistinctCountMetric
+from dq_core.metrics.duplicate_pct import DuplicatePctMetric
+from dq_core.metrics.null_count import NullCountMetric
+from dq_core.metrics.null_percentage import NullPercentageMetric
+from dq_core.metrics.row_count import RowCountMetric
 
 
 def _fixture():

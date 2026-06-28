@@ -10,8 +10,8 @@ from data_contract.generation.catalog import (
     render_full_doc,
     would_regen_change,
 )
-from data_contract.field_constraints import REGISTRY
-from data_contract.field_constraints.format import FORMAT_REGISTRY
+from dq_core.field_constraints import REGISTRY
+from dq_core.field_constraints.format import FORMAT_REGISTRY
 
 
 def test_catalog_table_lists_every_registered_constraint():

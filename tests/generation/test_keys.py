@@ -20,8 +20,8 @@ from openpyxl import Workbook
 
 from data_contract.cli import main
 from data_contract.generation.config import Defaults, KeysSpec
-from data_contract.contract import FieldContract
-from data_contract.errors import ConfigError
+from dq_core.contract import FieldContract
+from dq_core.errors import ConfigError
 from data_contract.generation.keys import (
     KeysRow,
     build_pk_index,
@@ -30,7 +30,7 @@ from data_contract.generation.keys import (
     split_separated,
 )
 from data_contract.generation.spec_reader import open_workbook
-from data_contract.type_mapping import Type
+from dq_core.type_mapping import Type
 
 from tests.conftest import (
     KEYS_HEADERS, add_keys_sheet, minimal_defaults_yaml, minimal_keys_block_yaml,

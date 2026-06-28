@@ -19,8 +19,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from data_contract.field_constraints import REGISTRY
-from data_contract.field_constraints.format import FORMAT_REGISTRY
+from dq_core.field_constraints import REGISTRY
+from dq_core.field_constraints.format import FORMAT_REGISTRY
 
 
 DEFAULT_CONSTRAINTS_DOC = Path("docs/constraints.md")

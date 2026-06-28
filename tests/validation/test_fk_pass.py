@@ -5,12 +5,12 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.core.gates import Gates, GateSpec
-from data_contract.type_mapping import Type
+from dq_core.contract import Contract, FieldContract
+from dq_core.gates import Gates, GateSpec
+from dq_core.type_mapping import Type
 from data_contract.validation.config import TableValidationConfig
 from data_contract.validation.fk_pass import run_cross_table_fk
-from data_contract.validation.models import TableReport
+from dq_core.report_models import TableReport
 
 
 def _parent_contract() -> Contract:

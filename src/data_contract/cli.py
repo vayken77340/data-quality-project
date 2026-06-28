@@ -15,14 +15,14 @@ from pathlib import Path
 from typing import Sequence
 
 from data_contract import __version__
-from data_contract._util import dump_yaml
-from data_contract.core.epic import (
+from dq_core._util import dump_yaml
+from dq_core.epic import (
     InvalidEpicName,
     discover_epics,
     validate_epic_name,
 )
-from data_contract.contract import Contract
-from data_contract.errors import ConfigError
+from dq_core.contract import Contract
+from dq_core.errors import ConfigError
 from data_contract.generation.builder import (
     drift_path_for,
     history_path_for_table,
@@ -44,8 +44,8 @@ from data_contract.generation.schema_export import (
     DEFAULT_SCHEMA_OUT,
     write_contract_json_schema,
 )
-from data_contract.settings import load_settings
-from data_contract.type_mapping import load_type_registry
+from dq_core.settings import load_settings
+from dq_core.type_mapping import load_type_registry
 
 
 DEFAULT_TYPES_PATH = Path("configs/types.yaml")

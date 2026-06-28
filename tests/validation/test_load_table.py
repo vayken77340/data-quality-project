@@ -7,12 +7,12 @@ from textwrap import dedent
 
 import pytest
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.settings import Settings
-from data_contract.type_mapping import Type, load_type_registry
+from dq_core.contract import Contract, FieldContract
+from dq_core.settings import Settings
+from dq_core.type_mapping import Type, load_type_registry
 from data_contract.validation.config import ValidationConfig
 from data_contract.validation.load_table import LoadedTable, load_table
-from data_contract.validation.models import TableReport
+from dq_core.report_models import TableReport
 from tests.conftest import (
     ALL_CHECKS_ENABLED_YAML, write_test_parsers_yaml,
 )

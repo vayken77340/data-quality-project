@@ -33,10 +33,10 @@ from typing import Any
 
 import yaml
 
-from data_contract.contract import Contract
-from data_contract.core.epic import discover_epics
-from data_contract.core.yaml_io import load_yaml_mapping
-from data_contract.errors import ConfigError
+from dq_core.contract import Contract
+from dq_core.epic import discover_epics
+from dq_core.yaml_io import load_yaml_mapping
+from dq_core.errors import ConfigError
 from data_contract.generation.invariants import (
     InvariantError,
     check_invariants,
@@ -44,7 +44,7 @@ from data_contract.generation.invariants import (
     check_path_invariants,
 )
 from data_contract.generation.schema_export import validate_against_schema
-from data_contract.type_mapping import TypeRegistry, load_type_registry
+from dq_core.type_mapping import TypeRegistry, load_type_registry
 
 
 class ValidateContractAbort(Exception):

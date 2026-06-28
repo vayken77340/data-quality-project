@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from data_contract.data_parsers.base import FileParser, ParsedFile, ParserSchema
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 class JsonParser(FileParser):

@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 
 from data_contract.data_parsers.json_parser import JsonParser
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 # ---------------------------------------------------------------------------

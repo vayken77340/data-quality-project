@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from data_contract.errors import ConfigError
-from data_contract.targets import (
+from dq_core.errors import ConfigError
+from dq_core.targets import (
     TargetConfig,
     TargetOverrides,
     load_target_config,
     resolve_target_path,
 )
-from data_contract.type_mapping import Type, load_type_registry
+from dq_core.type_mapping import Type, load_type_registry
 
 
 @pytest.fixture(scope="module")
@@ -226,7 +226,7 @@ def test_with_target_does_not_override_boolean_tokens(base_registry, repo_root: 
 
 
 def test_length_unit_for_string_requires_active_target(base_registry, repo_root: Path):
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     # Base registry has no STRING overlay -> length_unit lookup raises clean error.
     with pytest.raises(ConfigError, match="length_unit is not defined"):
         base_registry.length_unit_for(Type.STRING)

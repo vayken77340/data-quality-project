@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from data_contract.data_parsers import load_parser_yaml_overrides
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 def _write(path: Path, text: str) -> Path:

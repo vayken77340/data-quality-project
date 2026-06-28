@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 from data_contract.validation.config import ValidationConfig
 from tests.conftest import ALL_CHECKS_ENABLED_YAML
 
@@ -426,7 +426,7 @@ tables:
 
 
 def test_violation_to_dict_round_trip():
-    from data_contract.violations import Violation
+    from dq_core.violations import Violation
 
     v = Violation(
         kind="nullable_violation",
@@ -448,7 +448,7 @@ def test_violation_to_dict_round_trip():
 
 
 def test_violation_render_includes_field_and_location():
-    from data_contract.violations import Violation
+    from dq_core.violations import Violation
 
     v = Violation(
         kind="pattern_violation",

@@ -22,11 +22,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from data_contract.contract import Contract
-from data_contract.type_mapping import Type, TypeRegistry
+from dq_core.contract import Contract
+from dq_core.type_mapping import Type, TypeRegistry
 from data_contract.validation.config import Gates
-from data_contract.validation.models import TableReport
-from data_contract.validation.post import (
+from dq_core.report_models import TableReport
+from dq_core.report_build import (
     describe_constraint,
     type_coercion_expected,
 )
@@ -185,7 +185,7 @@ def run_table_checks_phase(ctx: PhaseContext) -> None:
     phases -- a row whose PK columns failed type coercion shouldn't also
     show up as "not unique".
     """
-    from data_contract import table_checks as _table_checks_pkg
+    from dq_core import table_checks as _table_checks_pkg
 
     pk_uniqueness_pending: type | None = None
 

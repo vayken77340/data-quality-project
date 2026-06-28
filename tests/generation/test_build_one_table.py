@@ -8,15 +8,15 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from data_contract.contract import Contract, Rejection
+from dq_core.contract import Contract, Rejection
 from data_contract.generation.builder import build_one_table
 from data_contract.generation.config import (
     ColumnMapping, KeysSpec, MergedConfig, TableSelector,
 )
 from data_contract.generation.keys import build_pk_index, read_keys_sheet
 from data_contract.generation.spec_reader import open_workbook
-from data_contract.settings import Settings
-from data_contract.type_mapping import load_type_registry
+from dq_core.settings import Settings
+from dq_core.type_mapping import load_type_registry
 
 
 def _mapping() -> ColumnMapping:

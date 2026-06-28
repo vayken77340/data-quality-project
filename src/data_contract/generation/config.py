@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from data_contract.core.column_ref import (
+from dq_core.column_ref import (
     UNSET as _UNSET,
     CardinalityColumnRef,
     ColumnRef,
@@ -26,10 +26,10 @@ from data_contract.core.column_ref import (
     parse_column_ref,
     parse_separated_column_ref,
 )
-from data_contract.core.yaml_io import load_yaml, load_yaml_mapping
-from data_contract.errors import ConfigError
-from data_contract.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
-from data_contract.field_constraints.base import FieldConstraint
+from dq_core.yaml_io import load_yaml, load_yaml_mapping
+from dq_core.errors import ConfigError
+from dq_core.field_constraints import REGISTRY as CONSTRAINT_REGISTRY
+from dq_core.field_constraints.base import FieldConstraint
 from data_contract.generation.nullable import NullableMapping
 
 

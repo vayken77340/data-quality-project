@@ -19,13 +19,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from data_contract.contract import Contract
-from data_contract.core.epic import InvalidEpicName, validate_epic_name
-from data_contract.core.yaml_io import load_yaml
-from data_contract.errors import ConfigError
-from data_contract.settings import Settings, SettingsError, load_settings
-from data_contract.targets import load_target_config, resolve_target_path
-from data_contract.type_mapping import TypeRegistry, load_type_registry
+from dq_core.contract import Contract
+from dq_core.epic import InvalidEpicName, validate_epic_name
+from dq_core.yaml_io import load_yaml
+from dq_core.errors import ConfigError
+from dq_core.settings import Settings, SettingsError, load_settings
+from dq_core.targets import load_target_config, resolve_target_path
+from dq_core.type_mapping import TypeRegistry, load_type_registry
 from data_contract.validation.config import (
     TableValidationConfig,
     ValidationConfig,

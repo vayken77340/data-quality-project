@@ -6,8 +6,8 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.workbook.workbook import Workbook as WorkbookType
 
-from data_contract.contract import Contract, FieldContract
-from data_contract.type_mapping import Type
+from dq_core.contract import Contract, FieldContract
+from dq_core.type_mapping import Type
 
 
 def field_contract(

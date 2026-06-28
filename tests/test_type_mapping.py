@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from data_contract.type_mapping import Type, load_type_registry, parse_type, unknown_parsed_type
+from dq_core.type_mapping import Type, load_type_registry, parse_type, unknown_parsed_type
 
 
 @pytest.fixture(scope="module")
@@ -191,7 +191,7 @@ def test_data_values_duplicate_token_across_literals_rejected(tmp_path):
         "      'false': ['non', 'oui']\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="appears under both"):
         load_type_registry(yaml_path)
 
@@ -205,7 +205,7 @@ def test_data_values_must_be_mapping(tmp_path):
         "    data_values: ['true', 'false']\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="data_values must be a mapping"):
         load_type_registry(yaml_path)
 
@@ -221,7 +221,7 @@ def test_data_values_empty_list_rejected(tmp_path):
         "      'false': ['no']\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="must be a non-empty list"):
         load_type_registry(yaml_path)
 
@@ -266,7 +266,7 @@ def test_parse_formats_rejected_on_non_temporal_canonical(tmp_path):
         "    parse_formats: ['%Y']\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="only valid on DATE / TIMESTAMP"):
         load_type_registry(yaml_path)
 
@@ -280,7 +280,7 @@ def test_parse_formats_must_be_non_empty_list(tmp_path):
         "    parse_formats: []\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="must be a non-empty list"):
         load_type_registry(yaml_path)
 
@@ -314,7 +314,7 @@ def test_load_type_registry_rejects_legacy_canonical_key(tmp_path):
         "    aliases: [varchar]\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="not a recognized canonical"):
         load_type_registry(yaml_path)
 
@@ -329,6 +329,6 @@ def test_load_type_registry_rejects_legacy_list_shape(tmp_path):
         "    aliases: [string]\n",
         encoding="utf-8",
     )
-    from data_contract.errors import ConfigError
+    from dq_core.errors import ConfigError
     with pytest.raises(ConfigError, match="no longer supported"):
         load_type_registry(yaml_path)

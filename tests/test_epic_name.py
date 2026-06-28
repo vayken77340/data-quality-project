@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract._util import InvalidEpicName, validate_epic_name
+from dq_core._util import InvalidEpicName, validate_epic_name
 
 
 # ---------------------------------------------------------------------------

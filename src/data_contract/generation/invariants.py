@@ -21,11 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from data_contract.contract import Contract
-from data_contract.field_constraints import constraint_for_contract_key
-from data_contract.field_constraints.base import unwrap_structured_value
+from dq_core.contract import Contract
+from dq_core.field_constraints import constraint_for_contract_key
+from dq_core.field_constraints.base import unwrap_structured_value
 from data_contract.generation.joins import JOIN_TYPE_ALIASES, JoinsContract
-from data_contract.type_mapping import Type, TypeRegistry
+from dq_core.type_mapping import Type, TypeRegistry
 
 
 VALID_JOIN_TYPES = frozenset(JOIN_TYPE_ALIASES.values())

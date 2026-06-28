@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from data_contract.validation.report.check_status import (
+from dq_core.report.check_status import (
     STATUS_ERROR,
     STATUS_NA,
     STATUS_OK,
@@ -10,7 +10,7 @@ from data_contract.validation.report.check_status import (
     STATUS_WARNING,
     compute_table_check_status,
 )
-from data_contract.violations import Violation
+from dq_core.violations import Violation
 
 
 _CHECK_TO_KIND = {

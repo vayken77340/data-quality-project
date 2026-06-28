@@ -23,18 +23,18 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable, Union
 
-from data_contract._util import now_iso_z
-from data_contract.contract import (
+from dq_core._util import now_iso_z
+from dq_core.contract import (
     BuildResult,
     Contract,
     FieldContract,
     Rejection,
 )
-from data_contract.core.column_ref import ColumnRef
-from data_contract.core.slugify import slugify
-from data_contract.core.yaml_io import dump_yaml
-from data_contract.errors import ErrorCollector, RejectionError
-from data_contract.field_constraints.base import ConstraintContext
+from dq_core.column_ref import ColumnRef
+from dq_core.slugify import slugify
+from dq_core.yaml_io import dump_yaml
+from dq_core.errors import ErrorCollector, RejectionError
+from dq_core.field_constraints.base import ConstraintContext
 from data_contract.generation.config import MergedConfig, TableSelector
 from data_contract.generation.keys import KeysData, enrich_with_keys
 from data_contract.generation.nullable import parse_nullable
@@ -44,8 +44,8 @@ from data_contract.generation.spec_reader import (
     iter_field_rows,
     read_sheet,
 )
-from data_contract.settings import Settings
-from data_contract.type_mapping import (
+from dq_core.settings import Settings
+from dq_core.type_mapping import (
     ParsedType,
     Type,
     TypeRegistry,

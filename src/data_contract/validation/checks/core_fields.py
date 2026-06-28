@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from data_contract.contract import FieldContract
-from data_contract.type_mapping import Type, TypeRegistry
+from dq_core.contract import FieldContract
+from dq_core.type_mapping import Type, TypeRegistry
 from data_contract.validation.checks.value_parsers import get_parser
 
 

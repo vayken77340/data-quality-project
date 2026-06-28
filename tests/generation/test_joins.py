@@ -19,8 +19,8 @@ from openpyxl import Workbook
 
 from data_contract.cli import main
 from data_contract.generation.config import JoinsSpec
-from data_contract.contract import Contract, FieldContract
-from data_contract.errors import RejectionError
+from dq_core.contract import Contract, FieldContract
+from dq_core.errors import RejectionError
 from data_contract.generation.joins import (
     JOIN_TYPE_ALIASES,
     JoinRow,
@@ -31,7 +31,7 @@ from data_contract.generation.joins import (
     read_joins_sheet,
     validate_joins,
 )
-from data_contract.type_mapping import Type
+from dq_core.type_mapping import Type
 
 from tests.conftest import (
     add_keys_sheet, minimal_defaults_yaml, workbook_with_sheet, write_test_parsers_yaml,

@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from data_contract.violations import Violation
+from dq_core.violations import Violation
 
 if TYPE_CHECKING:
-    from data_contract.contract import Contract
+    from dq_core.contract import Contract
     from data_contract.data_parsers.base import ParserSchema, FileParser
 
 

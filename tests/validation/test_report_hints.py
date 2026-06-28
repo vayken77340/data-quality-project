@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract.validation.report.dimensions import _KIND_TO_DIMENSION
-from data_contract.validation.report.hints import HINTS, hint_for
+from dq_core.report.dimensions import _KIND_TO_DIMENSION
+from dq_core.report.hints import HINTS, hint_for
 
 
 def test_every_kind_has_a_hint():

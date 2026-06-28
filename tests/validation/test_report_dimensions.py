@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from data_contract.validation.report.dimensions import (
+from dq_core.report.dimensions import (
     Dimension,
     QUALITY_DIMENSIONS,
     compute_overall_score,
@@ -50,7 +50,7 @@ def test_dimension_for_unknown_raises():
 
 def test_every_existing_kind_has_a_dimension():
     """Guard: every kind emitted by the runner must be mapped here."""
-    from data_contract.field_constraints import REGISTRY
+    from dq_core.field_constraints import REGISTRY
     # Per-constraint kinds (from each registered FieldConstraint).
     for cls in REGISTRY.values():
         vk = getattr(cls, "VIOLATION_KIND", None)

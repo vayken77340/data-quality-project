@@ -22,7 +22,7 @@ from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from data_contract.generation.config import ColumnMapping
-from data_contract.errors import RejectionError, SpecReaderError
+from dq_core.errors import RejectionError, SpecReaderError
 from data_contract.generation.header_matcher import find_column, normalize
 from data_contract.generation.sheet_io import (
     HEADER_SEARCH_DEPTH,

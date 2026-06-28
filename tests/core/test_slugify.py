@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_contract.core.slugify import slugify
+from dq_core.slugify import slugify
 
 
 @pytest.mark.parametrize("raw, expected", [

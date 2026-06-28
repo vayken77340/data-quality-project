@@ -22,7 +22,7 @@ from data_contract.data_parsers.field_matching import (
     _normalize_for_matching,
     _similarity_score,
 )
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 
 # ---------------------------------------------------------------------------

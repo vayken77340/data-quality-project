@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import polars as pl
 
-from data_contract.contract import FieldCheck, FieldContract
-from data_contract.field_constraints.allowed_values import AllowedValuesConstraint
-from data_contract.field_constraints.format import FormatConstraint
-from data_contract.field_constraints.max_value import MaxValueConstraint
-from data_contract.field_constraints.min_value import MinValueConstraint
-from data_contract.field_constraints.pattern import PatternConstraint
-from data_contract.field_constraints.unique import UniqueConstraint
-from data_contract.type_mapping import Type
+from dq_core.contract import FieldCheck, FieldContract
+from dq_core.field_constraints.allowed_values import AllowedValuesConstraint
+from dq_core.field_constraints.format import FormatConstraint
+from dq_core.field_constraints.max_value import MaxValueConstraint
+from dq_core.field_constraints.min_value import MinValueConstraint
+from dq_core.field_constraints.pattern import PatternConstraint
+from dq_core.field_constraints.unique import UniqueConstraint
+from dq_core.type_mapping import Type
 from tests.conftest import field_contract as _field
 
 

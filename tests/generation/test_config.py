@@ -10,7 +10,7 @@ from data_contract.generation.config import (
     merge,
     version_sort_key,
 )
-from data_contract.errors import ConfigError
+from dq_core.errors import ConfigError
 
 from tests.conftest import minimal_keys_block_yaml
 
