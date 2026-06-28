@@ -315,10 +315,12 @@ def test_build_joins_result_success():
         spec_sheet="Joins",
         joins_data=JoinsData(rows=rows),
         contracts_by_table=contracts,
+        target="oracle",
         now="2026-06-02T14:00:00Z",
     )
     assert isinstance(result, JoinsContract)
     payload = result.to_dict()
+    assert payload["target"] == "oracle"
     assert payload["joins"][0]["type"] == "LEFT"
     assert payload["joins"][0]["cardinality"] == "1:n"
     assert payload["joins"][0]["description"] == "rule"

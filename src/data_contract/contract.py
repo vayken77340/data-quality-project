@@ -175,13 +175,18 @@ class FieldContract:
 
 @dataclass
 class _Provenance:
-    """Shared fields + provenance-dict shape for Contract / Rejection."""
+    """Shared provenance fields for every generation artifact (per-table
+    contracts/rejections AND the cross-table joins artifact).
+
+    The joins artifact has no `table` field -- it spans tables -- so `table`
+    lives on the `_TableProvenance` subclass below, not here. Anything that
+    every artifact carries goes here.
+    """
     version: str
     epic: str
     generated_at: str
     spec_file: str
     spec_sheet: str
-    table: str
     # Active target database. Stamped at generation from the epic version
     # config. Validation reads this to apply the matching target overlay
     # (physical types, bounds, length unit, parse formats) to the type
@@ -190,6 +195,27 @@ class _Provenance:
     target: str = ""
 
     def _provenance_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "version": self.version,
+            "epic": self.epic,
+            "generated_at": self.generated_at,
+            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
+        }
+        if self.target:
+            out["target"] = self.target
+        return out
+
+
+@dataclass
+class _TableProvenance(_Provenance):
+    """Provenance for per-table artifacts (Contract / Rejection). Adds the
+    `table` field and the `reject()` helper that mirrors provenance into a
+    Rejection."""
+    table: str = ""
+
+    def _provenance_dict(self) -> dict[str, Any]:
+        # Insert `table` between `spec` and the optional `target` so the
+        # emitted YAML field order matches what pre-v9 contracts had.
         out: dict[str, Any] = {
             "version": self.version,
             "epic": self.epic,
@@ -214,7 +240,8 @@ class _Provenance:
         Optional `spec_sheet` / `table` overrides let cross-sheet duplicate
         detection emit a Rejection under a disambiguated table name without
         re-listing every other provenance field. Adding a new provenance
-        field on `_Provenance` automatically propagates through this method.
+        field on `_TableProvenance` automatically propagates through this
+        method.
         """
         return Rejection(
             version=self.version,
@@ -229,7 +256,7 @@ class _Provenance:
 
 
 @dataclass
-class Contract(_Provenance):
+class Contract(_TableProvenance):
     fields: list[FieldContract] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -280,7 +307,7 @@ class Contract(_Provenance):
 
 
 @dataclass
-class Rejection(_Provenance):
+class Rejection(_TableProvenance):
     errors: list[RejectionError] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

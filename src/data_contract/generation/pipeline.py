@@ -436,6 +436,7 @@ def emit_joins(
         version=merged.version, epic=merged.epic, spec_file_rel=spec_file_rel,
         spec_sheet=merged.joins.sheet_name,
         joins_data=joins_data, contracts_by_table=contracts_by_table,
+        target=merged.target,
     )
 
     if write:

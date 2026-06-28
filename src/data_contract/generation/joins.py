@@ -22,7 +22,7 @@ from openpyxl.workbook.workbook import Workbook
 
 from data_contract._util import dump_yaml, now_iso_z
 from data_contract.generation.config import JoinsSpec
-from data_contract.contract import Contract
+from data_contract.contract import Contract, _Provenance
 from data_contract.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
 from data_contract.generation.sheet_io import (
@@ -135,41 +135,26 @@ class JoinsData:
 
 
 @dataclass
-class JoinsContract:
-    version: str
-    epic: str
-    generated_at: str
-    spec_file: str
-    spec_sheet: str
-    joins: list[JoinRow]
+class JoinsContract(_Provenance):
+    # Inherits version / epic / generated_at / spec_file / spec_sheet / target
+    # from _Provenance. Note: `target` has a default there, so `joins` needs
+    # one too (Python's "non-default after default" rule).
+    joins: list[JoinRow] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "epic": self.epic,
-            "generated_at": self.generated_at,
-            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
-            "joins": [_join_row_to_dict(j) for j in self.joins],
-        }
+        out = self._provenance_dict()
+        out["joins"] = [_join_row_to_dict(j) for j in self.joins]
+        return out
 
 
 @dataclass
-class JoinsRejection:
-    version: str
-    epic: str
-    generated_at: str
-    spec_file: str
-    spec_sheet: str
-    errors: list[RejectionError]
+class JoinsRejection(_Provenance):
+    errors: list[RejectionError] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "epic": self.epic,
-            "generated_at": self.generated_at,
-            "spec": {"file_path": self.spec_file, "sheet_name": self.spec_sheet},
-            "errors": [e.to_dict() for e in self.errors],
-        }
+        out = self._provenance_dict()
+        out["errors"] = [e.to_dict() for e in self.errors]
+        return out
 
 
 def _join_row_to_dict(j: JoinRow) -> dict[str, Any]:
@@ -476,6 +461,7 @@ def build_joins_result(
     spec_sheet: str,
     joins_data: JoinsData,
     contracts_by_table: dict[str, Contract],
+    target: str = "",
     now: str | None = None,
 ) -> JoinsContract | JoinsRejection:
     """Combine sheet-read errors with validation errors and produce the final
@@ -491,6 +477,7 @@ def build_joins_result(
         generated_at=generated_at,
         spec_file=spec_file_rel,
         spec_sheet=spec_sheet,
+        target=target,
     )
     if errors:
         return JoinsRejection(**common, errors=errors)
