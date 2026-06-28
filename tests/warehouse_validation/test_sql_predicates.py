@@ -185,18 +185,37 @@ def test_to_sql_pushdown_returns_none_for_unregistered_constraint():
     assert p is None
 
 
-def test_pattern_constraint_returns_none_until_a4_lands():
-    # Pattern's predicate ships in A4; until then dispatch returns None.
+# ---------------------------------------------------------------------------
+# pattern
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_simple_regex():
     p = to_sql_pushdown(
         _field("code", Type.STRING),
-        _check(PatternConstraint, r"^\d{3}$"),
+        _check(PatternConstraint, r"^[A-Z]{3}$"),
         table_name="t",
     )
-    assert p is None
+    assert p is not None
+    assert p.kind == "where"
+    assert p.sql == (
+        '"code" IS NOT NULL '
+        'AND NOT regexp_like("code", \'^[A-Z]{3}$\')'
+    )
+
+
+def test_pattern_escapes_single_quote_in_regex():
+    p = to_sql_pushdown(
+        _field("name", Type.STRING),
+        _check(PatternConstraint, "O'Brien"),
+        table_name="t",
+    )
+    assert p is not None
+    assert "'O''Brien'" in p.sql
 
 
 def test_supported_constraint_names_lists_current_set():
     # As each new constraint lands, the assertion below grows.
     assert supported_constraint_names() == (
-        "allowed_values", "format", "max_value", "min_value",
+        "allowed_values", "format", "max_value", "min_value", "pattern",
     )

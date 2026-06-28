@@ -62,8 +62,9 @@ def test_unknown_epic_exits_one(tmp_path, fake_connector_factory, capsys):
     assert "contract not found" in err
 
 
-def test_constraints_without_pushdown_are_skipped(tmp_path, fake_connector_factory):
-    # Build a contract whose only constraint (pattern) has no SQL pushdown.
+def test_pattern_constraint_dispatches_to_regexp_pushdown(tmp_path, fake_connector_factory):
+    # Pattern now has a SQL pushdown -- the runner should issue one
+    # regexp_like query (and nothing else, since no nullable: false).
     from tests.warehouse_validation.conftest import write_contract_yaml
 
     epic_root = tmp_path / "epics"
@@ -84,8 +85,9 @@ def test_constraints_without_pushdown_are_skipped(tmp_path, fake_connector_facto
         epic_root=epic_root, output_dir=None,
     )
     assert rc == 0
-    # Pattern has no pushdown -> connector should never have been called.
-    assert fake.executed == []
+    assert len(fake.executed) == 1
+    assert "regexp_like" in fake.executed[0]
+    assert '"code"' in fake.executed[0]
 
 
 def test_output_dir_override_lands_at_absolute_path(warehouse_epic, fake_connector_factory, tmp_path):
