@@ -1,0 +1,5 @@
+name: ipn_project_pk_unique
+description: Composite (proj_id, column1) primary key is unique on silver.
+table: ipn_project
+severity: error
+expected_count: 0
