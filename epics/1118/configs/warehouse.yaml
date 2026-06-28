@@ -1,0 +1,12 @@
+# Per-epic mapping from logical contract table names to fully-qualified
+# bronze/silver warehouse table names. Used by validate-bronze and
+# validate-reconcile. Missing file or missing entry falls back to the
+# `<table>_bronze` / `<table>_silver` bare-name convention.
+#
+# Placeholder catalog.schema names: replace with real warehouse coords
+# before pointing the runner at a real Trino instance.
+
+tables:
+  ipn_project:
+    bronze: "placeholder_catalog.placeholder_schema.ipn_project_bronze"
+    silver: "placeholder_catalog.placeholder_schema.ipn_project_silver"
