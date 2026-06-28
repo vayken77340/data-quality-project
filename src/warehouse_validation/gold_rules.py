@@ -103,6 +103,12 @@ def _build_rule(rules_dir: Path, name: str) -> GoldRule:
     sql = sql_path.read_text(encoding="utf-8")
     if not sql.strip():
         raise ConfigError(f"{sql_path}: SQL file is empty")
+    if "placeholder_catalog" in sql or "placeholder_schema" in sql:
+        raise ConfigError(
+            f"{sql_path}: SQL still references placeholder_catalog / "
+            f"placeholder_schema. Update the FROM clause to your real "
+            f"warehouse coordinates before running validate-gold."
+        )
 
     sidecar = load_yaml_mapping(yaml_path, what="gold rule sidecar")
     return _parse_sidecar(name=name, yaml_path=yaml_path, sidecar=sidecar, sql=sql)

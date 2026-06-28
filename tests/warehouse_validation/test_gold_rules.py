@@ -252,3 +252,17 @@ def test_sidecar_empty_description_raises(tmp_path):
     with pytest.raises(ConfigError) as exc:
         discover_rules(rules_dir)
     assert "description" in str(exc.value)
+
+
+def test_placeholder_sql_raises(tmp_path):
+    rules_dir = tmp_path / "rules" / "gold"
+    sql = (
+        "SELECT COUNT(*) "
+        "FROM placeholder_catalog.placeholder_schema.t WHERE x < 0"
+    )
+    _write_rule_pair(rules_dir, "r", sql, _default_sidecar("r"))
+    with pytest.raises(ConfigError) as exc:
+        discover_rules(rules_dir)
+    msg = str(exc.value)
+    assert "placeholder" in msg
+    assert "r.sql" in msg

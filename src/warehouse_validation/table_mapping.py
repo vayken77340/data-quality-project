@@ -100,6 +100,14 @@ def load_mapping(
             f"{yaml_path}: tables.{logical_name!r}.bronze and .silver "
             f"resolve to the same physical name ({bronze!r})"
         )
+    for layer, value in (("bronze", bronze), ("silver", silver)):
+        if "placeholder_" in value:
+            raise ConfigError(
+                f"{yaml_path}: tables.{logical_name!r}.{layer} still uses "
+                f"placeholder catalog/schema names ({value!r}). Replace "
+                f"`placeholder_catalog.placeholder_schema` with your real "
+                f"warehouse coordinates before running this command."
+            )
     return TableMapping(bronze=bronze, silver=silver)
 
 

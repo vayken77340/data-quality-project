@@ -132,3 +132,50 @@ def test_top_level_tables_missing_falls_back(tmp_path):
         bronze="ipn_project_bronze",
         silver="ipn_project_silver",
     )
+
+
+def test_placeholder_bronze_raises(tmp_path):
+    epic_dir = tmp_path / "1118"
+    _write(epic_dir / "configs" / "warehouse.yaml", """\
+        tables:
+          ipn_project:
+            bronze: "placeholder_catalog.placeholder_schema.ipn_project_bronze"
+            silver: "real_cat.real_sch.ipn_project_silver"
+        """)
+    with pytest.raises(ConfigError) as exc:
+        load_mapping(epic_dir, "ipn_project")
+    msg = str(exc.value)
+    assert "placeholder" in msg
+    assert "bronze" in msg
+    assert "ipn_project" in msg
+
+
+def test_placeholder_silver_raises(tmp_path):
+    epic_dir = tmp_path / "1118"
+    _write(epic_dir / "configs" / "warehouse.yaml", """\
+        tables:
+          ipn_project:
+            bronze: "real_cat.real_sch.ipn_project_bronze"
+            silver: "placeholder_catalog.placeholder_schema.ipn_project_silver"
+        """)
+    with pytest.raises(ConfigError) as exc:
+        load_mapping(epic_dir, "ipn_project")
+    msg = str(exc.value)
+    assert "placeholder" in msg
+    assert "silver" in msg
+    assert "ipn_project" in msg
+
+
+def test_realistic_names_pass_placeholder_check(tmp_path):
+    epic_dir = tmp_path / "1118"
+    _write(epic_dir / "configs" / "warehouse.yaml", """\
+        tables:
+          ipn_project:
+            bronze: "prod.bronze.ipn_project"
+            silver: "prod.silver.ipn_project"
+        """)
+    mapping = load_mapping(epic_dir, "ipn_project")
+    assert mapping == TableMapping(
+        bronze="prod.bronze.ipn_project",
+        silver="prod.silver.ipn_project",
+    )
