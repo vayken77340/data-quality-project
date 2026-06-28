@@ -25,9 +25,17 @@ def write(
     table_report: TableReport,
     duration_ms: int,
     cli_args: list[str],
+    subdir: str | None = None,
 ) -> dict[str, Path]:
     """Build the ValidationReport, dump all four formats, return the
-    paths keyed by format name."""
+    paths keyed by format name.
+
+    When `subdir` is set, reports land under `output_dir / subdir`
+    instead of `output_dir`. Phase 3's bronze and reconcile runners
+    pass `"bronze"` / `"reconcile"` so the three runners' output
+    sets stay distinct under one `--output-dir`. Silver passes None
+    and keeps writing to `output_dir` directly.
+    """
     generated_at = now_iso_z()
     settings = load_settings()
 
@@ -54,9 +62,13 @@ def write(
         run_metadata=run_meta,
     )
 
-    setup.config.output_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = (
+        setup.config.output_dir if subdir is None
+        else setup.config.output_dir / subdir
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
     return write_all(
         report=report,
-        out_dir=setup.config.output_dir,
+        out_dir=out_dir,
         contracts_by_table={setup.config.table_name: setup.contract},
     )
