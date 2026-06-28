@@ -40,6 +40,11 @@ class TrinoConnector(Connector):
         port = int(os.environ.get("TRINO_PORT", "443"))
         schema = os.environ.get("TRINO_SCHEMA")
 
+        # Stash for execute_columns()'s bare-name fallback. The trino dbapi
+        # connection object doesn't expose these readably across versions.
+        self.catalog: str = catalog
+        self.schema: str | None = schema
+
         self._conn = trino.dbapi.connect(
             host=host, port=port, user=user, catalog=catalog, schema=schema,
             http_scheme="https",
@@ -54,9 +59,42 @@ class TrinoConnector(Connector):
     def execute_count(self, sql: str) -> int:
         return int(self.execute_scalar(sql) or 0)
 
+    def execute_columns(self, fq_table: str) -> set[str]:
+        cat, sch, tbl = self._split_fq(fq_table)
+        # information_schema lives inside each catalog in Trino, so we
+        # qualify the FROM rather than putting catalog in WHERE.
+        sql = (
+            f"SELECT column_name FROM {cat}.information_schema.columns "
+            f"WHERE table_schema = {_sql_str(sch)} "
+            f"AND table_name = {_sql_str(tbl)}"
+        )
+        cur = self._conn.cursor()
+        cur.execute(sql)
+        return {row[0] for row in cur}
+
+    def _split_fq(self, fq_table: str) -> tuple[str, str, str]:
+        parts = fq_table.split(".")
+        if len(parts) == 3:
+            return parts[0], parts[1], parts[2]
+        if len(parts) == 1:
+            if self.schema is None:
+                raise ConfigError(
+                    f"trino connector: cannot resolve bare table "
+                    f"{fq_table!r} without TRINO_SCHEMA set"
+                )
+            return self.catalog, self.schema, parts[0]
+        raise ConfigError(
+            f"trino connector: table name {fq_table!r} must be either "
+            f"bare `<table>` or fully-qualified `<catalog>.<schema>.<table>`"
+        )
+
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise ConfigError(f"trino connector: required env var {name} is not set")
     return value
+
+
+def _sql_str(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"

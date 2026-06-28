@@ -15,12 +15,21 @@ class FakeConnector(Connector):
     """In-memory Connector for runner tests. Matches incoming SQL against
     `canned_counts` keys via substring lookup (so tests don't have to
     pin the exact SQL string the runner emits). Any unmatched query
-    returns 0.
+    returns 0. `execute_columns` returns the configured set for the
+    requested table name, or an empty set when no entry was registered.
     """
 
-    def __init__(self, canned_counts: dict[str, int] | None = None) -> None:
+    def __init__(
+        self,
+        canned_counts: dict[str, int] | None = None,
+        columns_by_table: dict[str, set[str]] | None = None,
+    ) -> None:
         self.canned_counts: dict[str, int] = dict(canned_counts or {})
+        self.columns_by_table: dict[str, set[str]] = {
+            k: set(v) for k, v in (columns_by_table or {}).items()
+        }
         self.executed: list[str] = []
+        self.column_lookups: list[str] = []
 
     def execute_scalar(self, sql: str):
         self.executed.append(sql)
@@ -32,19 +41,26 @@ class FakeConnector(Connector):
     def execute_count(self, sql: str) -> int:
         return int(self.execute_scalar(sql) or 0)
 
+    def execute_columns(self, fq_table: str) -> set[str]:
+        self.column_lookups.append(fq_table)
+        return set(self.columns_by_table.get(fq_table, set()))
+
 
 @pytest.fixture
 def fake_connector_factory(monkeypatch):
     """Patch warehouse_validation.connectors.get_connector so prepare_run
     returns a FakeConnector instead of trying to open Trino. Returns a
-    factory: pass `canned_counts` to install a FakeConnector with those
-    canned answers and get the instance back so the test can inspect
-    `.executed`.
+    factory: pass `canned_counts` (and optionally `columns_by_table`) to
+    install a FakeConnector and get the instance back so the test can
+    inspect `.executed` / `.column_lookups`.
     """
     installed: list[FakeConnector] = []
 
-    def factory(canned_counts: dict[str, int] | None = None) -> FakeConnector:
-        conn = FakeConnector(canned_counts)
+    def factory(
+        canned_counts: dict[str, int] | None = None,
+        columns_by_table: dict[str, set[str]] | None = None,
+    ) -> FakeConnector:
+        conn = FakeConnector(canned_counts, columns_by_table)
         installed.append(conn)
         # Patch every import path the runner / setup chain may reach.
         monkeypatch.setattr(
