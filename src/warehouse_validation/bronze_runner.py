@@ -136,8 +136,11 @@ def run_validate_bronze(
 
     duration_ms = int((time.perf_counter() - started) * 1000)
     out_paths = emit_sql.write(
-        setup=setup,
-        table_report=table_report,
+        epic=setup.epic,
+        output_dir=setup.config.output_dir,
+        config=setup.config,
+        table_reports=[table_report],
+        contracts_by_table={setup.config.table_name: setup.contract},
         duration_ms=duration_ms,
         cli_args=cli_args or [],
         subdir=SUBDIR,
