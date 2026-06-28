@@ -20,9 +20,13 @@ validate-data = [
     "python-calamine>=0.2",
     "Jinja2>=3.1",
 ]
+validate-warehouse = [
+    "trino>=0.330",
+]
 
 [project.scripts]
 data-contract = "data_contract.cli:main"
+validate-warehouse = "warehouse_validation.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
