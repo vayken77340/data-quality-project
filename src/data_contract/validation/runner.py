@@ -133,11 +133,12 @@ def run_validate_data(
     validation_duration_ms = int((time.perf_counter() - validation_start) * 1000)
 
     generated_at = now_iso_z()
+    from data_contract import __version__ as _tool_version
     run_metadata = build_run_metadata(
         epic=rs.epic, generated_at=generated_at, duration_ms=validation_duration_ms,
         config=rs.config, target_config=rs.target_config,
         contracts_by_table=rs.contracts_by_table, types_path=types_path,
-        table_reports=table_reports,
+        table_reports=table_reports, tool_version=_tool_version,
     )
 
     final_report = ValidationReport(

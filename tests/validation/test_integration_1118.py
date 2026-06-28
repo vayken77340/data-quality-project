@@ -54,6 +54,16 @@ def _postgres_epic_root(repo_root: Path, tmp_path: Path) -> Path:
             if legacy_path.is_file():
                 legacy_path.rename(legacy_path.with_name(f"{new_name}.yaml"))
 
+    # Rename sample fixtures to match: `file_pattern: "sample/{table}*.xlsx"`
+    # expands to "sample/PROJECT*.xlsx" once the contracts are renamed.
+    sample_dir = dst / "sample"
+    if sample_dir.is_dir():
+        for old_name, new_name in rename_map.items():
+            for legacy_path in sample_dir.glob(f"{old_name}.*"):
+                legacy_path.rename(legacy_path.with_name(
+                    f"{new_name}{legacy_path.suffix}"
+                ))
+
     # Rewrite each contract YAML in place: `table:` -> legacy name,
     # `target:` -> postgres.
     contract_paths = list(contracts_dir.glob("*.yaml"))
@@ -312,10 +322,10 @@ def test_input_dir_override_against_external_fixture(repo_root: Path, tmp_path: 
     # Copy the clean fixtures into the external sample/ directory.
     for f in (repo_root / "epics" / "1118" / "sample").iterdir():
         shutil.copy2(f, ext / "sample" / f.name)
-    # Dirty PROJECT.xlsx: blank the first data row's `proj_id` (the
-    # non-nullable PK -- a guaranteed violation). The PROJECT contract
-    # declares proj_id as the first field so it lands in column A.
-    project_xlsx = ext / "sample" / "PROJECT.xlsx"
+    # Dirty ipn_project.xlsx: blank the first data row's `proj_id` (the
+    # non-nullable PK -- a guaranteed violation). The contract declares
+    # proj_id as the first field so it lands in column A.
+    project_xlsx = ext / "sample" / "ipn_project.xlsx"
     wb = load_workbook(project_xlsx)
     ws = wb.active
     # Row 1 is the header per the default `header_row: 1` parser config;

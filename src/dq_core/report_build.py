@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from dq_core.contract import Contract, FieldCheck, FieldContract
 from dq_core.gates import Gates
@@ -32,8 +32,15 @@ from dq_core.report_models import (
 from dq_core.type_mapping import Type, TypeRegistry
 from dq_core.violations import Violation
 
-if TYPE_CHECKING:
-    from data_contract.validation.config import ValidationConfig
+
+class _RunMetadataConfig(Protocol):
+    """The slice of a validation config that build_run_metadata reads.
+
+    Satisfied by both data_contract.validation.config.ValidationConfig and
+    warehouse_validation.config.WarehouseValidationConfig; declared here so
+    dq_core has no reference to either concrete package.
+    """
+    checks: Gates
 
 
 _SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
@@ -139,14 +146,14 @@ def build_run_metadata(
     epic: str,
     generated_at: str,
     duration_ms: int,
-    config: ValidationConfig,
+    config: _RunMetadataConfig,
     target_config,
     contracts_by_table: dict[str, Contract],
     types_path: Path,
     table_reports: list[TableReport],
+    tool_version: str,
 ) -> RunMetadata:
     """Assemble the per-run context that every report format surfaces."""
-    from data_contract import __version__ as _tool_version
     from dq_core.report.strings import load_strings
 
     enabled: list[str] = []
@@ -186,7 +193,7 @@ def build_run_metadata(
         duration_ms=duration_ms,
         status=status,
         status_reason=reason,
-        tool_version=_tool_version,
+        tool_version=tool_version,
         target=target,
         checks_enabled=enabled,
         checks_disabled=disabled,
