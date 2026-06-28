@@ -126,6 +126,47 @@ def test_nullable_pass_emits_violation_on_nonzero_count(warehouse_epic, fake_con
     assert v["expected"] == "not null"
 
 
+def test_unique_constraint_takes_count_query_branch(tmp_path, fake_connector_factory):
+    # Build a contract whose only constraint is `unique` (count_query kind).
+    # The runner should execute the predicate's SQL verbatim (no outer wrap).
+    from tests.warehouse_validation.conftest import write_contract_yaml
+
+    epic_root = tmp_path / "epics"
+    write_contract_yaml(
+        epic_root=epic_root, epic="1118", table="synth",
+        field_blocks=[
+            (
+                '  - name: invoice_id\n'
+                '    type: string\n'
+                '    nullable: true\n'
+                '    unique: true\n'
+            ),
+        ],
+    )
+    # Canned: the inner subquery's HAVING clause is the marker.
+    fake = fake_connector_factory({"HAVING COUNT(*) > 1": 3})
+    rc = run_validate_warehouse(
+        epic="1118", table="synth", connector_name="trino",
+        epic_root=epic_root, output_dir=None,
+    )
+    assert rc == 2
+    # The executed SQL starts with SELECT COUNT(*) FROM "synth" -- the
+    # runner did NOT wrap it in another SELECT COUNT(*) FROM ... WHERE.
+    assert len(fake.executed) == 1
+    sql = fake.executed[0]
+    assert sql.startswith('SELECT COUNT(*) FROM "synth"')
+    # Critical: no double-wrapping.
+    assert sql.count("SELECT COUNT(*)") == 1
+    payload = json.loads(
+        (epic_root / "1118" / "validations_warehouse" / "quality_report.json")
+        .read_text(encoding="utf-8")
+    )
+    uniques = [v for v in payload["run_issues"] if v["kind"] == "unique_violation"]
+    assert len(uniques) == 1
+    assert uniques[0]["offending_value"] == 3
+    assert uniques[0]["field"] == "invoice_id"
+
+
 def test_nullable_pass_skips_nullable_true_fields(warehouse_epic, fake_connector_factory):
     # Make a query against `"amount" IS NULL` return nonzero just in
     # case; amount is nullable:true so the runner should NOT issue that

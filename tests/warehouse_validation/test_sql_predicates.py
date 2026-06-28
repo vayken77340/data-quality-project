@@ -8,6 +8,7 @@ from dq_core.field_constraints.format import FormatConstraint
 from dq_core.field_constraints.max_value import MaxValueConstraint
 from dq_core.field_constraints.min_value import MinValueConstraint
 from dq_core.field_constraints.pattern import PatternConstraint
+from dq_core.field_constraints.unique import UniqueConstraint
 from dq_core.type_mapping import Type
 from warehouse_validation.sql_predicates import (
     PushdownSQL,
@@ -214,8 +215,39 @@ def test_pattern_escapes_single_quote_in_regex():
     assert "'O''Brien'" in p.sql
 
 
+# ---------------------------------------------------------------------------
+# unique
+# ---------------------------------------------------------------------------
+
+
+def test_unique_returns_count_query_kind():
+    p = to_sql_pushdown(
+        _field("pk"), _check(UniqueConstraint, True),
+        table_name="my_table",
+    )
+    assert p is not None
+    assert p.kind == "count_query"
+    # Outer query: COUNT(*) FROM the table, filtering to rows whose value
+    # is in the duplicate-keys subquery.
+    assert p.sql.startswith('SELECT COUNT(*) FROM "my_table"')
+    assert '"pk" IS NOT NULL' in p.sql
+    assert '"pk" IN (' in p.sql
+    # Inner subquery: GROUP BY pk HAVING COUNT(*) > 1
+    assert 'GROUP BY "pk"' in p.sql
+    assert "HAVING COUNT(*) > 1" in p.sql
+
+
+def test_unique_quotes_table_name():
+    p = to_sql_pushdown(
+        _field("col"), _check(UniqueConstraint, True),
+        table_name="needs_quoting",
+    )
+    assert p is not None
+    assert '"needs_quoting"' in p.sql
+
+
 def test_supported_constraint_names_lists_current_set():
     # As each new constraint lands, the assertion below grows.
     assert supported_constraint_names() == (
-        "allowed_values", "format", "max_value", "min_value", "pattern",
+        "allowed_values", "format", "max_value", "min_value", "pattern", "unique",
     )
