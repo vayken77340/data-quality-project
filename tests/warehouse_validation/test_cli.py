@@ -174,3 +174,75 @@ def test_validate_reconcile_missing_contract_returns_one(
     assert rc == 1
     err = capsys.readouterr().err
     assert "contract not found" in err
+
+
+# -- validate-gold ------------------------------------------------------------
+
+
+def test_validate_gold_help_exits_zero(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["validate-gold", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "validate-gold" in out
+    assert "--epic" in out
+    assert "--rule" in out
+    assert "--connector" in out
+    # --table is documented as optional (filter) on the gold subcommand.
+    assert "--table" in out
+
+
+def test_validate_gold_without_table_parses_and_routes(monkeypatch):
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        "warehouse_validation.cli.run_validate_gold", fake_run,
+    )
+    rc = main([
+        "validate-gold",
+        "--epic", "1118", "--connector", "trino", "--epic-root", "epics",
+    ])
+    assert rc == 0
+    assert captured["table"] is None
+    assert captured["rule"] is None
+    assert captured["epic"] == "1118"
+
+
+def test_validate_gold_with_table_and_rule_filters(monkeypatch):
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        "warehouse_validation.cli.run_validate_gold", fake_run,
+    )
+    main([
+        "validate-gold",
+        "--epic", "1118", "--connector", "trino", "--epic-root", "epics",
+        "--table", "t1", "--rule", "my_rule",
+    ])
+    assert captured["table"] == "t1"
+    assert captured["rule"] == "my_rule"
+
+
+def test_validate_gold_unknown_rule_returns_one(
+    tmp_path, fake_connector_factory, capsys,
+):
+    # No rules dir under tmp_path/1118; --rule asks for one anyway.
+    (tmp_path / "1118" / "rules" / "gold").mkdir(parents=True)
+    fake_connector_factory()
+    rc = main([
+        "validate-gold",
+        "--epic", "1118", "--connector", "trino",
+        "--epic-root", str(tmp_path),
+        "--rule", "ghost",
+    ])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "ghost" in err

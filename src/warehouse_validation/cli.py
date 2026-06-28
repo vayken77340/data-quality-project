@@ -3,6 +3,7 @@ each runner module:
   * validate-warehouse  -> warehouse_validation.runner.run_validate_warehouse (silver)
   * validate-bronze     -> warehouse_validation.bronze_runner.run_validate_bronze
   * validate-reconcile  -> warehouse_validation.reconcile_runner.run_validate_reconcile
+  * validate-gold       -> warehouse_validation.gold_runner.run_validate_gold
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Sequence
 from dq_core.epic import InvalidEpicName, validate_epic_name
 from warehouse_validation.bronze_runner import run_validate_bronze
 from warehouse_validation.connectors import CONNECTOR_REGISTRY
+from warehouse_validation.gold_runner import run_validate_gold
 from warehouse_validation.reconcile_runner import run_validate_reconcile
 from warehouse_validation.runner import run_validate_warehouse
 
@@ -62,21 +64,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_delta=args.expected_delta,
             cli_args=cli_args,
         )
+    if args.command == "validate-gold":
+        return run_validate_gold(
+            epic=args.epic,
+            table=args.table,
+            rule=args.rule,
+            connector_name=args.connector,
+            epic_root=Path(args.epic_root),
+            output_dir=Path(args.output_dir) if args.output_dir else None,
+            cli_args=cli_args,
+        )
     parser.print_help()
     return 1
 
 
-def _add_common_args(p: argparse.ArgumentParser) -> None:
+def _add_common_args(
+    p: argparse.ArgumentParser, *, table_required: bool = True,
+) -> None:
     """Shared --epic/--table/--connector/--epic-root/--output-dir block.
-    Three subparsers carry the same flag shape; this helper keeps them
-    in sync."""
+    The four contract-bound subparsers (silver / bronze / reconcile)
+    require --table; validate-gold passes table_required=False because
+    its --table flag is an OPTIONAL filter (absent = every rule)."""
     p.add_argument("--epic", required=True, type=_epic_arg_type, help=(
         "Epic name (e.g. 1118). Letters/digits/spaces/.-_; 1-64 chars; "
         "must start and end with a letter or digit."
     ))
-    p.add_argument("--table", required=True, help=(
+    p.add_argument("--table", required=table_required, default=None, help=(
         "Logical table name. Must match a contract YAML under "
-        "epics/<epic>/contracts/<table>.yaml."
+        "epics/<epic>/contracts/<table>.yaml. For validate-gold the "
+        "flag is OPTIONAL and filters rules by their sidecar table."
     ))
     p.add_argument(
         "--connector", required=True,
@@ -140,6 +156,26 @@ def _build_parser() -> argparse.ArgumentParser:
             "Expected (bronze - silver) row count delta. Default 0. Set "
             "to the number of rows the bronze->silver transformation "
             "legitimately drops (filtering, dedup)."
+        ),
+    )
+
+    vg = sub.add_parser(
+        "validate-gold",
+        help=(
+            "Run GOLD assertion SQL files for an epic. Each rule's "
+            "epics/<E>/rules/gold/<name>.sql is executed via "
+            "connector.execute_scalar and its integer result compared "
+            "to the sidecar's expected_count. No --table runs every "
+            "rule; --table filters by sidecar table; --rule narrows to "
+            "a single rule."
+        ),
+    )
+    _add_common_args(vg, table_required=False)
+    vg.add_argument(
+        "--rule", default=None,
+        help=(
+            "Narrow execution to a single rule by name. Errors if the "
+            "named rule does not exist under epics/<E>/rules/gold/."
         ),
     )
 
