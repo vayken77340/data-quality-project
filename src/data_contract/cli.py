@@ -98,6 +98,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="data-contract",
         description="Spec-driven data contract generator.",
+        epilog=(
+            "Exit codes: 0=pass; 1=config error; "
+            "2=violations (data quality findings)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--version-info", action="version", version=f"%(prog)s {__version__}")
 

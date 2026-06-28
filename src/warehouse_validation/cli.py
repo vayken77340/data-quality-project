@@ -97,7 +97,10 @@ def _add_common_args(
     p.add_argument(
         "--connector", required=True,
         choices=sorted(CONNECTOR_REGISTRY),
-        help="Connector name. Currently supported: trino, oracle.",
+        help=(
+            "Connector name. Currently supported: "
+            f"{', '.join(sorted(CONNECTOR_REGISTRY))}."
+        ),
     )
     p.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
         "Root directory of the per-epic trees. Default: epics/."
@@ -117,6 +120,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="warehouse-validation",
         description="SQL-pushdown validator for warehouse tables.",
+        epilog=(
+            "Exit codes: 0=pass; 1=config error; "
+            "2=violations (data quality findings)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = p.add_subparsers(dest="command", required=True)
 
