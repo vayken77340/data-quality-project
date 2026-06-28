@@ -28,7 +28,7 @@ from dq_core.violations import Violation
 from warehouse_validation import emit_sql
 from warehouse_validation.setup import RunSetupError, prepare_run
 from warehouse_validation.table_mapping import load_mapping
-from warehouse_validation.type_coercion import trino_cast_type
+from warehouse_validation.type_coercion import cast_type
 
 
 SUBDIR = "bronze"
@@ -106,7 +106,7 @@ def run_validate_bronze(
         if f.name in missing or f.type is Type.STRING:
             continue
         try:
-            cast = trino_cast_type(f.type)
+            cast = cast_type(f.type, setup.connector.dialect)
         except ConfigError as e:
             print(f"validate-bronze: {e}", file=sys.stderr)
             return 1

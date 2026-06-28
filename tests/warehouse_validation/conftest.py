@@ -17,17 +17,22 @@ class FakeConnector(Connector):
     pin the exact SQL string the runner emits). Any unmatched query
     returns 0. `execute_columns` returns the configured set for the
     requested table name, or an empty set when no entry was registered.
+    `dialect` defaults to "trino"; tests that want to exercise a
+    different dialect's behaviour pass `dialect="oracle"` to the
+    factory.
     """
 
     def __init__(
         self,
         canned_counts: dict[str, int] | None = None,
         columns_by_table: dict[str, set[str]] | None = None,
+        dialect: str = "trino",
     ) -> None:
         self.canned_counts: dict[str, int] = dict(canned_counts or {})
         self.columns_by_table: dict[str, set[str]] = {
             k: set(v) for k, v in (columns_by_table or {}).items()
         }
+        self.dialect: str = dialect
         self.executed: list[str] = []
         self.column_lookups: list[str] = []
 
@@ -59,8 +64,9 @@ def fake_connector_factory(monkeypatch):
     def factory(
         canned_counts: dict[str, int] | None = None,
         columns_by_table: dict[str, set[str]] | None = None,
+        dialect: str = "trino",
     ) -> FakeConnector:
-        conn = FakeConnector(canned_counts, columns_by_table)
+        conn = FakeConnector(canned_counts, columns_by_table, dialect=dialect)
         installed.append(conn)
         # Patch every import path the runner / setup chain may reach.
         monkeypatch.setattr(
