@@ -44,6 +44,12 @@ from data_contract.generation.schema_export import (
     DEFAULT_SCHEMA_OUT,
     write_contract_json_schema,
 )
+from data_contract.migrate_names import (
+    format_report,
+    migrate_all,
+    migrate_epic,
+    migrate_path,
+)
 from dq_core.settings import load_settings
 from dq_core.type_mapping import load_type_registry
 
@@ -76,6 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_regen_docs(args)
     if args.command == "validate-data":
         return _cmd_validate_data(args)
+    if args.command == "migrate-names":
+        return _cmd_migrate_names(args)
     parser.print_help()
     return 1
 
@@ -246,6 +254,31 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     validate_d.add_argument("--json", action="store_true", help="Also emit the structured JSON report to stdout.")
+
+    migrate = sub.add_parser(
+        "migrate-names",
+        help=(
+            "Rewrite per-epic contract YAMLs from the v1 (source_name) name "
+            "layout to v2 (extract_name + optional bronze_name)."
+        ),
+    )
+    target = migrate.add_mutually_exclusive_group(required=True)
+    target.add_argument("--epic", type=_epic_arg_type, help="Migrate one epic.")
+    target.add_argument("--all", action="store_true", help="Migrate every epic under --epic-root.")
+    target.add_argument("--path", default=None, help=(
+        "Migrate every *.yaml under this directory (recursive). Use for the "
+        "test fixture tree where the per-epic layout doesn't apply."
+    ))
+    migrate.add_argument("--epic-root", default=str(DEFAULT_EPIC_ROOT), help=(
+        "Root directory of the per-epic spec/config trees "
+        "(epics/<name>/spec/, configs/, contracts/). "
+        "Default: epics/. Override only for tests or non-standard layouts."
+    ))
+    migrate.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would change without writing.",
+    )
 
     return p
 
@@ -424,6 +457,19 @@ def _cmd_validate_contract(args: argparse.Namespace) -> int:
         allow_unknown_constraints=args.allow_unknown_constraints,
         output_format="json" if args.json else "text",
     )
+
+
+def _cmd_migrate_names(args: argparse.Namespace) -> int:
+    epic_root = Path(args.epic_root)
+    if args.path is not None:
+        report = migrate_path(Path(args.path), dry_run=args.dry_run)
+    elif args.all:
+        report = migrate_all(epic_root, dry_run=args.dry_run)
+    else:
+        report = migrate_epic(args.epic, epic_root, dry_run=args.dry_run)
+    for line in format_report(report, dry_run=args.dry_run):
+        print(line)
+    return 1 if report.errors else 0
 
 
 def _cmd_generate_drift(args: argparse.Namespace) -> int:
