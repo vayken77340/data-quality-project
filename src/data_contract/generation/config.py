@@ -70,26 +70,42 @@ VALIDATION_FILENAME = "validation.yaml"
 CONTRACT_CONFIGS_SUBDIR = "contracts"
 
 
-_CORE_KEYS = frozenset({"name", "db_name", "type", "description", "nullable", "table"})
+_CORE_KEYS = frozenset({"extract_name", "silver_name", "bronze_name", "type", "description", "nullable", "table"})
+
+# v1 -> v2 spec key renames. Hard cutover (see plan-a-three-layer-name-rustling-pond.md):
+# from_dict rejects these with an actionable error pointing at specs_parsing.yaml.
+_V1_TO_V2_KEYS = {"name": "extract_name", "db_name": "silver_name"}
 
 
 @dataclass(frozen=True)
 class ColumnMapping:
-    name: ColumnRef
+    extract_name: ColumnRef
     type: ColumnRef
     description: ColumnRef
     nullable: NullableMapping
     # Optional spec column whose value, when present, becomes the contract
-    # field's `name` verbatim (bypassing slugify). Maps to the "Nom BDD"
-    # column in the standard specs_parsing.yaml.
-    db_name: ColumnRef | None = None
+    # field's silver-layer `name` verbatim (bypassing slugify). Maps to the
+    # "Nom BDD" column in the standard specs_parsing.yaml.
+    silver_name: ColumnRef | None = None
+    # Optional spec column naming the bronze-layer column. Maps to "Nom Bronze"
+    # in the standard specs_parsing.yaml. Only the bronze warehouse runner
+    # consults this; everything else operates on the silver identifier.
+    bronze_name: ColumnRef | None = None
     table: ColumnRef | None = None
     constraints: dict[str, FieldConstraint] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ColumnMapping":
+        for old_key, new_key in _V1_TO_V2_KEYS.items():
+            if old_key in raw:
+                raise ConfigError(
+                    f"column_mapping uses the v1 key {old_key!r} -- rename to {new_key!r} "
+                    f"in configs/specs_parsing.yaml (v2 layout: extract_name + silver_name "
+                    f"+ optional bronze_name)."
+                )
+
         _check_required(
-            raw, {"name", "type", "description", "nullable"}, ctx="column_mapping",
+            raw, {"extract_name", "type", "description", "nullable"}, ctx="column_mapping",
         )
         col = _make_col_parser(raw, prefix="column_mapping")
 
@@ -104,11 +120,17 @@ class ColumnMapping:
         else:
             table = parse_column_ref(table_block, prefix="column_mapping", key="table")
 
-        db_name_block = raw.get("db_name")
-        if db_name_block is None:
-            db_name = None
+        silver_name_block = raw.get("silver_name")
+        if silver_name_block is None:
+            silver_name = None
         else:
-            db_name = parse_column_ref(db_name_block, prefix="column_mapping", key="db_name")
+            silver_name = parse_column_ref(silver_name_block, prefix="column_mapping", key="silver_name")
+
+        bronze_name_block = raw.get("bronze_name")
+        if bronze_name_block is None:
+            bronze_name = None
+        else:
+            bronze_name = parse_column_ref(bronze_name_block, prefix="column_mapping", key="bronze_name")
 
         constraints: dict[str, FieldConstraint] = {}
         for key, value in raw.items():
@@ -124,11 +146,12 @@ class ColumnMapping:
             constraints[key] = CONSTRAINT_REGISTRY[key].from_config(value)
 
         return cls(
-            name=col("name"),
+            extract_name=col("extract_name"),
             type=col("type"),
             description=col("description"),
             nullable=nullable,
-            db_name=db_name,
+            silver_name=silver_name,
+            bronze_name=bronze_name,
             table=table,
             constraints=constraints,
         )
@@ -464,13 +487,15 @@ def _column_mapping_to_raw(cm: ColumnMapping) -> dict[str, Any]:
     if cm.nullable.has_default:
         nullable_raw["default_value"] = cm.nullable.default_value
     out: dict[str, Any] = {
-        "name": _column_ref_to_raw(cm.name),
+        "extract_name": _column_ref_to_raw(cm.extract_name),
         "type": _column_ref_to_raw(cm.type),
         "description": _column_ref_to_raw(cm.description),
         "nullable": nullable_raw,
     }
-    if cm.db_name is not None:
-        out["db_name"] = _column_ref_to_raw(cm.db_name)
+    if cm.silver_name is not None:
+        out["silver_name"] = _column_ref_to_raw(cm.silver_name)
+    if cm.bronze_name is not None:
+        out["bronze_name"] = _column_ref_to_raw(cm.bronze_name)
     if cm.table is not None:
         out["table"] = _column_ref_to_raw(cm.table)
     for name, constraint in cm.constraints.items():

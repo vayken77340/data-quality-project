@@ -160,7 +160,7 @@ def write_test_parsers_yaml(configs_dir: Path) -> None:
 
 MINIMAL_DEFAULTS_YAML = """fields:
   column_mapping:
-    name:
+    extract_name:
       spec_name: Champ dans extract
     type:
       spec_name: Type

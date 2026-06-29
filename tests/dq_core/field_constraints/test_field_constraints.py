@@ -194,7 +194,7 @@ def test_unknown_constraint_in_column_mapping_is_config_error():
     from dq_core.errors import ConfigError
     with pytest.raises(ConfigError):
         ColumnMapping.from_dict({
-            "name": {"spec_name": "N"},
+            "extract_name": {"spec_name": "N"},
             "type": {"spec_name": "T"},
             "description": {"spec_name": "D", "default_value": None},
             "nullable": {
@@ -238,7 +238,7 @@ def test_extensibility_register_custom_constraint(tmp_path):
     field_constraints.register(StartsWithConstraint)
     try:
         cm = ColumnMapping.from_dict({
-            "name": {"spec_name": "Field Name"},
+            "extract_name": {"spec_name": "Field Name"},
             "type": {"spec_name": "Type"},
             "description": {"spec_name": "Description", "default_value": None},
             "nullable": {
@@ -633,7 +633,7 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
     """Build a contract from synthetic spec rows that exercise allowed_values + pattern,
     confirm the contract carries the expected shape per field."""
     cm = ColumnMapping.from_dict({
-        "name": {"spec_name": "Field Name"},
+        "extract_name": {"spec_name": "Field Name"},
         "type": {"spec_name": "Type"},
         "description": {"spec_name": "Description", "default_value": None},
         "nullable": {
@@ -665,11 +665,11 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         keys=keys,
         epic_config_path=Path("dummy.yaml"),
     )
-    sheet = SheetSpec(sheet_name="T", header_row=1, col_idx={"name": 0, "type": 1, "description": 2, "nullable": 3}, has_table_column=False, constraint_cols={"allowed_values": 0, "pattern": 0})
+    sheet = SheetSpec(sheet_name="T", header_row=1, col_idx={"extract_name": 0, "type": 1, "description": 2, "nullable": 3}, has_table_column=False, constraint_cols={"allowed_values": 0, "pattern": 0})
     rows = [
         RawField(
             sheet_row=2,
-            name_raw="id",
+            extract_raw="id",
             type_raw="Double",
             description_raw="desc",
             nullable_raw="OUI",
@@ -678,7 +678,7 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         ),
         RawField(
             sheet_row=3,
-            name_raw="status",
+            extract_raw="status",
             type_raw="VARCHAR(50)",
             description_raw="status",
             nullable_raw="NON",

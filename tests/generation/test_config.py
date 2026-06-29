@@ -18,7 +18,7 @@ from tests.conftest import minimal_keys_block_yaml
 DEFAULTS_YAML = """
 fields:
   column_mapping:
-    name:
+    extract_name:
       spec_name: Champ dans extract
     type:
       spec_name: Type
@@ -49,9 +49,9 @@ def test_defaults_loads(tmp_path):
     cfgs = _make_epic_dir(tmp_path)
     defaults = Defaults.from_yaml(cfgs / "specs_parsing.yaml")
     assert defaults.column_mapping is not None
-    assert defaults.column_mapping.name.spec_name == "Champ dans extract"
-    # `name` has no `default_value` declared -> required.
-    assert defaults.column_mapping.name.has_default is False
+    assert defaults.column_mapping.extract_name.spec_name == "Champ dans extract"
+    # extract_name has no `default_value` declared -> required.
+    assert defaults.column_mapping.extract_name.has_default is False
     # `description` declares `default_value` -> optional.
     assert defaults.column_mapping.description.has_default is True
 
@@ -59,6 +59,73 @@ def test_defaults_loads(tmp_path):
 def test_defaults_missing_file_returns_empty(tmp_path):
     defaults = Defaults.from_yaml(tmp_path / "missing.yaml")
     assert defaults.column_mapping is None
+
+
+def test_bronze_name_column_loads(tmp_path):
+    """Optional `bronze_name` column maps through ColumnMapping like silver does."""
+    bronze_yaml = """
+fields:
+  column_mapping:
+    extract_name: { spec_name: Champ dans extract }
+    silver_name:  { spec_name: Nom BDD, column_required: false, default_value: null }
+    bronze_name:  { spec_name: Nom Bronze, column_required: false, default_value: null }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
+    nullable:
+      spec_name: Obligatoire
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
+""" + minimal_keys_block_yaml()
+    p = tmp_path / "specs_parsing.yaml"
+    p.write_text(bronze_yaml, encoding="utf-8")
+    defaults = Defaults.from_yaml(p)
+    assert defaults.column_mapping is not None
+    assert defaults.column_mapping.silver_name is not None
+    assert defaults.column_mapping.silver_name.spec_name == "Nom BDD"
+    assert defaults.column_mapping.bronze_name is not None
+    assert defaults.column_mapping.bronze_name.spec_name == "Nom Bronze"
+
+
+def test_rejects_v1_name_key(tmp_path):
+    """The v1 `name:` spec key is rejected with an actionable message
+    pointing at the v2 rename. Hard cutover, no compat alias."""
+    legacy = """
+fields:
+  column_mapping:
+    name:         { spec_name: Champ dans extract }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
+    nullable:
+      spec_name: Obligatoire
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
+""" + minimal_keys_block_yaml()
+    p = tmp_path / "specs_parsing.yaml"
+    p.write_text(legacy, encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"v1 key 'name'.*rename to 'extract_name'"):
+        Defaults.from_yaml(p)
+
+
+def test_rejects_v1_db_name_key(tmp_path):
+    legacy = """
+fields:
+  column_mapping:
+    extract_name: { spec_name: Champ dans extract }
+    db_name:      { spec_name: Nom BDD, column_required: false, default_value: null }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
+    nullable:
+      spec_name: Obligatoire
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
+""" + minimal_keys_block_yaml()
+    p = tmp_path / "specs_parsing.yaml"
+    p.write_text(legacy, encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"v1 key 'db_name'.*rename to 'silver_name'"):
+        Defaults.from_yaml(p)
 
 
 def test_version_sort_key_orders_numeric_components_numerically():
@@ -95,7 +162,7 @@ def test_merge_uses_defaults_column_mapping(tmp_path):
     defaults = Defaults.from_yaml(cfgs / "specs_parsing.yaml")
     cfg = EpicConfig.from_yaml(p)
     merged = merge(defaults, cfg)
-    assert merged.column_mapping.name.spec_name == "Champ dans extract"
+    assert merged.column_mapping.extract_name.spec_name == "Champ dans extract"
 
 
 def test_merge_overrides_partial_column_mapping(tmp_path):
@@ -113,7 +180,7 @@ def test_merge_overrides_partial_column_mapping(tmp_path):
     merged = merge(defaults, cfg)
     assert merged.column_mapping.description.spec_name == "Field Description"
     # other fields from defaults stay
-    assert merged.column_mapping.name.spec_name == "Champ dans extract"
+    assert merged.column_mapping.extract_name.spec_name == "Champ dans extract"
 
 
 def test_missing_version_raises(tmp_path):
@@ -134,9 +201,9 @@ def test_merge_preserves_defaults_constraints_when_overriding_unrelated_field(tm
     _write(cfgs / "specs_parsing.yaml", """
 fields:
   column_mapping:
-    name:        { spec_name: Champ dans extract }
-    type:        { spec_name: Type }
-    description: { spec_name: Description, default_value: null }
+    extract_name: { spec_name: Champ dans extract }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
     nullable:
       spec_name: Obligatoire
       values:

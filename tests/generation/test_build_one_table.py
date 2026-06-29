@@ -21,7 +21,7 @@ from dq_core.type_mapping import load_type_registry
 
 def _mapping() -> ColumnMapping:
     return ColumnMapping.from_dict({
-        "name": {"spec_name": "Champ dans extract"},
+        "extract_name": {"spec_name": "Champ dans extract"},
         "type": {"spec_name": "Type"},
         "description": {"spec_name": "Description", "default_value": None},
         "nullable": {

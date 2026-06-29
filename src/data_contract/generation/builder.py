@@ -93,22 +93,22 @@ def _resolve_name(
     Blank-mandatory errors are appended to `errors`.
     """
     source_name_value, err = _check_mandatory_blank(
-        row.name_raw, cm.name, field_name="name", sheet_row=row.sheet_row,
+        row.extract_raw, cm.extract_name, field_name="extract_name", sheet_row=row.sheet_row,
     )
     if err: errors.append(err)
 
     # Optional `Nom BDD` override: when present, used verbatim as the field's
     # `name` (skipping slugify). When absent, `name` is `slugify(source_name)`.
-    db_name_override: str | None = None
-    if cm.db_name is not None and row.db_name_raw is not None:
-        db_raw = str(row.db_name_raw).strip()
-        if db_raw:
-            db_name_override = db_raw
+    silver_name_override: str | None = None
+    if cm.silver_name is not None and row.silver_raw is not None:
+        silver_raw = str(row.silver_raw).strip()
+        if silver_raw:
+            silver_name_override = silver_raw
 
     if not source_name_value:
         return None, None
 
-    name_value = db_name_override or slugify(source_name_value)
+    name_value = silver_name_override or slugify(source_name_value)
     if source_name_value == name_value:
         return None, name_value
     return source_name_value, name_value
@@ -293,7 +293,7 @@ def build_contract(
             collector.add(RejectionError(
                 kind="duplicate_field",
                 sheet_row=row.sheet_row,
-                column=cm.name.spec_name,
+                column=cm.extract_name.spec_name,
                 field="name",
                 value=field.name,
                 message=f"duplicate field name {field.name!r} (first seen at sheet row {prev_row})",

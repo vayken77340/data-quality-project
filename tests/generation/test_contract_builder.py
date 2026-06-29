@@ -11,7 +11,7 @@ from dq_core.type_mapping import load_type_registry
 
 def _mapping():
     return ColumnMapping.from_dict({
-        "name": {"spec_name": "Champ dans extract"},
+        "extract_name": {"spec_name": "Champ dans extract"},
         "type": {"spec_name": "Type"},
         "description": {"spec_name": "Description", "default_value": None},
         "table": {"spec_name": "Table", "default_value": None},
@@ -54,13 +54,13 @@ def _sheet_spec(name="PROJECT", *, has_table_column=False):
     return SheetSpec(
         sheet_name=name,
         header_row=1,
-        col_idx={"name": 0, "type": 1, "description": 2, "nullable": 3},
+        col_idx={"extract_name": 0, "type": 1, "description": 2, "nullable": 3},
         has_table_column=has_table_column,
     )
 
 
 def _row(sheet_row, name="x", type_="Double", desc="d", nullable="OUI", table=None):
-    return RawField(sheet_row=sheet_row, name_raw=name, type_raw=type_, description_raw=desc, nullable_raw=nullable, table_raw=table)
+    return RawField(sheet_row=sheet_row, extract_raw=name, type_raw=type_, description_raw=desc, nullable_raw=nullable, table_raw=table)
 
 
 def test_happy_path(registry):

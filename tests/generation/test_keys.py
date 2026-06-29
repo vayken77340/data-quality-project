@@ -470,9 +470,9 @@ def test_enrich_duplicate_pk_declaration_is_idempotent():
 _VALID_COLUMN_MAPPING_YAML = """
 fields:
   column_mapping:
-    name:        { spec_name: N }
-    type:        { spec_name: T }
-    description: { spec_name: D, default_value: null }
+    extract_name: { spec_name: N }
+    type:         { spec_name: T }
+    description:  { spec_name: D, default_value: null }
     nullable:
       spec_name: Obligatoire
       values:
@@ -591,9 +591,9 @@ def _bootstrap_keys_epic(
         """
 fields:
   column_mapping:
-    name:        { spec_name: Champ dans extract }
-    type:        { spec_name: Type }
-    description: { spec_name: Description, default_value: null }
+    extract_name: { spec_name: Champ dans extract }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
     nullable:
       spec_name: Obligatoire
       values:

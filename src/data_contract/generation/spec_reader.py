@@ -35,12 +35,13 @@ from data_contract.generation.sheet_io import (
 @dataclass(frozen=True)
 class RawField:
     sheet_row: int
-    name_raw: object | None
+    extract_raw: object | None
     type_raw: object | None
     description_raw: object | None
     nullable_raw: object | None
     table_raw: object | None  # None when the sheet has no Table column
-    db_name_raw: object | None = None  # None when the sheet has no `Nom BDD` column
+    silver_raw: object | None = None  # None when the sheet has no `Nom BDD` column
+    bronze_raw: object | None = None  # None when the sheet has no `Nom Bronze` column
     extras: dict[str, object | None] = field(default_factory=dict)  # constraint name -> raw cell
 
 
@@ -84,7 +85,7 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
 
     located = _locate_header_row(ws, mapping)
     if located is None:
-        required = [mapping.name.spec_name, mapping.type.spec_name, mapping.nullable.spec_name]
+        required = [mapping.extract_name.spec_name, mapping.type.spec_name, mapping.nullable.spec_name]
         return _header_not_found(
             f"could not locate a header row in sheet {sheet_name!r}: "
             f"required columns {required} not found in the first {HEADER_SEARCH_DEPTH} rows"
@@ -94,7 +95,7 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
     col_idx: dict[str, int] = {}
     missing: list[str] = []
     for logical, col_spec in (
-        ("name", mapping.name),
+        ("extract_name", mapping.extract_name),
         ("type", mapping.type),
         ("description", mapping.description),
         ("nullable", mapping.nullable),
@@ -121,13 +122,18 @@ def read_sheet(wb: Workbook, sheet_name: str, mapping: ColumnMapping) -> SheetRe
                 f"sheet {sheet_name!r}: missing required column: table ({mapping.table.spec_name!r})"
             )
 
-    if mapping.db_name is not None:
-        idx = find_column(headers, mapping.db_name.spec_name)
+    for logical, col_spec in (
+        ("silver_name", mapping.silver_name),
+        ("bronze_name", mapping.bronze_name),
+    ):
+        if col_spec is None:
+            continue
+        idx = find_column(headers, col_spec.spec_name)
         if idx is not None:
-            col_idx["db_name"] = idx
-        elif mapping.db_name.column_required:
+            col_idx[logical] = idx
+        elif col_spec.column_required:
             return _header_not_found(
-                f"sheet {sheet_name!r}: missing required column: db_name ({mapping.db_name.spec_name!r})"
+                f"sheet {sheet_name!r}: missing required column: {logical} ({col_spec.spec_name!r})"
             )
 
     # Locate any declared constraint columns. Columns with `required: true`
@@ -192,14 +198,18 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
     ws = wb[sheet_spec.sheet_name]
     # `description` and `nullable` may be absent if the spec declared
     # `required: false`; cells for missing columns become None.
-    name_idx = sheet_spec.col_idx.get("name")
+    extract_idx = sheet_spec.col_idx.get("extract_name")
     type_idx = sheet_spec.col_idx.get("type")
     desc_idx = sheet_spec.col_idx.get("description")
     null_idx = sheet_spec.col_idx.get("nullable")
     table_idx = sheet_spec.col_idx.get("table")
-    db_name_idx = sheet_spec.col_idx.get("db_name")
+    silver_idx = sheet_spec.col_idx.get("silver_name")
+    bronze_idx = sheet_spec.col_idx.get("bronze_name")
 
-    mapped_indices = {i for i in (name_idx, type_idx, desc_idx, null_idx, table_idx, db_name_idx) if i is not None}
+    mapped_indices = {
+        i for i in (extract_idx, type_idx, desc_idx, null_idx, table_idx, silver_idx, bronze_idx)
+        if i is not None
+    }
     for idx in sheet_spec.constraint_cols.values():
         mapped_indices.add(idx)
 
@@ -214,12 +224,13 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
         }
         yield RawField(
             sheet_row=row_idx,
-            name_raw=_cell(row, name_idx),
+            extract_raw=_cell(row, extract_idx),
             type_raw=_cell(row, type_idx),
             description_raw=_cell(row, desc_idx),
             nullable_raw=_cell(row, null_idx),
             table_raw=_cell(row, table_idx) if table_idx is not None else None,
-            db_name_raw=_cell(row, db_name_idx) if db_name_idx is not None else None,
+            silver_raw=_cell(row, silver_idx) if silver_idx is not None else None,
+            bronze_raw=_cell(row, bronze_idx) if bronze_idx is not None else None,
             extras=extras,
         )
 
@@ -228,7 +239,7 @@ def _locate_header_row(ws: Worksheet, mapping: ColumnMapping) -> tuple[int, list
     # Only columns flagged `required: true` (the default) contribute to header
     # detection. If a spec author marks e.g. `name.column_required: false`, header
     # discovery falls back to whichever required-true columns remain.
-    candidates = [mapping.name, mapping.type, mapping.nullable]
+    candidates = [mapping.extract_name, mapping.type, mapping.nullable]
     required_norm = {normalize(c.spec_name) for c in candidates if c.column_required}
     if not required_norm:
         # Pathological config: nothing is required. Treat the first row as the header.

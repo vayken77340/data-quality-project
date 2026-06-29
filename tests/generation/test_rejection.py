@@ -11,7 +11,7 @@ from dq_core.type_mapping import load_type_registry
 
 def _mapping():
     return ColumnMapping.from_dict({
-        "name": {"spec_name": "Champ dans extract"},
+        "extract_name": {"spec_name": "Champ dans extract"},
         "type": {"spec_name": "Type"},
         "description": {"spec_name": "Description", "default_value": None},
         "nullable": {
@@ -48,7 +48,7 @@ def _sheet_spec():
     return SheetSpec(
         sheet_name="PROJECT",
         header_row=1,
-        col_idx={"name": 0, "type": 1, "description": 2, "nullable": 3},
+        col_idx={"extract_name": 0, "type": 1, "description": 2, "nullable": 3},
         has_table_column=False,
     )
 

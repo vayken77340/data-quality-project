@@ -17,14 +17,22 @@
 
 fields:
   column_mapping:
-    name:
+    extract_name:
       spec_name: Champ dans extract
     # Optional override: when present, this cell becomes the contract field's
-    # `name` verbatim. Blank cells fall back to slugifying the source name.
-    # Use it for acronyms ("URL" -> `url` not `u_r_l`), reserved words, and
-    # team-specific conventions the auto-slug can't infer.
-    db_name:
+    # silver-layer `name` verbatim. Blank cells fall back to slugifying the
+    # extract name. Use it for acronyms ("URL" -> `url` not `u_r_l`),
+    # reserved words, and team-specific conventions the auto-slug can't infer.
+    silver_name:
       spec_name: Nom BDD
+      column_required: false
+      default_value: null
+    # Optional override: when present, names the bronze-layer column for this
+    # field. Used by the bronze warehouse validator when bronze column names
+    # differ from silver (e.g. raw "Record Number" -> bronze "record no" ->
+    # silver "record_number"). Blank cells fall back to the silver name.
+    bronze_name:
+      spec_name: Nom Bronze
       column_required: false
       default_value: null
     type:
