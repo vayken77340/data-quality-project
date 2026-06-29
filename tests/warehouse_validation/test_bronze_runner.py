@@ -13,6 +13,8 @@ from pathlib import Path
 
 from warehouse_validation.bronze_runner import run_validate_bronze
 
+from tests.warehouse_validation.conftest import write_contract_yaml
+
 
 # Bare-name fallback: no warehouse.yaml exists in the tmp epic root, so
 # load_mapping returns "synth_bronze" / "synth_silver".
@@ -205,3 +207,73 @@ def test_missing_contract_returns_one(
     assert rc == 1
     err = capsys.readouterr().err
     assert "contract not found" in err
+
+
+# ---------------------------------------------------------------------------
+# bronze_name divergence: the bronze warehouse may name columns differently
+# from silver. The runner must match against bronze_name (when set) for the
+# missing-column check AND quote it in the TRY_CAST SQL.
+# ---------------------------------------------------------------------------
+
+
+def test_diverging_bronze_name_matches_bronze_schema_and_quotes_in_try_cast(
+    tmp_path, fake_connector_factory,
+):
+    """A contract field with bronze_name != name must (a) not surface a
+    spurious bronze_missing_column violation when the bronze table uses
+    the bronze identifier, and (b) emit a TRY_CAST that quotes the
+    bronze column, not the silver name."""
+    epic_root = tmp_path / "epics"
+    write_contract_yaml(
+        epic_root=epic_root, epic="1118", table="divergent",
+        field_blocks=[
+            # Field whose bronze identifier diverges from silver.
+            # Plan example: raw "Record Number" -> bronze "record no" ->
+            # silver "record_number".
+            (
+                '  - name: record_number\n'
+                '    extract_name: Record Number\n'
+                '    bronze_name: record no\n'
+                '    type: int64\n'
+                '    nullable: false\n'
+                '    primary_key: true\n'
+            ),
+            # A clean field where bronze == silver -- helper must fall
+            # back to f.name for it (covers both branches of `_bronze_col`).
+            (
+                '  - name: amount\n'
+                '    type: int64\n'
+                '    nullable: true\n'
+            ),
+        ],
+    )
+    fake = fake_connector_factory(
+        canned_counts={},
+        # Bronze schema uses the bronze identifiers, NOT the silver ones.
+        columns_by_table={"divergent_bronze": {"record no", "amount"}},
+    )
+
+    rc = run_validate_bronze(
+        epic="1118", table="divergent", connector_name="trino",
+        epic_root=epic_root, output_dir=None,
+    )
+
+    assert rc == 0, "no missing/extra column violations expected"
+
+    # (a) No spurious bronze_missing_column violation for record_number.
+    payload = json.loads(
+        (epic_root / "1118" / "validations_warehouse" / "bronze"
+         / "quality_report.json").read_text(encoding="utf-8")
+    )
+    assert payload["run_issues"] == []
+
+    # (b) TRY_CAST quotes the bronze identifier "record no", not silver.
+    try_cast_queries = [q for q in fake.executed if "TRY_CAST" in q]
+    assert any('TRY_CAST("record no"' in q for q in try_cast_queries), (
+        f"TRY_CAST must quote bronze name; saw: {try_cast_queries}"
+    )
+    assert not any('TRY_CAST("record_number"' in q for q in try_cast_queries), (
+        "TRY_CAST must NOT quote silver name when bronze diverges"
+    )
+    # The clean field falls back to f.name via _bronze_col.
+    assert any('TRY_CAST("amount"' in q for q in try_cast_queries)

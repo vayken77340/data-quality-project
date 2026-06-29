@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from dq_core.contract import FieldContract
 from dq_core.errors import ConfigError
 from dq_core.report_models import TableReport
 from dq_core.type_mapping import Type
@@ -32,6 +33,14 @@ from warehouse_validation.type_coercion import cast_type
 
 
 SUBDIR = "bronze"
+
+
+def _bronze_col(f: FieldContract) -> str:
+    """Bronze physical column name for `f`. The bronze warehouse may
+    name its columns differently from silver (raw "Record Number" ->
+    bronze "record no" -> silver "record_number"); `bronze_name`
+    captures the divergence when it exists."""
+    return f.bronze_name or f.name
 
 
 def run_validate_bronze(
@@ -79,7 +88,7 @@ def run_validate_bronze(
         )
         return 1
 
-    contract_field_names = {f.name for f in setup.contract.fields}
+    contract_field_names = {_bronze_col(f) for f in setup.contract.fields}
     missing = contract_field_names - bronze_cols
     extra = bronze_cols - contract_field_names
 
@@ -103,7 +112,8 @@ def run_validate_bronze(
         ))
 
     for f in setup.contract.fields:
-        if f.name in missing or f.type is Type.STRING:
+        col = _bronze_col(f)
+        if col in missing or f.type is Type.STRING:
             continue
         try:
             cast = cast_type(f.type, setup.connector.dialect)
@@ -112,15 +122,15 @@ def run_validate_bronze(
             return 1
         sql = (
             f'SELECT COUNT(*) FROM {mapping.bronze} '
-            f'WHERE "{f.name}" IS NOT NULL '
-            f'AND TRY_CAST("{f.name}" AS {cast}) IS NULL'
+            f'WHERE "{col}" IS NOT NULL '
+            f'AND TRY_CAST("{col}" AS {cast}) IS NULL'
         )
         try:
             bad = setup.connector.execute_count(sql)
         except Exception as e:
             print(
                 f"validate-bronze: connector failure on "
-                f"{setup.config.table_name}.{f.name}: {e}",
+                f"{setup.config.table_name}.{col}: {e}",
                 file=sys.stderr,
             )
             return 1
@@ -129,7 +139,7 @@ def run_validate_bronze(
                 kind="bronze_uncoercible",
                 severity="error",
                 table=setup.config.table_name,
-                field=f.name,
+                field=col,
                 expected=f"coercible to {f.type.value}",
                 offending_value=bad,
             ))
