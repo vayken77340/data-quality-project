@@ -220,12 +220,13 @@ class FileParser(ABC):
           - Multi-file frames concatenated via `diagonal_relaxed` so
             differing columns across files become null in the union.
 
-        `contract_fields` is a list of `(name, source_name)` pairs. `name` is
-        the contract field's database identifier (what columns get renamed
-        to); `source_name` is the verbatim spec header (e.g. "Reference
-        Number") used by `exact` and `similarity` policies to match raw
-        CSV/Excel/JSON headers before falling back to `name`. When omitted,
-        the rename step is a no-op -- handy for standalone parser use.
+        `contract_fields` is a list of `(name, extract_name)` pairs. `name`
+        is the contract field's silver-layer identifier (what columns get
+        renamed to); `extract_name` is the verbatim raw extract header
+        (e.g. "Reference Number") used by `exact` and `similarity` policies
+        to match raw CSV/Excel/JSON headers before falling back to `name`.
+        When omitted, the rename step is a no-op -- handy for standalone
+        parser use.
         """
         if not paths:
             raise ValueError(f"parser {self.name!r}: read called with no paths")

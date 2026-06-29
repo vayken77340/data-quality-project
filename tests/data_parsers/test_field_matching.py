@@ -307,14 +307,15 @@ def test_no_contract_fields_is_no_op(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# source_name preference: exact + similarity policies match against the raw
-# spec header first, then fall back to the contract's slugified `name`.
+# Precedence: extract_name -> silver name. Exact + similarity policies match
+# against the raw extract header first, then fall back to the contract's
+# silver `name`. Bronze is excluded by design (warehouse-side only).
 # ---------------------------------------------------------------------------
 
 
-def test_exact_prefers_source_name_over_name(tmp_path):
-    """When the file's header is the business-friendly spec value, the
-    `exact` policy renames it to the contract's database `name`."""
+def test_exact_matches_extract_name(tmp_path):
+    """When the file's header is the business-friendly extract value, the
+    `exact` policy renames it to the contract's silver `name`."""
     parser = _FixtureParser(
         rows=[{"Reference Number": "1", "Email": "x@y"}],
         column_names=["Reference Number", "Email"],
@@ -326,14 +327,15 @@ def test_exact_prefers_source_name_over_name(tmp_path):
     ).frame.collect()
     assert "reference_number" in df.columns
     assert df["reference_number"].to_list() == ["1"]
-    # "Email" lacks a source_name, so it had to match `name` exactly --
-    # case-sensitive, so it doesn't.
+    # "Email" lacks an extract_name, so it had to match silver `name`
+    # exactly -- case-sensitive, so it doesn't.
     assert "Email" in df.columns
     assert "email" not in df.columns
 
 
-def test_exact_falls_back_to_name_when_source_name_absent(tmp_path):
-    """When `source_name` isn't set, exact-match against `name` still works."""
+def test_exact_falls_back_to_silver_name_when_extract_absent(tmp_path):
+    """When `extract_name` isn't set, exact-match against silver `name`
+    still works."""
     parser = _FixtureParser(
         rows=[{"id": "1"}],
         column_names=["id"],
@@ -346,9 +348,31 @@ def test_exact_falls_back_to_name_when_source_name_absent(tmp_path):
     assert "id" in df.columns
 
 
-def test_similarity_prefers_source_name_for_candidate(tmp_path):
-    """Similarity scoring uses the business-friendly header as the candidate
-    when set -- so an input column close to the source name wins."""
+def test_exact_extract_match_wins_over_collision_on_silver(tmp_path):
+    """When the file header matches one field's extract_name AND another
+    field's silver name, the extract match must win (precedence:
+    extract -> silver). Otherwise a sloppy extract header would silently
+    bind to the wrong column."""
+    parser = _FixtureParser(
+        rows=[{"A": "1"}],
+        column_names=["A"],
+        policy="exact",
+    )
+    df = parser.read(
+        [_touch(tmp_path)],
+        # Field A's silver name is "a"; field B's extract_name is "A".
+        # Header "A" must rename to "b" (extract match on B), NOT "a"
+        # (silver match on A).
+        contract_fields=[("a", None), ("b", "A")],
+    ).frame.collect()
+    assert "b" in df.columns
+    assert df["b"].to_list() == ["1"]
+    assert "a" not in df.columns
+
+
+def test_similarity_scores_against_extract_candidate(tmp_path):
+    """Similarity scoring uses the extract header as the candidate when
+    set -- so an input column close to the extract name wins."""
     parser = _FixtureParser(
         rows=[{"Reference No.": "1"}],
         column_names=["Reference No."],
@@ -357,6 +381,23 @@ def test_similarity_prefers_source_name_for_candidate(tmp_path):
     df = parser.read(
         [_touch(tmp_path)],
         contract_fields=[("reference_number", "Reference Number")],
+        similarity_threshold=0.6,
+    ).frame.collect()
+    assert "reference_number" in df.columns
+    assert df["reference_number"].to_list() == ["1"]
+
+
+def test_similarity_falls_back_to_silver_when_extract_absent(tmp_path):
+    """When extract_name is None, the candidate string is silver `name`;
+    a header close to silver still binds."""
+    parser = _FixtureParser(
+        rows=[{"reference_num": "1"}],
+        column_names=["reference_num"],
+        policy="similarity",
+    )
+    df = parser.read(
+        [_touch(tmp_path)],
+        contract_fields=[("reference_number", None)],
         similarity_threshold=0.6,
     ).frame.collect()
     assert "reference_number" in df.columns

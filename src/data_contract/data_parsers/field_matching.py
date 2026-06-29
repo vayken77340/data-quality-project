@@ -12,9 +12,16 @@ The three policies:
   * `positional` (CSV / Excel default) — the i-th data column is the
     i-th contract field. Header text is ignored.
   * `exact` (JSON default) — columns whose names match a contract
-    field's `source_name` (preferred) or `name` bind by string equality.
-  * `similarity` — fuzzy match against `source_name` (preferred) /
-    `name` with a caller-supplied threshold.
+    field's `extract_name` first, then `name` (silver), bind by string
+    equality.
+  * `similarity` — fuzzy match against `extract_name` first, then
+    `name`, with a caller-supplied threshold.
+
+Precedence is always **extract → silver**. Bronze is deliberately
+excluded from file-side matching: bronze names (e.g. "record no") are
+warehouse-side artifacts that don't appear in upstream extract files,
+and matching against them would create a false-positive surface where a
+sloppy extract header silently binds via `bronze_name`.
 
 Each policy returns a `{existing_name: contract_name}` rename map.
 `apply_policy` applies the map to a LazyFrame.
@@ -94,10 +101,10 @@ def apply_policy(
     loop, before the diagonal concat, so two files whose parser-emitted
     column names disagree still concat cleanly under contract field names.
 
-    `exact` and `similarity` policies match against `source_name` first
-    (when set), then fall back to `name`. This lets the contract carry
-    business-friendly headers ("Reference Number") and still bind raw
-    CSVs/Excels that use those headers.
+    Precedence for `exact` and `similarity`: match against `extract_name`
+    first (when set), then fall back to `name` (silver). This lets the
+    contract carry business-friendly extract headers ("Reference Number")
+    and still bind raw CSVs/Excels that use those headers.
     """
     if not contract_fields:
         return lf
@@ -166,24 +173,27 @@ def exact_match_map(
 ) -> dict[str, str]:
     """Build a `{existing_name: contract_name}` map for exact mode.
 
-    For each existing column: rename to a contract field's `name` if the
-    column text matches the contract's `source_name` exactly, OR if it
-    already equals the `name`. `source_name` is tried first so business-
-    friendly headers ("Reference Number") win over a name collision.
-    Columns that match neither are left alone -- downstream
-    `column_missing` / `extra_column` surface them.
+    Precedence: **extract_name -> silver_name** (silver = `f.name`).
+
+    For each existing column: rename to a contract field's silver `name`
+    if the column text matches the contract's `extract_name` exactly, OR
+    if it already equals the silver `name`. extract_name is tried first
+    so business-friendly extract headers ("Reference Number") win over a
+    silver-name collision. Bronze is excluded by design -- see the
+    module docstring. Columns that match neither are left alone --
+    downstream `column_missing` / `extra_column` surface them.
     """
     rename_map: dict[str, str] = {}
     used_names: set[str] = set()
-    # Build lookups: source_name first (higher priority), then name as fallback.
-    by_source: dict[str, str] = {}
-    by_name: dict[str, str] = {}
-    for name, source_name in contract_fields:
-        if source_name:
-            by_source.setdefault(source_name, name)
-        by_name.setdefault(name, name)
+    # Build lookups: extract_name first (higher priority), then silver (`name`).
+    by_extract: dict[str, str] = {}
+    by_silver: dict[str, str] = {}
+    for name, extract_name in contract_fields:
+        if extract_name:
+            by_extract.setdefault(extract_name, name)
+        by_silver.setdefault(name, name)
     for col in existing:
-        target = by_source.get(col) or by_name.get(col)
+        target = by_extract.get(col) or by_silver.get(col)
         if target is None or target in used_names:
             continue
         if col != target:
@@ -199,21 +209,27 @@ def similarity_match_map(
 ) -> dict[str, str]:
     """Build a `{existing_name: contract_name}` map for similarity mode.
 
+    Precedence: **extract_name -> silver_name** (silver = `f.name`).
+
     Greedy assignment: iterate existing columns in order, find each one's
     best-scoring contract field above `threshold`, claim it exclusively.
-    Exact matches against `source_name` (when set) or `name` short-circuit
-    (no scoring needed). Mismatches that can't clear the threshold stay
-    as-is; downstream `column_missing` / `extra_column` surface them.
+    Exact matches against `extract_name` (when set) or silver `name`
+    short-circuit (no scoring needed). The fuzzy scorer runs against the
+    extract candidate when set, else silver -- the contract field's most
+    business-friendly representation. Bronze is excluded by design --
+    see the module docstring. Mismatches that can't clear the threshold
+    stay as-is; downstream `column_missing` / `extra_column` surface them.
     """
     # Pair each contract entry with the candidate string used for matching:
-    # source_name when set (business-friendly), else name (already a slug).
+    # extract_name when set (business-friendly), else silver `name`
+    # (already a slug).
     candidates: list[tuple[str, str]] = [
-        (name, source_name or name) for name, source_name in contract_fields
+        (name, extract_name or name) for name, extract_name in contract_fields
     ]
     used: set[str] = set()
     rename_map: dict[str, str] = {}
     for col in existing:
-        # Exact-match shortcut against either source_name or name.
+        # Exact-match shortcut against either extract_name or silver name.
         exact = next(
             (name for name, cand in candidates if name not in used and (col == cand or col == name)),
             None,
