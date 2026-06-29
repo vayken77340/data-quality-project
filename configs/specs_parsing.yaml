@@ -24,7 +24,7 @@ fields:
     # extract name. Use it for acronyms ("URL" -> `url` not `u_r_l`),
     # reserved words, and team-specific conventions the auto-slug can't infer.
     silver_name:
-      spec_name: Nom BDD
+      spec_name: Libellé (silver)
       column_required: false
       default_value: null
     # Optional override: when present, names the bronze-layer column for this
@@ -32,7 +32,7 @@ fields:
     # differ from silver (e.g. raw "Record Number" -> bronze "record no" ->
     # silver "record_number"). Blank cells fall back to the silver name.
     bronze_name:
-      spec_name: Nom Bronze
+      spec_name: Libellé (bronze)
       column_required: false
       default_value: null
     type:
