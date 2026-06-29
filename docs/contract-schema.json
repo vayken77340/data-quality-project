@@ -56,7 +56,10 @@
           "type": "string",
           "minLength": 1
         },
-        "source_name": {
+        "extract_name": {
+          "type": "string"
+        },
+        "bronze_name": {
           "type": "string"
         },
         "type": {

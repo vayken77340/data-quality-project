@@ -20,7 +20,7 @@ from typing import Any, Iterator, Mapping, Union
 
 from dq_core._util import load_yaml
 from dq_core.yaml_io import FlowList
-from dq_core.errors import RejectionError
+from dq_core.errors import ConfigError, RejectionError
 from dq_core.field_constraints import constraint_for_contract_key
 from dq_core.field_constraints.base import (
     FieldConstraint,
@@ -30,12 +30,17 @@ from dq_core.type_mapping import Type
 
 
 CORE_FIELD_KEYS = frozenset({
-    "name", "source_name", "type", "physical_type",
+    "name", "extract_name", "bronze_name", "type", "physical_type",
     "nullable", "description",
     "max_length", "precision", "scale",
     "primary_key", "foreign_key",
     "data_values",
 })
+
+# v1 -> v2 field-key rename (see plan-a-three-layer-name-rustling-pond.md).
+# Hard cutover: from_dict rejects the old key with an actionable error
+# pointing at the migrate-names tool.
+_V1_FIELD_KEY_RENAMES = {"source_name": "extract_name"}
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,9 @@ class FieldCheck:
 
 @dataclass(frozen=True)
 class FieldContract:
+    # `name` is the silver-layer identifier and the default reference for
+    # downstream code. `extract_name` and `bronze_name` are explicit overrides
+    # for the layers where the column name diverges from silver.
     name: str
     type: Type
     nullable: bool | None
@@ -82,11 +90,17 @@ class FieldContract:
     # longer carry boolean data_values. Stamped onto each BOOLEAN field by
     # `build_contract` from the base type registry.
     data_values: dict[str, list[str]] | None = None
-    # Raw business-friendly header from the spec ("Reference Number",
-    # "Date d'envoi"). `name` is the slugified database identifier derived
-    # from this. Omitted from `to_dict()` when it slugifies to `name` --
-    # already-clean headers don't need both keys.
-    source_name: str | None = None
+    # Raw business-friendly header from the extract ("Reference Number",
+    # "Date d'envoi"). `name` is the slugified silver identifier derived
+    # from this. Omitted from `to_dict()` when it equals `name` -- already-
+    # clean headers don't need both keys.
+    extract_name: str | None = None
+    # Physical column name in the bronze warehouse layer when it diverges
+    # from silver (e.g. raw "Record Number" -> bronze "record no" -> silver
+    # "record_number"). Consulted only by the bronze warehouse runner; every
+    # other code path operates on `name`. Omitted from `to_dict()` when it
+    # equals `name` -- the common case where bronze matches silver.
+    bronze_name: str | None = None
     # Target-resolved physical type ("VARCHAR2(384 BYTE)", "BINARY_DOUBLE").
     # Derived at build time via `TypeRegistry.physical_type_for(field)`. The
     # validator always recomputes from the active target overlay; this is a
@@ -96,10 +110,12 @@ class FieldContract:
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"name": self.name}
-        # Omit source_name when it equals name -- avoids noise on already-
-        # clean business headers that match their database slug.
-        if self.source_name and self.source_name != self.name:
-            out["source_name"] = self.source_name
+        # Omit extract_name / bronze_name when they equal name -- keeps
+        # already-clean rows quiet in the contract YAML.
+        if self.extract_name and self.extract_name != self.name:
+            out["extract_name"] = self.extract_name
+        if self.bronze_name and self.bronze_name != self.name:
+            out["bronze_name"] = self.bronze_name
         out["type"] = self.type.value
         if self.physical_type:
             out["physical_type"] = self.physical_type
@@ -126,6 +142,14 @@ class FieldContract:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "FieldContract":
+        for old_key, new_key in _V1_FIELD_KEY_RENAMES.items():
+            if old_key in payload:
+                raise ConfigError(
+                    f"unrecognized field key {old_key!r} -- run "
+                    f"'python -m data_contract migrate-names --epic <E>' "
+                    f"to migrate this contract to the v2 name layout "
+                    f"({new_key} + optional bronze_name)."
+                )
         constraints = {k: v for k, v in payload.items() if k not in CORE_FIELD_KEYS}
         fk = payload.get("foreign_key")
         data_values_raw = payload.get("data_values")
@@ -137,7 +161,8 @@ class FieldContract:
             data_values = {str(k).strip().lower(): list(v) for k, v in data_values_raw.items()}
         return cls(
             name=payload["name"],
-            source_name=payload.get("source_name"),
+            extract_name=payload.get("extract_name"),
+            bronze_name=payload.get("bronze_name"),
             type=Type.from_canonical_string(payload["type"]),
             physical_type=payload.get("physical_type"),
             nullable=payload.get("nullable"),

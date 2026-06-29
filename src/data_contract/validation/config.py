@@ -66,10 +66,12 @@ Per-table keys recognized under `tables.<T>:`:
 
 `target:` and `field_mapping:` were removed. Target lives on each
 generated contract (the runner reads it from the loaded contracts).
-Per-field source-vs-database renames live on the contract as well:
-each `FieldContract` carries `source_name` (the raw spec header) and
-`name` (the database identifier). Spec authors override the auto-slug
-via a `Nom BDD` cell in the spec when needed.
+Per-field renames live on the contract: each `FieldContract` carries
+`extract_name` (the raw extract header), `name` (the silver/DB
+identifier), and optional `bronze_name` (the bronze warehouse column
+name when it diverges from silver). Spec authors override the
+auto-slug via a `Nom BDD` cell in the spec when needed; bronze
+divergence uses the optional `Nom Bronze` column.
 
 Operator toggles (`rejected_row_cap`, `extra_columns_severity`,
 `similarity_threshold`) live in `.env` so they can vary by environment
@@ -402,9 +404,9 @@ def _resolve_table(
         raise ConfigError(
             f"{validation_yaml}: tables.{table_name}.field_mapping was removed. "
             f"Per-field renames now live on the contract: each FieldContract "
-            f"carries `source_name` (the raw header) and `name` (the database "
-            f"identifier). Declare an explicit `Nom BDD` cell in the spec when "
-            f"the auto-slugified database name needs an override."
+            f"carries `extract_name` (the raw extract header) and `name` (the "
+            f"silver/DB identifier). Declare an explicit `Nom BDD` cell in the "
+            f"spec when the auto-slugified silver name needs an override."
         )
 
     for misplaced in ("sheet_name", "encoding", "delimiter", "header_row", "null_tokens", "quote_char"):

@@ -150,6 +150,135 @@ def test_multi_table_in_sheet(registry):
     assert any(e.kind == "multi_table_in_sheet" for e in result.errors)
 
 
+# ---------------------------------------------------------------------------
+# _resolve_name triple: extract / silver / bronze defaulting + empty-slug guard
+# ---------------------------------------------------------------------------
+
+
+def _mapping_with_silver_bronze():
+    return ColumnMapping.from_dict({
+        "extract_name": {"spec_name": "Champ dans extract"},
+        "silver_name":  {"spec_name": "Nom BDD",    "column_required": False, "default_value": None},
+        "bronze_name":  {"spec_name": "Nom Bronze", "column_required": False, "default_value": None},
+        "type":         {"spec_name": "Type"},
+        "description":  {"spec_name": "Description", "default_value": None},
+        "nullable": {
+            "spec_name": "Obligatoire",
+            "values": {"true": ["non"], "false": ["oui"]},
+        },
+    })
+
+
+def _row3(sheet_row, *, extract=None, silver=None, bronze=None, type_="Double", nullable="OUI"):
+    return RawField(
+        sheet_row=sheet_row,
+        extract_raw=extract,
+        type_raw=type_,
+        description_raw=None,
+        nullable_raw=nullable,
+        table_raw=None,
+        silver_raw=silver,
+        bronze_raw=bronze,
+    )
+
+
+def _sheet_spec_3(has_table_column=False):
+    return SheetSpec(
+        sheet_name="PROJECT", header_row=1,
+        col_idx={"extract_name": 0, "silver_name": 1, "bronze_name": 2, "type": 3, "description": 4, "nullable": 5},
+        has_table_column=has_table_column,
+    )
+
+
+def _build(rows, registry, mapping=None):
+    return build_contract(
+        _merged(mapping=mapping or _mapping_with_silver_bronze()),
+        _sheet_spec_3(),
+        rows,
+        type_registry=registry,
+        spec_file_rel="x.xlsx",
+    )
+
+
+def test_resolve_extract_only_slugifies_to_silver(registry):
+    """Extract alone -> silver = slugify(extract); extract omitted when equal
+    to silver, kept otherwise."""
+    rows = [
+        _row3(2, extract="Reference Number"),  # extract != silver -> both kept
+        _row3(3, extract="email"),             # extract == silver -> extract omitted
+    ]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    assert result.fields[0].name == "reference_number"
+    assert result.fields[0].extract_name == "Reference Number"
+    assert result.fields[0].bronze_name is None
+    assert result.fields[1].name == "email"
+    assert result.fields[1].extract_name is None
+
+
+def test_resolve_silver_only_no_extract_no_bronze(registry):
+    """Silver alone is a valid identity; no extract / no bronze emitted."""
+    rows = [_row3(2, silver="my_field")]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    assert result.fields[0].name == "my_field"
+    assert result.fields[0].extract_name is None
+    assert result.fields[0].bronze_name is None
+
+
+def test_resolve_all_three_distinct(registry):
+    """The canonical bronze-divergence case: raw 'Record Number' ->
+    bronze 'record no' -> silver 'record_number'."""
+    rows = [_row3(
+        2, extract="Record Number", silver="record_number", bronze="record no",
+    )]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    f = result.fields[0]
+    assert f.name == "record_number"
+    assert f.extract_name == "Record Number"
+    assert f.bronze_name == "record no"
+
+
+def test_resolve_bronze_equal_to_silver_is_omitted(registry):
+    """When bronze == silver, bronze_name is dropped from the FieldContract
+    so YAML stays quiet."""
+    rows = [_row3(2, extract="Record Number", silver="record_number", bronze="record_number")]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    assert result.fields[0].bronze_name is None
+
+
+def test_resolve_bronze_only_is_rejected(registry):
+    """Bronze without extract+silver has no identity -> the row is rejected
+    with a missing-extract-name error from the blank-mandatory check."""
+    rows = [_row3(2, bronze="record no")]
+    result = _build(rows, registry)
+    assert isinstance(result, Rejection)
+    assert any(e.kind == "missing_mandatory" and e.field == "extract_name" for e in result.errors)
+
+
+def test_resolve_non_latin_extract_with_empty_slug_is_rejected(registry):
+    """Slugify returns '' for non-Latin input. The resolver guards against
+    that and rejects the row with an actionable error pointing at the
+    silver_name override -- otherwise downstream code would consume '' as
+    a valid identifier."""
+    rows = [_row3(2, extract="日付")]
+    result = _build(rows, registry)
+    assert isinstance(result, Rejection)
+    matching = [e for e in result.errors if e.field == "extract_name" and "slugifies to ''" in (e.message or "")]
+    assert matching, f"expected empty-slug rejection, got {result.errors}"
+
+
+def test_resolve_non_latin_extract_with_explicit_silver_passes(registry):
+    """The empty-slug guard's escape hatch: declare an explicit silver_name."""
+    rows = [_row3(2, extract="日付", silver="date_value")]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    assert result.fields[0].name == "date_value"
+    assert result.fields[0].extract_name == "日付"
+
+
 def test_write_outputs_success_creates_history_and_deletes_rejected(tmp_path: Path, registry):
     contracts_dir = tmp_path / "contracts"
     (contracts_dir / "rejected").mkdir(parents=True)

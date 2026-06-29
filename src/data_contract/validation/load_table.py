@@ -135,7 +135,7 @@ def load_table(
         parsed = parser.read(
             paths,
             table_name_hint=contract.table,
-            contract_fields=[(f.name, f.source_name) for f in contract.fields],
+            contract_fields=[(f.name, f.extract_name) for f in contract.fields],
             similarity_threshold=settings.similarity_threshold,
         )
     except Exception as e:

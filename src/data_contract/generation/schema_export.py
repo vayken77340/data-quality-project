@@ -38,7 +38,8 @@ def build_contract_json_schema() -> dict[str, Any]:
 
     field_properties: dict[str, Any] = {
         "name":          {"type": "string", "minLength": 1},
-        "source_name":   {"type": "string"},
+        "extract_name":  {"type": "string"},
+        "bronze_name":   {"type": "string"},
         "type":          {"type": "string", "enum": type_enum},
         "physical_type": {"type": "string"},
         "nullable":      {"type": "boolean"},

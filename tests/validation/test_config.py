@@ -68,7 +68,7 @@ tables:
 
 def test_field_mapping_block_rejected_with_migration_hint(tmp_path):
     """The per-table `field_mapping:` block was removed; per-field renames
-    live on the contract via `source_name` / `name`. A stale block must
+    live on the contract via `extract_name` / `name`. A stale block must
     fail loudly so the operator notices the migration."""
     cfg_dir = tmp_path / "configs"
     _write(cfg_dir / "validation.yaml", """

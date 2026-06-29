@@ -79,39 +79,74 @@ def _resolve_name(
     row: RawField,
     cm,
     errors: list[RejectionError],
-) -> tuple[str | None, str | None]:
-    """Resolve the spec row's name cells into `(source_name, name)`.
+) -> tuple[str | None, str | None, str | None]:
+    """Resolve the spec row's name cells into `(extract_name, silver_name, bronze_name)`.
 
-    `name` is the database identifier: the `Nom BDD` override when present,
-    otherwise `slugify(source_name)`. None when source_name is blank.
+    Defaulting chain:
+      silver_name  = silver_raw_clean or slugify(extract_raw_clean) (else error)
+      extract_name = extract_raw_clean if it differs from silver_name, else None
+      bronze_name  = bronze_raw_clean  if it differs from silver_name, else None
 
-    `source_name` is the verbatim spec value -- but returned as None when it
-    already equals `name`. Suppressing it there keeps already-clean rows
-    quiet in the contract YAML; the validator falls back to `name` for
-    header matching when `source_name` is absent.
+    At least one of {extract_raw, silver_raw} must be non-blank. silver_name
+    becomes the contract field's silver-layer identifier (`FieldContract.name`).
+    Suppressing extract_name / bronze_name when they equal silver_name keeps
+    already-clean rows quiet in the contract YAML; downstream code falls back
+    to silver when extract_name / bronze_name are absent.
 
-    Blank-mandatory errors are appended to `errors`.
+    Empty-slug guard: slugify can return "" for non-Latin / pure-punctuation
+    extract names (e.g. "日付"). Treat that as no silver name and reject the
+    row with an actionable message.
+
+    Blank-mandatory and empty-slug errors are appended to `errors`.
     """
-    source_name_value, err = _check_mandatory_blank(
-        row.extract_raw, cm.extract_name, field_name="extract_name", sheet_row=row.sheet_row,
-    )
-    if err: errors.append(err)
-
-    # Optional `Nom BDD` override: when present, used verbatim as the field's
-    # `name` (skipping slugify). When absent, `name` is `slugify(source_name)`.
-    silver_name_override: str | None = None
+    silver_override: str | None = None
     if cm.silver_name is not None and row.silver_raw is not None:
         silver_raw = str(row.silver_raw).strip()
         if silver_raw:
-            silver_name_override = silver_raw
+            silver_override = silver_raw
 
-    if not source_name_value:
-        return None, None
+    bronze_override: str | None = None
+    if cm.bronze_name is not None and row.bronze_raw is not None:
+        bronze_raw = str(row.bronze_raw).strip()
+        if bronze_raw:
+            bronze_override = bronze_raw
 
-    name_value = silver_name_override or slugify(source_name_value)
-    if source_name_value == name_value:
-        return None, name_value
-    return source_name_value, name_value
+    # Plan rule: at least one of {extract, silver} must be set. When silver
+    # is explicit, extract becomes optional and the blank-mandatory check is
+    # suppressed -- otherwise it surfaces the usual "missing extract_name"
+    # error so spec authors see what's wrong.
+    extract_value: str | None
+    if silver_override is None:
+        extract_value, err = _check_mandatory_blank(
+            row.extract_raw, cm.extract_name, field_name="extract_name", sheet_row=row.sheet_row,
+        )
+        if err: errors.append(err)
+        if not extract_value:
+            return None, None, None
+    else:
+        raw = row.extract_raw
+        extract_value = str(raw).strip() if raw is not None and str(raw).strip() else None
+
+    silver_name_value = silver_override or slugify(extract_value or "")
+    if not silver_name_value:
+        errors.append(RejectionError(
+            kind="missing_mandatory",
+            sheet_row=row.sheet_row,
+            column=cm.extract_name.spec_name,
+            field="extract_name",
+            value=extract_value,
+            message=(
+                f"silver name resolves to empty string (extract value "
+                f"{extract_value!r} slugifies to ''); declare an explicit "
+                f"'Nom BDD' silver_name in the spec or use an ASCII "
+                f"extract header."
+            ),
+        ))
+        return None, None, None
+
+    extract_name_value = extract_value if extract_value and extract_value != silver_name_value else None
+    bronze_name_value = bronze_override if bronze_override and bronze_override != silver_name_value else None
+    return extract_name_value, silver_name_value, bronze_name_value
 
 
 def _resolve_constraints(
@@ -167,7 +202,7 @@ def _build_one_field(
     """
     errors: list[RejectionError] = []
 
-    source_name_value, name_value = _resolve_name(row, cm, errors)
+    extract_name_value, name_value, bronze_name_value = _resolve_name(row, cm, errors)
 
     description_value, err = _check_mandatory_blank(
         row.description_raw, cm.description, field_name="description", sheet_row=row.sheet_row,
@@ -235,7 +270,8 @@ def _build_one_field(
 
     field = FieldContract(
         name=name_value,
-        source_name=source_name_value,
+        extract_name=extract_name_value,
+        bronze_name=bronze_name_value,
         type=parsed_type.type,
         nullable=nullable_value,
         description=description_value,
