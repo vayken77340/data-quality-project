@@ -7,9 +7,10 @@ class -- enough state for the runner's phase loop to operate without
 reaching back through the parser instance.
 
 Header-to-contract binding lives entirely on the contract: each
-`FieldContract` carries a `source_name` (the raw header) and `name` (the
-database identifier). The parser's field-matching policy looks at both,
-so this module no longer needs a per-table rename block.
+`FieldContract` carries an `extract_name` (the raw extract header) and
+`name` (the silver/DB identifier). The parser's field-matching policy
+looks at extract_name first, then silver `name`, so this module no
+longer needs a per-table rename block.
 """
 
 from __future__ import annotations

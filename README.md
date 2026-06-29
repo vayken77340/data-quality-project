@@ -253,24 +253,54 @@ The template is documentation that happens to be a `.py` file --
 `airflow` is not a runtime dependency of the repo. The repo CI only
 syntax-checks the template via `python -m py_compile`.
 
-## Field naming
+## Field naming -- three layers
 
-The spec's `name` column carries the **business-friendly** header as
-written by spec authors ("Reference Number", "Date d'envoi"). The
-generator stores that verbatim as `source_name` on the contract and
-derives `name` -- the database identifier -- by slugifying it
-(lowercase, accents stripped, non-alphanumeric -> `_`). When the slug
-already equals the source value, `source_name` is omitted from the
-YAML to keep already-clean rows quiet.
+A contract field carries up to three names, one per medallion layer:
 
-For acronyms, reserved words, or team conventions the auto-slugifier
-can't infer, declare a `Nom BDD` cell in the spec; the generator uses
-that as `name` verbatim and skips slugify for that row.
+| Slot | What it names | Spec column | When emitted in YAML |
+|---|---|---|---|
+| `name`         | **silver** identifier (the typed DB column; the canonical reference for every consumer except the bronze runner and the file-side matcher) | derived from `Champ dans extract` via slugify, OR explicit `Nom BDD` override | always |
+| `extract_name` | **raw extract** header as the spec author wrote it ("Reference Number", "Date d'envoi") | `Champ dans extract` | only when it differs from `name` |
+| `bronze_name`  | **bronze** physical column when bronze diverges from silver (raw "Record Number" -> bronze "record no" -> silver "record_number") | optional `Nom Bronze` | only when it differs from `name` |
 
-The validator's `exact` and `similarity` policies match incoming
-CSV/Excel/JSON headers against `source_name` first, then fall back to
-`name`. The per-table `field_mapping:` block in `validation.yaml` was
-removed -- every header rename now lives on the contract.
+The silver `name` is derived by slugifying the extract value
+(lowercase, accents stripped, non-alphanumeric -> `_`). Declare a
+`Nom BDD` cell to override for acronyms, reserved words, or team
+conventions the auto-slugifier can't infer; the generator uses that as
+the silver `name` verbatim and skips slugify for that row. Declare a
+`Nom Bronze` cell only when the bronze warehouse column name diverges
+from silver -- otherwise the bronze runner falls back to `name`.
+
+The validator's `exact` and `similarity` matching policies bind raw
+CSV/Excel/JSON headers using **extract_name first, then silver
+`name`**. Bronze is deliberately excluded from file-side matching --
+bronze identifiers are warehouse-internal artifacts that don't appear
+in upstream extract files. The per-table `field_mapping:` block in
+`validation.yaml` was removed -- every header rename now lives on the
+contract.
+
+### Migrating pre-v2 contracts
+
+> [!IMPORTANT]
+> Contracts generated before this rename used `source_name:` for the
+> raw extract header. Loading one through the current
+> `Contract.from_dict` raises `ConfigError` -- there is no
+> back-compatibility alias.
+>
+> Migrate per-epic contract YAMLs in place:
+>
+> ```
+> python -m data_contract migrate-names --epic <E>
+> ```
+>
+> Pass `--all` to walk every epic under `--epic-root`, `--path <DIR>`
+> to migrate an arbitrary directory (e.g. `tests/fixtures/`), or
+> `--dry-run` to preview. The tool rewrites `source_name:` ->
+> `extract_name:` in every field block; it does not invent
+> `bronze_name:` values. `epics/*/contracts/` is gitignored, so most
+> operators only need to regenerate via `data_contract generate
+> --epic <E>` -- the migration tool covers the case where on-disk
+> artifacts can't be regenerated (test fixtures, snapshots).
 
 ## Target physical types
 
@@ -323,9 +353,13 @@ fields:
     # (any YAML value, including null) to make blanks tolerable; the
     # default is substituted in. `column_required: false` REQUIRES
     # `default_value` to be declared.
-    name:        { spec_name: Field }
-    db_name:                       # optional override; bypasses slugify
+    extract_name: { spec_name: Field }
+    silver_name:                   # optional override for the silver name; bypasses slugify
       spec_name: "Nom BDD"
+      column_required: false
+      default_value: null
+    bronze_name:                   # optional; declare when bronze column name diverges from silver
+      spec_name: "Nom Bronze"
       column_required: false
       default_value: null
     type:        { spec_name: Type }

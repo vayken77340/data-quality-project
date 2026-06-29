@@ -10,9 +10,12 @@
 #                    and stamped onto each contract. The runner reads it
 #                    from the contracts at load time.
 #   - field_mapping: removed entirely. Per-field renames now live on the
-#                    contract via `source_name` (raw spec header) and `name`
-#                    (database identifier). Use the `Nom BDD` cell in the
-#                    spec when the auto-slugified `name` needs an override.
+#                    contract via `extract_name` (raw extract header), `name`
+#                    (silver/DB identifier), and optional `bronze_name` (the
+#                    bronze warehouse column when it diverges from silver).
+#                    Use the `Nom BDD` cell in the spec when the auto-
+#                    slugified silver `name` needs an override; declare a
+#                    `Nom Bronze` cell only when bronze diverges from silver.
 #   - rejected_row_cap, extra_columns_severity, similarity_threshold:
 #                    operator toggles that vary by environment (CI vs dev)
 #                    -- they live in .env. See src/data_contract/settings.py.
@@ -92,10 +95,10 @@ metrics:
 #                        `field_matching_policy` ("positional" | "exact" |
 #                        "similarity") goes here. `exact` and `similarity`
 #                        match incoming CSV/Excel/JSON headers against the
-#                        contract's `source_name` first, then fall back to
-#                        `name` -- so a CSV with the business header
+#                        contract's `extract_name` first, then fall back to
+#                        silver `name` -- so a CSV with the business header
 #                        "Reference Number" binds to a contract field
-#                        `name: reference_number, source_name: Reference
+#                        `name: reference_number, extract_name: Reference
 #                        Number` automatically. No field_mapping needed.
 #   checks            -- per-tier partial overrides on the global gates.
 #   metrics           -- same shape as checks.

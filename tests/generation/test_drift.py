@@ -16,7 +16,8 @@ def _c(version, fields):
 
 
 def _f(name, t=Type.STRING, nullable=True, description=None, max_length=None,
-       primary_key=None, foreign_key=None, constraints=None):
+       primary_key=None, foreign_key=None, constraints=None,
+       extract_name=None, bronze_name=None):
     return FieldContract(
         name=name,
         type=t,
@@ -25,6 +26,8 @@ def _f(name, t=Type.STRING, nullable=True, description=None, max_length=None,
         max_length=max_length,
         primary_key=primary_key,
         foreign_key=foreign_key,
+        extract_name=extract_name,
+        bronze_name=bronze_name,
         constraints=dict(constraints or {}),
     )
 
@@ -139,6 +142,53 @@ def test_constraint_diff_still_dispatched_for_unknown_keys():
     b = _c("2.0", [_f("x", constraints={"deregistered": "new"})])
     report = diff_contracts(a, b, now="2026-06-02T14:00:00Z")
     assert any(c.kind == "deregistered_changed" for c in report.changes)
+
+
+def test_extract_name_change_is_cosmetic():
+    a = _c("1.0", [_f("x", extract_name="X Old")])
+    b = _c("2.0", [_f("x", extract_name="X New")])
+    report = diff_contracts(a, b, now="2026-06-02T14:00:00Z")
+    matching = [c for c in report.changes if c.kind == "extract_name_changed"]
+    assert len(matching) == 1
+    assert matching[0].severity == "cosmetic"
+    assert matching[0].detail == {"from": "X Old", "to": "X New"}
+
+
+def test_bronze_name_change_is_cosmetic():
+    a = _c("1.0", [_f("x", bronze_name="x_old")])
+    b = _c("2.0", [_f("x", bronze_name="x_new")])
+    report = diff_contracts(a, b, now="2026-06-02T14:00:00Z")
+    matching = [c for c in report.changes if c.kind == "bronze_name_changed"]
+    assert len(matching) == 1
+    assert matching[0].severity == "cosmetic"
+
+
+def test_silver_stable_only_extract_or_bronze_diff():
+    """The common case this refactor exists to enable: a column's silver
+    `name` (the data-semantic identifier) stays stable across versions
+    while extract / bronze labels diverge. Drift surfaces both label
+    changes as cosmetic; the silver name keying means the field is NOT
+    surfaced as removed-then-added."""
+    a = _c("1.0", [_f(
+        "record_number",
+        extract_name="Reference Number",
+        bronze_name="record_number",
+    )])
+    b = _c("2.0", [_f(
+        "record_number",
+        extract_name="Record Number",   # extract label tweaked
+        bronze_name="record no",        # bronze warehouse renamed the column
+    )])
+    report = diff_contracts(a, b, now="2026-06-02T14:00:00Z")
+
+    kinds = {c.kind for c in report.changes}
+    # Silver `name` stable -> NO field_removed / field_added noise.
+    assert "field_removed" not in kinds
+    assert "field_added" not in kinds
+    # Both label changes surface as cosmetic.
+    assert "extract_name_changed" in kinds
+    assert "bronze_name_changed" in kinds
+    assert report.summary() == {"breaking": 0, "additive": 0, "cosmetic": 2}
 
 
 def test_summary_counts():

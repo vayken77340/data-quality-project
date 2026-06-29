@@ -222,6 +222,27 @@ def _diff_field(name: str, old: FieldContract, new: FieldContract) -> list[Drift
             detail={"from": old.description, "to": new.description},
         ))
 
+    # extract_name / bronze_name diffs: cosmetic. The silver `name` is the
+    # data-semantic identifier (covered above as the field key); extract is
+    # a display label, bronze is a warehouse-internal pointer. Re-running
+    # validation against the new contract picks up the new pointers; no
+    # downstream data behaviour changes.
+    if (old.extract_name or "") != (new.extract_name or ""):
+        out.append(DriftChange(
+            kind="extract_name_changed",
+            severity="cosmetic",
+            field=name,
+            detail={"from": old.extract_name, "to": new.extract_name},
+        ))
+
+    if (old.bronze_name or "") != (new.bronze_name or ""):
+        out.append(DriftChange(
+            kind="bronze_name_changed",
+            severity="cosmetic",
+            field=name,
+            detail={"from": old.bronze_name, "to": new.bronze_name},
+        ))
+
     if bool(old.primary_key) != bool(new.primary_key):
         out.append(DriftChange(
             kind="primary_key_changed",

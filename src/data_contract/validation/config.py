@@ -86,11 +86,12 @@ Owned by each parser via the generic `field_matching_policy` param
     file inside `data_parsers.field_matching.apply_policy`, before
     multi-file concat, so CSVs with disagreeing headers still align.
   * `exact` (JSON default) -- columns whose names match a contract
-    field's `source_name` (preferred) or `name` bind by string equality.
-    Mismatched columns surface via `column_missing` / `extra_column`.
-  * `similarity` -- fuzzy match against `source_name` (preferred) /
-    `name` with the global `similarity_threshold` (.env). Catches
-    typos, case, spacing, punctuation, and word-order variants.
+    field's `extract_name` first, then silver `name`, bind by string
+    equality. Mismatched columns surface via `column_missing` /
+    `extra_column`.
+  * `similarity` -- fuzzy match against `extract_name` (preferred) /
+    silver `name` with the global `similarity_threshold` (.env).
+    Catches typos, case, spacing, punctuation, and word-order variants.
 
 `checks.structural.field_names_from_sample` and
 `checks.structural.field_types_from_sample` are pure DRIFT checks: each
