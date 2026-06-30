@@ -258,8 +258,11 @@ def _build_parser() -> argparse.ArgumentParser:
     migrate = sub.add_parser(
         "migrate-names",
         help=(
-            "Rewrite per-epic contract YAMLs from the v1 (source_name) name "
-            "layout to v2 (extract_name + optional bronze_name)."
+            "Rewrite per-epic contract YAMLs to the v3 name layout. Applies "
+            "two renames on the same pass: v1 source_name -> extract_name, "
+            "and v2 name -> silver_name. Each cutover (v1->v2 and v2->v3) "
+            "creates the same drift boundary -- history files must be "
+            "migrated before generate-drift will load them."
         ),
     )
     target = migrate.add_mutually_exclusive_group(required=True)

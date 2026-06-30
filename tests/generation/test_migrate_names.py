@@ -31,7 +31,9 @@ fields:
   type: int
 """
 
-CONTRACT_NO_SOURCE_NAME = """\
+# Same shape as CONTRACT_WITH_SOURCE_NAME but with only the v2 `name:` key
+# (no source_name). Exercises the v2->v3 rule in isolation.
+CONTRACT_V2_NAME_ONLY = """\
 version: '1.0'
 epic: 'x'
 table: t
@@ -39,6 +41,18 @@ target: oracle
 
 fields:
 - name: a
+  type: string
+"""
+
+# Already at v3 (silver_name:). The tool must leave it untouched.
+CONTRACT_ALREADY_V3 = """\
+version: '1.0'
+epic: 'x'
+table: t
+target: oracle
+
+fields:
+- silver_name: a
   type: string
 """
 
@@ -64,7 +78,10 @@ def _make_epic(root: Path, epic_id: str, files: dict[str, str]) -> None:
         _write(contracts / rel, text)
 
 
-def test_migrate_epic_renames_source_name(tmp_path: Path) -> None:
+def test_migrate_epic_applies_both_rename_rules(tmp_path: Path) -> None:
+    """v1->v2 (source_name -> extract_name) and v2->v3 (name -> silver_name)
+    apply on the same pass. A field with both legacy keys gets both renamed;
+    a field with only `name:` still gets renamed via v2->v3."""
     _make_epic(tmp_path, "1118", {
         "t.yaml": CONTRACT_WITH_SOURCE_NAME,
         "history/1.0/t.yaml": CONTRACT_WITH_SOURCE_NAME,
@@ -74,11 +91,52 @@ def test_migrate_epic_renames_source_name(tmp_path: Path) -> None:
 
     assert report.errors == []
     assert report.files_changed == 2
-    assert report.fields_renamed == 2
+    # Two field blocks per file -- both need at least one rename -- across
+    # two files -> 4.
+    assert report.fields_renamed == 4
     for rel in ("t.yaml", "history/1.0/t.yaml"):
-        text = (tmp_path / "1118" / "contracts" / rel).read_text(encoding="utf-8")
-        assert "source_name" not in text
-        assert "extract_name: A_raw" in text
+        loaded = yaml.safe_load(
+            (tmp_path / "1118" / "contracts" / rel).read_text(encoding="utf-8")
+        )
+        # No legacy keys survive.
+        for fb in loaded["fields"]:
+            assert "source_name" not in fb
+            assert "name" not in fb
+        names = [fb["silver_name"] for fb in loaded["fields"]]
+        assert names == ["a", "b"]
+        # The source_name -> extract_name value is preserved verbatim.
+        assert loaded["fields"][0]["extract_name"] == "A_raw"
+
+
+def test_migrate_renames_name_to_silver_name(tmp_path: Path) -> None:
+    """v2->v3 in isolation: a fixture with only `name:` (no source_name) gets
+    renamed to silver_name."""
+    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_V2_NAME_ONLY})
+
+    report = migrate_epic("1118", tmp_path)
+
+    assert report.errors == []
+    assert report.files_changed == 1
+    assert report.fields_renamed == 1
+    loaded = yaml.safe_load(
+        (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8")
+    )
+    assert loaded["fields"][0] == {"silver_name": "a", "type": "string"}
+
+
+def test_migrate_renames_both_source_name_and_name_on_same_field(tmp_path: Path) -> None:
+    """Combined fixture: both renames fire on the same field on the same
+    pass. Key order: silver_name takes name's slot, extract_name takes
+    source_name's slot -- positions preserved per-key."""
+    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_WITH_SOURCE_NAME})
+
+    migrate_epic("1118", tmp_path)
+
+    loaded = yaml.safe_load(
+        (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8")
+    )
+    first_field = loaded["fields"][0]
+    assert list(first_field.keys()) == ["silver_name", "extract_name", "type"]
 
 
 def test_migrate_epic_is_idempotent(tmp_path: Path) -> None:
@@ -92,8 +150,9 @@ def test_migrate_epic_is_idempotent(tmp_path: Path) -> None:
     assert report.fields_renamed == 0
 
 
-def test_migrate_epic_unchanged_when_no_source_name(tmp_path: Path) -> None:
-    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_NO_SOURCE_NAME})
+def test_migrate_epic_unchanged_when_already_v3(tmp_path: Path) -> None:
+    """A YAML already at v3 (silver_name + no legacy keys) is a no-op."""
+    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_ALREADY_V3})
 
     report = migrate_epic("1118", tmp_path)
 
@@ -108,20 +167,10 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     report = migrate_epic("1118", tmp_path, dry_run=True)
 
     assert report.files_changed == 1
-    assert report.fields_renamed == 1
+    # Two field blocks each need at least one rename.
+    assert report.fields_renamed == 2
     # File on disk unchanged.
     assert (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8") == original
-
-
-def test_extract_name_position_matches_old_source_name(tmp_path: Path) -> None:
-    """Renaming source_name -> extract_name preserves the key's position
-    (after `name`, before `type`). Loading the dumped YAML must yield the
-    same key order."""
-    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_WITH_SOURCE_NAME})
-    migrate_epic("1118", tmp_path)
-    loaded = yaml.safe_load((tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8"))
-    first_field = loaded["fields"][0]
-    assert list(first_field.keys()) == ["name", "extract_name", "type"]
 
 
 def test_data_values_stays_flow_style(tmp_path: Path) -> None:

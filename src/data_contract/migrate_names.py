@@ -1,11 +1,14 @@
-"""migrate-names: rewrite per-epic contract YAMLs to the v2 name layout.
+"""migrate-names: rewrite per-epic contract YAMLs to the v3 name layout.
 
-V1 (today): each field block uses ``source_name:`` for the raw extract header.
-V2 (target): renamed to ``extract_name:`` plus an optional ``bronze_name:``.
+Two rename rules apply on the same pass:
 
-One-shot tool. After cutover (see plan), ``Contract.from_dict`` rejects the
-v1 ``source_name:`` key. Bronze name is not invented here; operators add
-``bronze_name:`` manually or re-run ``generate`` after editing the spec.
+    V1 -> V2: each field block's ``source_name:`` -> ``extract_name:``.
+    V2 -> V3: each field block's ``name:``         -> ``silver_name:``.
+
+After cutover (see plan), ``Contract.from_dict`` rejects both legacy keys
+with actionable migrate-names hints. Same v2/v3 drift boundary applies as
+v1/v2 did: drift workflows must run after the migration has been applied
+to history.
 
 Uses ``yaml.safe_load`` + structured rewrite. Comments in the affected
 YAMLs are not preserved (verified empty on the canonical four files).
@@ -22,8 +25,14 @@ import yaml
 from dq_core.yaml_io import FlowList, dump_yaml
 
 
-OLD_KEY = "source_name"
-NEW_KEY = "extract_name"
+# Per-field key renames applied on every migrate-names pass. Order matters:
+# v1->v2 first (source_name -> extract_name) so the v2->v3 step sees the
+# already-renamed field, though the two rules are on disjoint keys so the
+# order is moot in practice.
+_FIELD_KEY_RENAMES: dict[str, str] = {
+    "source_name": "extract_name",  # v1 -> v2
+    "name":        "silver_name",   # v2 -> v3
+}
 
 
 @dataclass
@@ -127,26 +136,29 @@ def _run(paths: Iterable[Path], *, dry_run: bool) -> MigrationReport:
 
 
 def _rename_field_keys(payload: dict) -> int:
-    """Rename ``source_name`` -> ``extract_name`` in every field block.
+    """Apply every rule in ``_FIELD_KEY_RENAMES`` to each field block.
 
-    Returns the number of field rows rewritten. Preserves key order by
-    rebuilding the field dict in-place rather than ``pop`` + reinsert
-    (which would move the key to the end).
+    Returns the count of field rows where at least one rename fired. Preserves
+    key order: rebuilds the field dict in-place rather than ``pop`` + reinsert
+    (which would move the renamed key to the end). Both rules run on the same
+    pass; a block that needs both renames counts once.
     """
     fields = payload.get("fields")
     if not isinstance(fields, list):
         return 0
     count = 0
     for i, field_block in enumerate(fields):
-        if not isinstance(field_block, dict) or OLD_KEY not in field_block:
+        if not isinstance(field_block, dict):
             continue
-        fields[i] = _replace_key_preserving_order(field_block, OLD_KEY, NEW_KEY)
+        if not any(old in field_block for old in _FIELD_KEY_RENAMES):
+            continue
+        fields[i] = _replace_keys_preserving_order(field_block, _FIELD_KEY_RENAMES)
         count += 1
     return count
 
 
-def _replace_key_preserving_order(d: dict, old: str, new: str) -> dict:
-    return {(new if k == old else k): v for k, v in d.items()}
+def _replace_keys_preserving_order(d: dict, renames: dict[str, str]) -> dict:
+    return {renames.get(k, k): v for k, v in d.items()}
 
 
 def _restore_flow_styles(payload: dict) -> None:
