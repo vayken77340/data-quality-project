@@ -30,17 +30,28 @@ from dq_core.type_mapping import Type
 
 
 CORE_FIELD_KEYS = frozenset({
-    "name", "extract_name", "bronze_name", "type", "physical_type",
+    "silver_name", "extract_name", "bronze_name", "type", "physical_type",
     "nullable", "description",
     "max_length", "precision", "scale",
     "primary_key", "foreign_key",
     "data_values",
 })
 
-# v1 -> v2 field-key rename (see plan-a-three-layer-name-rustling-pond.md).
-# Hard cutover: from_dict rejects the old key with an actionable error
-# pointing at the migrate-names tool.
-_V1_FIELD_KEY_RENAMES = {"source_name": "extract_name"}
+# Legacy field-key rejections (see plan-a-three-layer-name-rustling-pond.md).
+# Hard cutover: from_dict rejects each old key with an actionable error
+# pointing at the migrate-names tool. Listed in cutover order:
+#   v1 -> v2: source_name -> extract_name
+#   v2 -> v3: name        -> silver_name
+_LEGACY_FIELD_KEYS: dict[str, str] = {
+    "source_name": "extract_name",
+    "name":        "silver_name",
+}
+
+# Always-emit required keys (see Addendum to Follow-up 2): every field block
+# must carry silver_name, extract_name, and bronze_name. Missing keys are
+# rejected with an actionable migrate-names hint; silent defaults at load
+# time would re-create the ambiguity always-emit was meant to eliminate.
+_REQUIRED_NAME_KEYS: tuple[str, ...] = ("silver_name", "extract_name", "bronze_name")
 
 
 @dataclass(frozen=True)
@@ -71,13 +82,28 @@ class FieldCheck:
 
 @dataclass(frozen=True)
 class FieldContract:
-    # `name` is the silver-layer identifier and the default reference for
-    # downstream code. `extract_name` and `bronze_name` are explicit overrides
-    # for the layers where the column name diverges from silver.
-    name: str
+    """A typed field on a Contract.
+
+    `silver_name` is the canonical database identifier; `extract_name` and
+    `bronze_name` are explicit per-layer column names for the raw extract
+    header and the bronze-warehouse physical column. All three are always
+    present on every field (no equality-based omission); when a layer
+    doesn't diverge from silver, its slot simply carries the silver value.
+    All downstream consumers reference `f.silver_name` (silver-canonical);
+    the bronze runner consults `f.bronze_name` for SQL identifier quoting.
+
+    extract_name / bronze_name default to silver_name when omitted at
+    construction time -- materialized by `__post_init__`. This keeps test
+    fixtures terse (`FieldContract(silver_name="x", type=..., ...)`); the
+    always-emit invariant is enforced at the to_dict / from_dict boundary
+    rather than the dataclass attribute level.
+    """
+    silver_name: str
     type: Type
     nullable: bool | None
     description: str | None
+    extract_name: str | None = None
+    bronze_name: str | None = None
     max_length: int | None = None
     precision: int | None = None
     scale: int | None = None
@@ -90,17 +116,6 @@ class FieldContract:
     # longer carry boolean data_values. Stamped onto each BOOLEAN field by
     # `build_contract` from the base type registry.
     data_values: dict[str, list[str]] | None = None
-    # Raw business-friendly header from the extract ("Reference Number",
-    # "Date d'envoi"). `name` is the slugified silver identifier derived
-    # from this. Omitted from `to_dict()` when it equals `name` -- already-
-    # clean headers don't need both keys.
-    extract_name: str | None = None
-    # Physical column name in the bronze warehouse layer when it diverges
-    # from silver (e.g. raw "Record Number" -> bronze "record no" -> silver
-    # "record_number"). Consulted only by the bronze warehouse runner; every
-    # other code path operates on `name`. Omitted from `to_dict()` when it
-    # equals `name` -- the common case where bronze matches silver.
-    bronze_name: str | None = None
     # Target-resolved physical type ("VARCHAR2(384 BYTE)", "BINARY_DOUBLE").
     # Derived at build time via `TypeRegistry.physical_type_for(field)`. The
     # validator always recomputes from the active target overlay; this is a
@@ -108,15 +123,25 @@ class FieldContract:
     physical_type: str | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # Always-emit: materialize extract_name and bronze_name to silver_name
+        # when omitted. Frozen dataclass; use object.__setattr__ to bypass
+        # the immutability guard.
+        if self.extract_name is None:
+            object.__setattr__(self, "extract_name", self.silver_name)
+        if self.bronze_name is None:
+            object.__setattr__(self, "bronze_name", self.silver_name)
+
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"name": self.name}
-        # Omit extract_name / bronze_name when they equal name -- keeps
-        # already-clean rows quiet in the contract YAML.
-        if self.extract_name and self.extract_name != self.name:
-            out["extract_name"] = self.extract_name
-        if self.bronze_name and self.bronze_name != self.name:
-            out["bronze_name"] = self.bronze_name
-        out["type"] = self.type.value
+        # Always emit all three name slots, in canonical order. The "stay
+        # quiet when equal to silver" invariant was dropped per the addendum
+        # so operators never read absence as "undefined".
+        out: dict[str, Any] = {
+            "silver_name":  self.silver_name,
+            "extract_name": self.extract_name,
+            "bronze_name":  self.bronze_name,
+            "type":         self.type.value,
+        }
         if self.physical_type:
             out["physical_type"] = self.physical_type
         if self.nullable is not None:
@@ -142,13 +167,28 @@ class FieldContract:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "FieldContract":
-        for old_key, new_key in _V1_FIELD_KEY_RENAMES.items():
+        # Rejection precedence: legacy-key checks FIRST so operators with
+        # pre-cutover contracts see the migrate-names hint before the
+        # missing-required-key complaint -- which would otherwise send them
+        # down a malformed-contract debugging path.
+        for old_key, new_key in _LEGACY_FIELD_KEYS.items():
             if old_key in payload:
                 raise ConfigError(
                     f"unrecognized field key {old_key!r} -- run "
-                    f"'python -m data_contract migrate-names --epic <E>' "
-                    f"to migrate this contract to the v2 name layout "
-                    f"({new_key} + optional bronze_name)."
+                    f"'python -m data_contract migrate-names --all' to "
+                    f"migrate this contract to the v3 name layout "
+                    f"(legacy {old_key!r} renamed to {new_key!r}; every "
+                    f"field must carry silver_name + extract_name + "
+                    f"bronze_name)."
+                )
+        for required in _REQUIRED_NAME_KEYS:
+            if required not in payload:
+                raise ConfigError(
+                    f"field block missing required key {required!r} -- if "
+                    f"this contract was generated before the v3 cutover, "
+                    f"run 'python -m data_contract migrate-names --all' to "
+                    f"materialize the silver_name + extract_name + "
+                    f"bronze_name slots."
                 )
         constraints = {k: v for k, v in payload.items() if k not in CORE_FIELD_KEYS}
         fk = payload.get("foreign_key")
@@ -160,9 +200,9 @@ class FieldContract:
             # (the validator normalises at match time).
             data_values = {str(k).strip().lower(): list(v) for k, v in data_values_raw.items()}
         return cls(
-            name=payload["name"],
-            extract_name=payload.get("extract_name"),
-            bronze_name=payload.get("bronze_name"),
+            silver_name=payload["silver_name"],
+            extract_name=payload["extract_name"],
+            bronze_name=payload["bronze_name"],
             type=Type.from_canonical_string(payload["type"]),
             physical_type=payload.get("physical_type"),
             nullable=payload.get("nullable"),
@@ -328,7 +368,7 @@ class Contract(_TableProvenance):
     def field_name_set(self) -> set[str]:
         """Quick lookup helper: just the set of field names on this contract.
         Used by cross-table FK / joins validation."""
-        return {f.name for f in self.fields}
+        return {f.silver_name for f in self.fields}
 
 
 @dataclass

@@ -29,7 +29,7 @@ def predicate(field, check, table_name, dialect: str = "trino") -> PushdownSQL |
     return PushdownSQL(
         kind="where",
         sql=(
-            f'"{field.name}" IS NOT NULL '
-            f'AND NOT regexp_like("{field.name}", {quoted})'
+            f'"{field.silver_name}" IS NOT NULL '
+            f'AND NOT regexp_like("{field.silver_name}", {quoted})'
         ),
     )

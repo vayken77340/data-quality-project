@@ -246,7 +246,7 @@ def _validate_epic(
 
 
 def _field_names_from_payload(payload: dict) -> set[str]:
-    return {f.get("name") for f in payload.get("fields", []) if f.get("name") is not None}
+    return {f.get("silver_name") for f in payload.get("fields", []) if f.get("silver_name") is not None}
 
 
 def _load_yaml_safely(path: Path, output_format: str) -> dict | None:

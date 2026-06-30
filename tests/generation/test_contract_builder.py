@@ -79,7 +79,7 @@ def test_happy_path(registry):
     assert isinstance(result, Contract)
     assert result.table == "PROJECT"
     assert result.version == "1.0"
-    assert result.fields[0].name == "proj_id"
+    assert result.fields[0].silver_name == "proj_id"
     assert result.fields[0].nullable is False  # OUI = value_required = not nullable
     assert result.fields[1].nullable is True   # NON = optional = nullable
     assert result.fields[1].max_length == 50
@@ -201,29 +201,32 @@ def _build(rows, registry, mapping=None):
 
 
 def test_resolve_extract_only_slugifies_to_silver(registry):
-    """Extract alone -> silver = slugify(extract); extract omitted when equal
-    to silver, kept otherwise."""
+    """Extract alone -> silver = slugify(extract). Post-always-emit: when no
+    override is set, extract_name and bronze_name materialize to the
+    extract/silver value (cascade baked in at build time)."""
     rows = [
-        _row3(2, extract="Reference Number"),  # extract != silver -> both kept
-        _row3(3, extract="email"),             # extract == silver -> extract omitted
+        _row3(2, extract="Reference Number"),  # extract != silver
+        _row3(3, extract="email"),             # extract == silver
     ]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
-    assert result.fields[0].name == "reference_number"
+    assert result.fields[0].silver_name == "reference_number"
     assert result.fields[0].extract_name == "Reference Number"
-    assert result.fields[0].bronze_name is None
-    assert result.fields[1].name == "email"
-    assert result.fields[1].extract_name is None
+    assert result.fields[0].bronze_name == "Reference Number"  # cascade: extract wins for bronze
+    assert result.fields[1].silver_name == "email"
+    assert result.fields[1].extract_name == "email"  # always-emit; equals silver
+    assert result.fields[1].bronze_name == "email"
 
 
 def test_resolve_silver_only_no_extract_no_bronze(registry):
-    """Silver alone is a valid identity; no extract / no bronze emitted."""
+    """Silver alone is a valid identity; extract_name and bronze_name
+    materialize to silver_name (always-emit)."""
     rows = [_row3(2, silver="my_field")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
-    assert result.fields[0].name == "my_field"
-    assert result.fields[0].extract_name is None
-    assert result.fields[0].bronze_name is None
+    assert result.fields[0].silver_name == "my_field"
+    assert result.fields[0].extract_name == "my_field"
+    assert result.fields[0].bronze_name == "my_field"
 
 
 def test_resolve_all_three_distinct(registry):
@@ -235,29 +238,31 @@ def test_resolve_all_three_distinct(registry):
     result = _build(rows, registry)
     assert isinstance(result, Contract)
     f = result.fields[0]
-    assert f.name == "record_number"
+    assert f.silver_name == "record_number"
     assert f.extract_name == "Record Number"
     assert f.bronze_name == "record no"
 
 
-def test_resolve_bronze_equal_to_silver_is_omitted(registry):
-    """When bronze == silver, bronze_name is dropped from the FieldContract
-    so YAML stays quiet."""
+def test_resolve_bronze_equal_to_silver_is_still_emitted(registry):
+    """Always-emit: when bronze equals silver, bronze_name is STILL present
+    on the FieldContract (the 'stay quiet' invariant was dropped in the
+    addendum). YAML always carries the slot."""
     rows = [_row3(2, extract="Record Number", silver="record_number", bronze="record_number")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
-    assert result.fields[0].bronze_name is None
+    assert result.fields[0].bronze_name == "record_number"  # was: is None
 
 
 def test_resolve_bronze_only_resolves_via_slugify(registry):
     """Bronze-only is legal under the cascade extension: silver derives
-    from slugify(bronze). Was rejected as missing_mandatory pre-extension."""
+    from slugify(bronze). Always-emit materializes extract_name from
+    silver (no extract override was set)."""
     rows = [_row3(2, bronze="record no")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
     f = result.fields[0]
-    assert f.name == "record_no"
-    assert f.extract_name is None
+    assert f.silver_name == "record_no"
+    assert f.extract_name == "record_no"  # materialized from silver
     assert f.bronze_name == "record no"
 
 
@@ -269,7 +274,7 @@ def test_silver_derives_from_slugify_bronze_when_silver_blank(registry):
     result = _build(rows, registry)
     assert isinstance(result, Contract)
     f = result.fields[0]
-    assert f.name == "record_no", "silver must derive from slugify(bronze), not slugify(extract)"
+    assert f.silver_name == "record_no", "silver must derive from slugify(bronze), not slugify(extract)"
     assert f.extract_name == "Reference Number"
     assert f.bronze_name == "record no"
 
@@ -305,21 +310,21 @@ def test_resolve_non_latin_extract_with_explicit_silver_passes(registry):
     rows = [_row3(2, extract="日付", silver="date_value")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
-    assert result.fields[0].name == "date_value"
+    assert result.fields[0].silver_name == "date_value"
     assert result.fields[0].extract_name == "日付"
 
 
 def test_resolve_non_latin_extract_with_ascii_bronze_passes(registry):
     """Escape hatch #2: even without an explicit silver_name, an ASCII
     bronze rescues a non-Latin extract because slugify(bronze) wins.
-    bronze_name itself is omitted on the field because bronze raw equals
-    the resulting silver slug (no divergence to record)."""
+    Post-always-emit: bronze_name carries the raw bronze value (which
+    equals the silver slug here)."""
     rows = [_row3(2, extract="日付", bronze="date_col")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
-    assert result.fields[0].name == "date_col"
+    assert result.fields[0].silver_name == "date_col"
     assert result.fields[0].extract_name == "日付"
-    assert result.fields[0].bronze_name is None
+    assert result.fields[0].bronze_name == "date_col"
 
 
 def test_write_outputs_success_creates_history_and_deletes_rejected(tmp_path: Path, registry):

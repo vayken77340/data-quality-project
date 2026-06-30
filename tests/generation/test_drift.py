@@ -19,7 +19,7 @@ def _f(name, t=Type.STRING, nullable=True, description=None, max_length=None,
        primary_key=None, foreign_key=None, constraints=None,
        extract_name=None, bronze_name=None):
     return FieldContract(
-        name=name,
+        silver_name=name,
         type=t,
         nullable=nullable,
         description=description,

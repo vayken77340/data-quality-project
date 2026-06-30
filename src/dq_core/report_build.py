@@ -252,7 +252,7 @@ def build_rejected_rows(
     else:
         lookup = {}
 
-    contract_field_names = [f.name for f in contract.fields]
+    contract_field_names = [f.silver_name for f in contract.fields]
     pk_names = tr.pk_fields
 
     for key in sorted_keys:
@@ -276,7 +276,7 @@ def build_rejected_rows(
                 hint = ""
             phys: str | None = None
             if type_registry is not None and v.field:
-                fc = next((f for f in contract.fields if f.name == v.field), None)
+                fc = next((f for f in contract.fields if f.silver_name == v.field), None)
                 if fc is not None:
                     try:
                         phys = type_registry.physical_type_for(fc)

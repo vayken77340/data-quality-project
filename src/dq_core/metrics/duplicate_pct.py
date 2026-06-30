@@ -20,15 +20,15 @@ class DuplicatePctMetric(TableMetric):
         total = df.height
         values: dict[str, float] = {}
         for fc in contract.fields:
-            if fc.name not in df.columns or total == 0:
-                values[fc.name] = 0.0
+            if fc.silver_name not in df.columns or total == 0:
+                values[fc.silver_name] = 0.0
                 continue
-            col = df[fc.name]
+            col = df[fc.silver_name]
             null_count = int(col.is_null().sum())
             distinct = int(col.n_unique())
             if null_count > 0 and distinct > 0:
                 distinct -= 1
             non_null = total - null_count
             dup_rows = max(non_null - distinct, 0)
-            values[fc.name] = round((dup_rows / total) * 100, 2)
+            values[fc.silver_name] = round((dup_rows / total) * 100, 2)
         return MetricResult(name=self.name, scope=self.scope, values=values)

@@ -57,9 +57,9 @@ def _write_epic(
         "table": "T",
         "target": target,
         "fields": [
-            {"name": "id", "type": "int32", "nullable": False, "primary_key": True},
-            {"name": "label", "type": "string", "nullable": False, "max_length": 3},
-            {"name": "flag", "type": "boolean", "nullable": False},
+            {"silver_name": "id", "extract_name": "id", "bronze_name": "id", "type": "int32", "nullable": False, "primary_key": True},
+            {"silver_name": "label", "extract_name": "label", "bronze_name": "label", "type": "string", "nullable": False, "max_length": 3},
+            {"silver_name": "flag", "extract_name": "flag", "bronze_name": "flag", "type": "boolean", "nullable": False},
         ],
     }
     (epic_dir / "contracts" / "T.yaml").write_text(

@@ -83,7 +83,7 @@ def _contract(table: str, fields: list[str]) -> Contract:
         spec_file="x.xlsx",
         spec_sheet=table,
         table=table,
-        fields=[FieldContract(name=n, type=Type.STRING, nullable=True, description=None) for n in fields],
+        fields=[FieldContract(silver_name=n, type=Type.STRING, nullable=True, description=None) for n in fields],
     )
 
 

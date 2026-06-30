@@ -118,7 +118,7 @@ class FormatConstraint(FieldConstraint):
         if token_info is None or token_info.pattern is None:
             return None
         regex = token_info.pattern
-        col = pl.col(field.name).cast(pl.String, strict=False)
+        col = pl.col(field.silver_name).cast(pl.String, strict=False)
         return frame.filter(col.is_not_null() & ~col.str.contains(regex))
 
     def _parse_non_empty(self, raw_str, raw_original, ctx):

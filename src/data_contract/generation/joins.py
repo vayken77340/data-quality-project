@@ -400,7 +400,7 @@ def validate_joins(rows: list[JoinRow], contracts_by_table: dict[str, Contract])
                     ),
                 ))
                 continue
-            field_names = {f.name for f in contract.fields}
+            field_names = {f.silver_name for f in contract.fields}
             if column_name not in field_names:
                 errors.append(RejectionError(
                     kind="unknown_join_column",

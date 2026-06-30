@@ -23,4 +23,4 @@ def predicate(field, table_name, dialect: str = "trino") -> PushdownSQL:
     contract declares `nullable: false`. `table_name` is unused; kept
     for signature symmetry with the dispatch predicates.
     """
-    return PushdownSQL(kind="where", sql=f'"{field.name}" IS NULL')
+    return PushdownSQL(kind="where", sql=f'"{field.silver_name}" IS NULL')

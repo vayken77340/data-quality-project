@@ -40,8 +40,8 @@ def _contract(table: str = "T") -> Contract:
     return Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="",
         table=table, fields=[
-            FieldContract(name="id", type=Type.STRING, nullable=False, description=None),
-            FieldContract(name="name", type=Type.STRING, nullable=True, description=None),
+            FieldContract(silver_name="id", type=Type.STRING, nullable=False, description=None),
+            FieldContract(silver_name="name", type=Type.STRING, nullable=True, description=None),
         ],
     )
 

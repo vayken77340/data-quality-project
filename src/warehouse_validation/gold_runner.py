@@ -110,7 +110,7 @@ def run_validate_gold(
                 print(f"validate-gold: {e}", file=sys.stderr)
                 return 1
             contract_version = contract.version
-            pk_fields = [f.name for f in contract.primary_key_fields()]
+            pk_fields = [f.silver_name for f in contract.primary_key_fields()]
             contracts_by_table[tbl] = contract
 
         tr = TableReport(

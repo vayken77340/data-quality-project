@@ -19,8 +19,8 @@ def _registry():
 def test_in_memory_returns_per_table_dict_keyed_by_every_contract():
     """Even tables with zero errors get an entry (empty list)."""
     contracts = {
-        "A": _contract("A", FieldContract(name="x", type=Type.STRING, nullable=True, description=None)),
-        "B": _contract("B", FieldContract(name="y", type=Type.STRING, nullable=True, description=None)),
+        "A": _contract("A", FieldContract(silver_name="x", type=Type.STRING, nullable=True, description=None)),
+        "B": _contract("B", FieldContract(silver_name="y", type=Type.STRING, nullable=True, description=None)),
     }
     result = check_invariants_in_memory(contracts, None, _registry())
     assert set(result.per_table.keys()) == {"A", "B"}
@@ -31,14 +31,14 @@ def test_in_memory_returns_per_table_dict_keyed_by_every_contract():
 
 def test_in_memory_joins_empty_list_when_none():
     """No joins contract -> empty joins list (never None)."""
-    contracts = {"A": _contract("A", FieldContract(name="x", type=Type.STRING, nullable=True, description=None))}
+    contracts = {"A": _contract("A", FieldContract(silver_name="x", type=Type.STRING, nullable=True, description=None))}
     result = check_invariants_in_memory(contracts, None, _registry())
     assert result.joins == []
 
 
 def test_in_memory_pk_must_not_be_nullable_flagged():
     """Per-table invariants surface in `per_table[table]`."""
-    f = FieldContract(name="x", type=Type.STRING, nullable=True, description=None, primary_key=True)
+    f = FieldContract(silver_name="x", type=Type.STRING, nullable=True, description=None, primary_key=True)
     result = check_invariants_in_memory({"A": _contract("A", f)}, None, _registry())
     kinds = [e.kind for e in result.per_table["A"]]
     assert "pk_must_not_be_nullable" in kinds
@@ -49,10 +49,10 @@ def test_in_memory_fk_target_table_existence_checked_across_contracts():
     engine only runs FK existence when there ARE peer tables, so we add a
     sibling contract B that does NOT match the FK target."""
     f = FieldContract(
-        name="ref", type=Type.STRING, nullable=False, description=None,
+        silver_name="ref", type=Type.STRING, nullable=False, description=None,
         foreign_key={"table": "MISSING", "column": "id"},
     )
-    sibling = FieldContract(name="y", type=Type.STRING, nullable=True, description=None)
+    sibling = FieldContract(silver_name="y", type=Type.STRING, nullable=True, description=None)
     contracts = {"A": _contract("A", f), "B": _contract("B", sibling)}
     result = check_invariants_in_memory(contracts, None, _registry())
     kinds = [e.kind for e in result.per_table["A"]]

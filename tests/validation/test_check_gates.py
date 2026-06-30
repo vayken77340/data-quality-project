@@ -364,14 +364,14 @@ def _build_epic_with_dup_pk(tmp_path: Path) -> Path:
     parent = {
         "version": "1.0", "epic": "TEST", "table": "PARENT", "target": "postgres",
         "spec": {"file_path": "s", "sheet_name": "PARENT"},
-        "fields": [{"name": "pid", "type": "int64", "nullable": False, "primary_key": True}],
+        "fields": [{"silver_name": "pid", "extract_name": "pid", "bronze_name": "pid", "type": "int64", "nullable": False, "primary_key": True}],
     }
     child = {
         "version": "1.0", "epic": "TEST", "table": "CHILD", "target": "postgres",
         "spec": {"file_path": "s", "sheet_name": "CHILD"},
         "fields": [
-            {"name": "cid", "type": "int64", "nullable": False, "primary_key": True},
-            {"name": "pid", "type": "int64", "nullable": False,
+            {"silver_name": "cid", "extract_name": "cid", "bronze_name": "cid", "type": "int64", "nullable": False, "primary_key": True},
+            {"silver_name": "pid", "extract_name": "pid", "bronze_name": "pid", "type": "int64", "nullable": False,
              "foreign_key": {"table": "PARENT", "column": "pid"}},
         ],
     }

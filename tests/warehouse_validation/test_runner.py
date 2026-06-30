@@ -72,7 +72,7 @@ def test_pattern_constraint_dispatches_to_regexp_pushdown(tmp_path, fake_connect
         epic_root=epic_root, epic="1118", table="synth",
         field_blocks=[
             (
-                '  - name: code\n'
+                '  - silver_name: code\n'
                 '    type: string\n'
                 '    nullable: true\n'
                 '    pattern: "^[A-Z]{3}$"\n'
@@ -136,7 +136,7 @@ def test_unique_constraint_takes_count_query_branch(tmp_path, fake_connector_fac
         epic_root=epic_root, epic="1118", table="synth",
         field_blocks=[
             (
-                '  - name: invoice_id\n'
+                '  - silver_name: invoice_id\n'
                 '    type: string\n'
                 '    nullable: true\n'
                 '    unique: true\n'

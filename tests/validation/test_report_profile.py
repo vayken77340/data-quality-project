@@ -45,7 +45,7 @@ def _contract(table: str, *fields: FieldContract) -> Contract:
 def _f(name: str, t: Type, *, nullable=True, primary_key=None, foreign_key=None,
        max_length=None) -> FieldContract:
     return FieldContract(
-        name=name, type=t, nullable=nullable, description=None,
+        silver_name=name, type=t, nullable=nullable, description=None,
         max_length=max_length, primary_key=primary_key, foreign_key=foreign_key,
     )
 

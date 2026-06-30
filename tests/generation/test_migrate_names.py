@@ -44,7 +44,8 @@ fields:
   type: string
 """
 
-# Already at v3 (silver_name:). The tool must leave it untouched.
+# Fully v3 + always-emit (all three name slots present). The tool must
+# leave it untouched.
 CONTRACT_ALREADY_V3 = """\
 version: '1.0'
 epic: 'x'
@@ -53,6 +54,8 @@ target: oracle
 
 fields:
 - silver_name: a
+  extract_name: a
+  bronze_name: a
   type: string
 """
 
@@ -121,13 +124,37 @@ def test_migrate_renames_name_to_silver_name(tmp_path: Path) -> None:
     loaded = yaml.safe_load(
         (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8")
     )
-    assert loaded["fields"][0] == {"silver_name": "a", "type": "string"}
+    # Materialization: extract_name and bronze_name default to silver_name's
+    # value when absent from the input YAML.
+    assert loaded["fields"][0] == {
+        "silver_name": "a",
+        "extract_name": "a",
+        "bronze_name": "a",
+        "type": "string",
+    }
+
+
+def test_migrate_materialises_missing_extract_and_bronze(tmp_path: Path) -> None:
+    """Always-emit: a v2 field block missing extract_name and bronze_name
+    gets both materialized to silver_name's value. Slot order matches what
+    FieldContract.to_dict emits on a fresh generate."""
+    _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_V2_NAME_ONLY})
+
+    migrate_epic("1118", tmp_path)
+
+    loaded = yaml.safe_load(
+        (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8")
+    )
+    # Insertion happens right after silver_name; check order.
+    assert list(loaded["fields"][0].keys()) == [
+        "silver_name", "extract_name", "bronze_name", "type",
+    ]
 
 
 def test_migrate_renames_both_source_name_and_name_on_same_field(tmp_path: Path) -> None:
     """Combined fixture: both renames fire on the same field on the same
-    pass. Key order: silver_name takes name's slot, extract_name takes
-    source_name's slot -- positions preserved per-key."""
+    pass; materialization fills bronze_name. Canonical output order:
+    silver_name -> extract_name -> bronze_name -> rest."""
     _make_epic(tmp_path, "1118", {"t.yaml": CONTRACT_WITH_SOURCE_NAME})
 
     migrate_epic("1118", tmp_path)
@@ -136,7 +163,12 @@ def test_migrate_renames_both_source_name_and_name_on_same_field(tmp_path: Path)
         (tmp_path / "1118" / "contracts" / "t.yaml").read_text(encoding="utf-8")
     )
     first_field = loaded["fields"][0]
-    assert list(first_field.keys()) == ["silver_name", "extract_name", "type"]
+    assert list(first_field.keys()) == [
+        "silver_name", "extract_name", "bronze_name", "type",
+    ]
+    assert first_field["silver_name"]  == "a"
+    assert first_field["extract_name"] == "A_raw"   # from source_name rename
+    assert first_field["bronze_name"]  == "a"       # materialized to silver
 
 
 def test_migrate_epic_is_idempotent(tmp_path: Path) -> None:

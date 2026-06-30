@@ -93,7 +93,7 @@ def test_validate_against_schema_rejects_unknown_field_property():
         "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
         "fields": [
-            {"name": "x", "type": "int64", "bogus_field": "nope"},
+            {"silver_name": "x", "extract_name": "x", "bronze_name": "x", "type": "int64", "bogus_field": "nope"},
         ],
     }
     errors = validate_against_schema(bad_contract)
@@ -105,7 +105,7 @@ def test_validate_against_schema_rejects_unknown_type():
         "version": "1.0", "epic": "X", "generated_at": "t",
         "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
-        "fields": [{"name": "x", "type": "quaternion"}],
+        "fields": [{"silver_name": "x", "extract_name": "x", "bronze_name": "x", "type": "quaternion"}],
     }
     errors = validate_against_schema(bad_contract)
     assert any("type" in e for e in errors)
@@ -118,7 +118,8 @@ def test_validate_against_schema_accepts_structured_min_value():
         "table": "T",
         "fields": [
             {
-                "name": "amount", "type": "float64",
+                "silver_name": "amount", "extract_name": "amount", "bronze_name": "amount",
+                "type": "float64",
                 "min_value": {"value": 0, "strict": False},
             }
         ],
@@ -132,7 +133,7 @@ def test_validate_against_schema_rejects_flat_min_value():
         "version": "1.0", "epic": "X", "generated_at": "t",
         "spec": {"file_path": "s", "sheet_name": "S"},
         "table": "T",
-        "fields": [{"name": "amount", "type": "float64", "min_value": 5}],
+        "fields": [{"silver_name": "amount", "extract_name": "amount", "bronze_name": "amount", "type": "float64", "min_value": 5}],
     }
     errors = validate_against_schema(contract)
     assert errors, "flat min_value should be rejected"

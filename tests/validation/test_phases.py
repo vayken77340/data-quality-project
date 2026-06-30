@@ -102,7 +102,7 @@ def test_boolean_phase_emits_when_gate_on_invalid_token():
     contract = Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="T",
         fields=[FieldContract(
-            name="flag", type=Type.BOOLEAN, nullable=False, description=None,
+            silver_name="flag", type=Type.BOOLEAN, nullable=False, description=None,
             data_values={"true": ["yes"], "false": ["no"]},
         )],
     )
@@ -123,7 +123,7 @@ def test_boolean_phase_normalises_even_when_gate_off():
     contract = Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="T",
         fields=[FieldContract(
-            name="flag", type=Type.BOOLEAN, nullable=True, description=None,
+            silver_name="flag", type=Type.BOOLEAN, nullable=True, description=None,
             data_values={"true": ["yes"], "false": ["no"]},
         )],
     )
@@ -148,7 +148,7 @@ def test_typed_coercion_phase_skips_string_text_unknown_boolean():
     contract = Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="T",
         fields=[
-            FieldContract(name="s", type=Type.STRING, nullable=True, description=None),
+            FieldContract(silver_name="s", type=Type.STRING, nullable=True, description=None),
         ],
     )
     df = pl.DataFrame({
@@ -171,7 +171,7 @@ def test_typed_coercion_phase_skips_string_text_unknown_boolean():
 def test_nullable_phase_emits_when_gate_on():
     contract = Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="T",
-        fields=[FieldContract(name="x", type=Type.STRING, nullable=False, description=None)],
+        fields=[FieldContract(silver_name="x", type=Type.STRING, nullable=False, description=None)],
     )
     df = pl.DataFrame({
         "x": ["v", None],
@@ -187,7 +187,7 @@ def test_nullable_phase_emits_when_gate_on():
 def test_nullable_phase_skips_when_gate_off():
     contract = Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="T",
-        fields=[FieldContract(name="x", type=Type.STRING, nullable=False, description=None)],
+        fields=[FieldContract(silver_name="x", type=Type.STRING, nullable=False, description=None)],
     )
     df = pl.DataFrame({
         "x": [None],

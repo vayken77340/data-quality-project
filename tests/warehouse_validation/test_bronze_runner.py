@@ -231,7 +231,7 @@ def test_diverging_bronze_name_matches_bronze_schema_and_quotes_in_try_cast(
             # Plan example: raw "Record Number" -> bronze "record no" ->
             # silver "record_number".
             (
-                '  - name: record_number\n'
+                '  - silver_name: record_number\n'
                 '    extract_name: Record Number\n'
                 '    bronze_name: record no\n'
                 '    type: int64\n'
@@ -239,9 +239,9 @@ def test_diverging_bronze_name_matches_bronze_schema_and_quotes_in_try_cast(
                 '    primary_key: true\n'
             ),
             # A clean field where bronze == silver -- helper must fall
-            # back to f.name for it (covers both branches of `_bronze_col`).
+            # back to f.silver_name for it (covers both branches of `_bronze_col`).
             (
-                '  - name: amount\n'
+                '  - silver_name: amount\n'
                 '    type: int64\n'
                 '    nullable: true\n'
             ),
@@ -275,70 +275,25 @@ def test_diverging_bronze_name_matches_bronze_schema_and_quotes_in_try_cast(
     assert not any('TRY_CAST("record_number"' in q for q in try_cast_queries), (
         "TRY_CAST must NOT quote silver name when bronze diverges"
     )
-    # The clean field falls back to f.name via _bronze_col.
+    # The clean field falls back to f.silver_name via _bronze_col.
     assert any('TRY_CAST("amount"' in q for q in try_cast_queries)
-
-
-def test_extract_used_when_bronze_unset_and_bronze_warehouse_uses_extract_header(
-    tmp_path, fake_connector_factory,
-):
-    """Cascade extension: _bronze_col is bronze_name or extract_name or
-    f.name. When bronze_name is unset and the bronze warehouse uses the
-    extract header verbatim, the runner must (a) match the schema and
-    (b) quote the extract identifier in TRY_CAST."""
-    epic_root = tmp_path / "epics"
-    write_contract_yaml(
-        epic_root=epic_root, epic="1118", table="extract_passthrough",
-        field_blocks=[
-            (
-                '  - name: record_number\n'
-                '    extract_name: Record Number\n'
-                '    type: int64\n'
-                '    nullable: false\n'
-                '    primary_key: true\n'
-            ),
-        ],
-    )
-    fake = fake_connector_factory(
-        canned_counts={},
-        # Bronze schema uses the extract header verbatim.
-        columns_by_table={"extract_passthrough_bronze": {"Record Number"}},
-    )
-
-    rc = run_validate_bronze(
-        epic="1118", table="extract_passthrough", connector_name="trino",
-        epic_root=epic_root, output_dir=None,
-    )
-
-    assert rc == 0, "no missing/extra column violations expected"
-    payload = json.loads(
-        (epic_root / "1118" / "validations_warehouse" / "bronze"
-         / "quality_report.json").read_text(encoding="utf-8")
-    )
-    assert payload["run_issues"] == []
-    try_cast_queries = [q for q in fake.executed if "TRY_CAST" in q]
-    assert any('TRY_CAST("Record Number"' in q for q in try_cast_queries), (
-        f"TRY_CAST must quote extract identifier (cascade fallback); "
-        f"saw: {try_cast_queries}"
-    )
-    assert not any('TRY_CAST("record_number"' in q for q in try_cast_queries), (
-        "TRY_CAST must NOT fall through to silver when extract is set"
-    )
 
 
 def test_silver_used_when_extract_and_bronze_both_unset(
     tmp_path, fake_connector_factory,
 ):
-    """Regression: when neither bronze_name nor extract_name is set, the
-    cascade falls through to silver `name` (the third clause in
-    _bronze_col). This is the all-silver baseline that every pre-extension
-    contract relies on."""
+    """Regression: when neither bronze_name nor extract_name is set in the
+    spec, always-emit materializes both to silver and the bronze runner
+    quotes the silver identifier. The old runtime cascade
+    (`bronze_name or extract_name or f.silver_name`) is dead -- always-emit bakes
+    the resolution in at build time, and `_bronze_col` just reads
+    `f.bronze_name`."""
     epic_root = tmp_path / "epics"
     write_contract_yaml(
         epic_root=epic_root, epic="1118", table="all_silver",
         field_blocks=[
             (
-                '  - name: amount\n'
+                '  - silver_name: amount\n'
                 '    type: int64\n'
                 '    nullable: false\n'
                 '    primary_key: true\n'

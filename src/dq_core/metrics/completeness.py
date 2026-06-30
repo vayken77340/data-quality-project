@@ -18,9 +18,9 @@ class CompletenessMetric(TableMetric):
         total = df.height
         values: dict[str, float] = {}
         for fc in contract.fields:
-            if fc.name not in df.columns:
-                values[fc.name] = 0.0
+            if fc.silver_name not in df.columns:
+                values[fc.silver_name] = 0.0
                 continue
-            null_count = int(df[fc.name].is_null().sum())
-            values[fc.name] = round(((total - null_count) / total) * 100, 2) if total else 0.0
+            null_count = int(df[fc.silver_name].is_null().sum())
+            values[fc.silver_name] = round(((total - null_count) / total) * 100, 2) if total else 0.0
         return MetricResult(name=self.name, scope=self.scope, values=values)

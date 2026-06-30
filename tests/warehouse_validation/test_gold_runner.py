@@ -56,7 +56,9 @@ def _write_contract(
         table: {table}
         target: postgres
         fields:
-          - name: pk
+          - silver_name: pk
+            extract_name: pk
+            bronze_name: pk
             type: int64
             nullable: false
             primary_key: true

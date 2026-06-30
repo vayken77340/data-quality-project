@@ -277,7 +277,7 @@ def _stub_field(name: str, t: Type, **attrs):
     class _F:
         pass
     f = _F()
-    f.name = name
+    f.silver_name = name
     f.type = t
     f.max_length = attrs.get("max_length")
     f.precision = attrs.get("precision")

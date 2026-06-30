@@ -27,15 +27,15 @@ class UniqueConstraint(_BoolConstraint):
         """
         import polars as pl
 
-        col = pl.col(field.name)
+        col = pl.col(field.silver_name)
         dup_keys = (
             frame.filter(col.is_not_null())
-            .group_by(field.name)
+            .group_by(field.silver_name)
             .agg(pl.len().alias("__count__"))
             .filter(pl.col("__count__") > 1)
-            .select(field.name)
+            .select(field.silver_name)
         )
-        return frame.join(dup_keys, on=field.name, how="inner")
+        return frame.join(dup_keys, on=field.silver_name, how="inner")
 
     @classmethod
     def diff(cls, field_name, old, new) -> DriftChange | None:

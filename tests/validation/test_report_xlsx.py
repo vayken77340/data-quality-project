@@ -36,8 +36,10 @@ def _build_epic(tmp_path: Path, *, target=None) -> Path:
         "target": target or "postgres",
         "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
-            {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
-            {"name": "label", "type": "string", "nullable": False, "max_length": 3},
+            {"silver_name": "id", "extract_name": "id", "bronze_name": "id",
+             "type": "int64", "nullable": False, "primary_key": True},
+            {"silver_name": "label", "extract_name": "label", "bronze_name": "label",
+             "type": "string", "nullable": False, "max_length": 3},
         ],
     }
     (epic / "contracts" / "T.yaml").write_text(
@@ -250,9 +252,9 @@ def test_xlsx_rejected_sheet_one_row_per_source_row_stacked_cells(tmp_path: Path
         "target": "postgres",
         "spec": {"file_path": "s", "sheet_name": "M"},
         "fields": [
-            {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
-            {"name": "label", "type": "string", "nullable": False, "max_length": 3},
-            {"name": "code", "type": "string", "nullable": False},
+            {"silver_name": "id", "extract_name": "id", "bronze_name": "id", "type": "int64", "nullable": False, "primary_key": True},
+            {"silver_name": "label", "extract_name": "label", "bronze_name": "label", "type": "string", "nullable": False, "max_length": 3},
+            {"silver_name": "code", "extract_name": "code", "bronze_name": "code", "type": "string", "nullable": False},
         ],
     }
     (epic / "contracts" / "M.yaml").write_text(
@@ -338,7 +340,7 @@ def test_xlsx_rejected_sheet_uses_source_row_when_no_pk(tmp_path: Path):
         "target": "postgres",
         "spec": {"file_path": "s", "sheet_name": "NoPK"},
         "fields": [
-            {"name": "label", "type": "string", "nullable": False, "max_length": 3},
+            {"silver_name": "label", "extract_name": "label", "bronze_name": "label", "type": "string", "nullable": False, "max_length": 3},
         ],
     }
     (epic / "contracts" / "NoPK.yaml").write_text(

@@ -32,8 +32,8 @@ def _fixture():
         "table": "T",
         "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
-            {"name": "a", "type": "int32", "nullable": True},
-            {"name": "b", "type": "string", "nullable": False, "max_length": 10},
+            {"silver_name": "a", "extract_name": "a", "bronze_name": "a", "type": "int32", "nullable": True},
+            {"silver_name": "b", "extract_name": "b", "bronze_name": "b", "type": "string", "nullable": False, "max_length": 10},
         ],
     })
     return df, contract
@@ -91,8 +91,8 @@ def test_field_metric_handles_missing_column():
         "table": "T",
         "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
-            {"name": "a", "type": "int32", "nullable": True},
-            {"name": "missing", "type": "int32", "nullable": True},
+            {"silver_name": "a", "extract_name": "a", "bronze_name": "a", "type": "int32", "nullable": True},
+            {"silver_name": "missing", "extract_name": "missing", "bronze_name": "missing", "type": "int32", "nullable": True},
         ],
     })
     res = NullCountMetric().compute(df, contract, None)

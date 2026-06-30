@@ -66,14 +66,14 @@ def _run_fk_check(
     if target_contract is None or target_frame is None:
         report.violations.append(Violation(
             kind="fk_target_table_not_loaded", severity="warning",
-            table=child_table, field=fk_field.name,
+            table=child_table, field=fk_field.silver_name,
             expected=f"target table {target_table!r} included in this run",
         ))
         return
     violating = _FkCheckCls.run_for_field(
-        child_frame, fk_field.name, target_frame, target_column,
+        child_frame, fk_field.silver_name, target_frame, target_column,
     )
-    pk_cols = [f.name for f in contracts_by_table[child_table].primary_key_fields()]
+    pk_cols = [f.silver_name for f in contracts_by_table[child_table].primary_key_fields()]
     emit_from_lazy(
         violating,
         kind=_FkCheckCls.VIOLATION_KIND, severity=_FkCheckCls.VIOLATION_SEVERITY,

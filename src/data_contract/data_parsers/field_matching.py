@@ -173,11 +173,11 @@ def exact_match_map(
 ) -> dict[str, str]:
     """Build a `{existing_name: contract_name}` map for exact mode.
 
-    Precedence: **extract_name -> silver_name** (silver = `f.name`).
+    Precedence: **extract_name -> silver_name** (silver = `f.silver_name`).
 
-    For each existing column: rename to a contract field's silver `name`
+    For each existing column: rename to a contract field's silver name
     if the column text matches the contract's `extract_name` exactly, OR
-    if it already equals the silver `name`. extract_name is tried first
+    if it already equals the silver name. extract_name is tried first
     so business-friendly extract headers ("Reference Number") win over a
     silver-name collision. Bronze is excluded by design -- see the
     module docstring. Columns that match neither are left alone --
@@ -185,13 +185,15 @@ def exact_match_map(
     """
     rename_map: dict[str, str] = {}
     used_names: set[str] = set()
-    # Build lookups: extract_name first (higher priority), then silver (`name`).
+    # Build lookups: extract_name first (higher priority), then silver name.
+    # extract_name is always populated post-v3; the two-index pattern encodes
+    # silver vs extract collision precedence, not a None fallback.
     by_extract: dict[str, str] = {}
     by_silver: dict[str, str] = {}
-    for name, extract_name in contract_fields:
-        if extract_name:
-            by_extract.setdefault(extract_name, name)
-        by_silver.setdefault(name, name)
+    for silver_name, extract_name in contract_fields:
+        if extract_name and extract_name != silver_name:
+            by_extract.setdefault(extract_name, silver_name)
+        by_silver.setdefault(silver_name, silver_name)
     for col in existing:
         target = by_extract.get(col) or by_silver.get(col)
         if target is None or target in used_names:
@@ -209,11 +211,11 @@ def similarity_match_map(
 ) -> dict[str, str]:
     """Build a `{existing_name: contract_name}` map for similarity mode.
 
-    Precedence: **extract_name -> silver_name** (silver = `f.name`).
+    Precedence: **extract_name -> silver_name** (silver = `f.silver_name`).
 
     Greedy assignment: iterate existing columns in order, find each one's
     best-scoring contract field above `threshold`, claim it exclusively.
-    Exact matches against `extract_name` (when set) or silver `name`
+    Exact matches against `extract_name` (when set) or silver name
     short-circuit (no scoring needed). The fuzzy scorer runs against the
     extract candidate when set, else silver -- the contract field's most
     business-friendly representation. Bronze is excluded by design --
@@ -221,17 +223,21 @@ def similarity_match_map(
     stay as-is; downstream `column_missing` / `extra_column` surface them.
     """
     # Pair each contract entry with the candidate string used for matching:
-    # extract_name when set (business-friendly), else silver `name`
-    # (already a slug).
+    # extract_name when set (business-friendly), else silver name (already
+    # a slug). extract_name is always populated post-v3; the two-index
+    # pattern encodes silver vs extract collision precedence, not a None
+    # fallback.
     candidates: list[tuple[str, str]] = [
-        (name, extract_name or name) for name, extract_name in contract_fields
+        (silver_name, extract_name or silver_name)
+        for silver_name, extract_name in contract_fields
     ]
     used: set[str] = set()
     rename_map: dict[str, str] = {}
     for col in existing:
         # Exact-match shortcut against either extract_name or silver name.
         exact = next(
-            (name for name, cand in candidates if name not in used and (col == cand or col == name)),
+            (silver_name for silver_name, cand in candidates
+             if silver_name not in used and (col == cand or col == silver_name)),
             None,
         )
         if exact is not None:
@@ -239,13 +245,13 @@ def similarity_match_map(
             continue
         best: str | None = None
         best_score = threshold
-        for name, cand in candidates:
-            if name in used:
+        for silver_name, cand in candidates:
+            if silver_name in used:
                 continue
             score = _similarity_score(col, cand)
             if score >= best_score:
                 best_score = score
-                best = name
+                best = silver_name
         if best is not None:
             rename_map[col] = best
             used.add(best)

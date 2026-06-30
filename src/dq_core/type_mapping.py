@@ -218,7 +218,7 @@ class TypeRegistry:
         except KeyError as missing:
             raise ConfigError(
                 f"physical_type template for {field.type.value!r} "
-                f"references {{{missing.args[0]}}} but field {field.name!r} "
+                f"references {{{missing.args[0]}}} but field {field.silver_name!r} "
                 f"does not declare {missing.args[0]}"
             ) from None
 

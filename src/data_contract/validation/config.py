@@ -67,13 +67,15 @@ Per-table keys recognized under `tables.<T>:`:
 `target:` and `field_mapping:` were removed. Target lives on each
 generated contract (the runner reads it from the loaded contracts).
 Per-field renames live on the contract: each `FieldContract` carries
-`extract_name` (the raw extract header), `name` (the silver/DB
-identifier), and optional `bronze_name` (the bronze warehouse column
-name when it diverges from silver). Silver derives `silver_raw`, then
+`silver_name` (the canonical silver-layer identifier), `extract_name`
+(the raw extract header), and `bronze_name` (the bronze warehouse
+column name). All three slots are always present on every field; no
+equality-based omission. When a layer doesn't diverge from silver,
+its slot simply carries the silver value (materialized at build time
+and by the migrate-names tool). Silver derives `silver_raw`, then
 `slugify(bronze_raw)`, then `slugify(extract_raw)`; spec authors
 override outright via a `Nom BDD` cell when needed. Bronze divergence
-uses the optional `Nom Bronze` column; at validation time the bronze
-runner cascades `bronze_name -> extract_name -> name`.
+uses the optional `Nom Bronze` column.
 
 Operator toggles (`rejected_row_cap`, `extra_columns_severity`,
 `similarity_threshold`) live in `.env` so they can vary by environment
@@ -88,11 +90,11 @@ Owned by each parser via the generic `field_matching_policy` param
     file inside `data_parsers.field_matching.apply_policy`, before
     multi-file concat, so CSVs with disagreeing headers still align.
   * `exact` (JSON default) -- columns whose names match a contract
-    field's `extract_name` first, then silver `name`, bind by string
+    field's `extract_name` first, then `silver_name`, bind by string
     equality. Mismatched columns surface via `column_missing` /
     `extra_column`.
   * `similarity` -- fuzzy match against `extract_name` (preferred) /
-    silver `name` with the global `similarity_threshold` (.env).
+    `silver_name` with the global `similarity_threshold` (.env).
     Catches typos, case, spacing, punctuation, and word-order variants.
 
 `checks.structural.field_names_from_sample` and
@@ -407,9 +409,11 @@ def _resolve_table(
         raise ConfigError(
             f"{validation_yaml}: tables.{table_name}.field_mapping was removed. "
             f"Per-field renames now live on the contract: each FieldContract "
-            f"carries `extract_name` (the raw extract header) and `name` (the "
-            f"silver/DB identifier). Declare an explicit `Nom BDD` cell in the "
-            f"spec when the auto-slugified silver name needs an override."
+            f"carries `silver_name` (the canonical silver-layer identifier), "
+            f"`extract_name` (the raw extract header), and `bronze_name` "
+            f"(the bronze warehouse column). Declare an explicit `Nom BDD` "
+            f"cell in the spec when the auto-slugified silver name needs an "
+            f"override."
         )
 
     for misplaced in ("sheet_name", "encoding", "delimiter", "header_row", "null_tokens", "quote_char"):

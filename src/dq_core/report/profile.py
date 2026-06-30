@@ -61,8 +61,8 @@ def build_table_profile(
     flows into each FieldProfile so the report can show which target's
     type syntax `type` reflects.
     """
-    pk_names = {f.name for f in contract.primary_key_fields()}
-    fk_names = {f.name for f in contract.foreign_key_fields()}
+    pk_names = {f.silver_name for f in contract.primary_key_fields()}
+    fk_names = {f.silver_name for f in contract.foreign_key_fields()}
 
     profiles: list[FieldProfile] = []
     for fc in contract.fields:
@@ -71,11 +71,11 @@ def build_table_profile(
         except Exception:
             physical = fc.type.value
         profiles.append(FieldProfile(
-            name=fc.name,
+            name=fc.silver_name,
             type=physical,
             type_format=type_format,
-            is_pk=fc.name in pk_names,
-            is_fk=fc.name in fk_names,
+            is_pk=fc.silver_name in pk_names,
+            is_fk=fc.silver_name in fk_names,
             total=total_rows,
         ))
 

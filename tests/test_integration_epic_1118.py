@@ -96,7 +96,7 @@ def test_generate_epic_1118(tmp_path: Path, repo_root: Path, monkeypatch):
     assert data["spec"]["sheet_name"] == "PROJECT"
     assert len(data["fields"]) == 5
 
-    by_name = {f["name"]: f for f in data["fields"]}
+    by_name = {f["silver_name"]: f for f in data["fields"]}
     assert by_name["proj_id"]["type"] == "float64"
     assert by_name["proj_id"]["nullable"] is False  # OUI -> value_required -> not nullable
     assert by_name["proj_id"]["primary_key"] is True  # from the synthesized Keys sheet

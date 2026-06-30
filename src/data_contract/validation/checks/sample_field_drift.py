@@ -116,7 +116,7 @@ def check_field_types_from_sample(
     if not has_types:
         return []
 
-    contract_types = {f.name: f.type.value for f in contract.fields}
+    contract_types = {f.silver_name: f.type.value for f in contract.fields}
     out: list[Violation] = []
     seen: set[tuple[str, str, str]] = set()   # (field, source_type, contract_type) dedup across files
 

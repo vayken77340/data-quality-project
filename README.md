@@ -255,45 +255,51 @@ syntax-checks the template via `python -m py_compile`.
 
 ## Field naming -- three layers
 
-A contract field carries up to three names, one per medallion layer:
+Every contract field carries three name slots, one per medallion layer.
+All three are **always present** on every field; no equality-based
+omission. When a layer doesn't diverge from silver, its slot simply
+carries the silver value.
 
 | Slot | What it names | Spec column | When emitted in YAML |
 |---|---|---|---|
-| `name`         | **silver** identifier (the typed DB column; the canonical reference for every consumer except the bronze runner and the file-side matcher) | derived `silver_raw`, then `slugify(bronze_raw)`, then `slugify(extract_raw)`; explicit `Nom BDD` override wins outright | always |
-| `extract_name` | **raw extract** header as the spec author wrote it ("Reference Number", "Date d'envoi") | `Champ dans extract` | only when it differs from `name` |
-| `bronze_name`  | **bronze** physical column when bronze diverges from silver (raw "Record Number" -> bronze "record no" -> silver "record_number") | optional `Nom Bronze` | only when it differs from `name` |
+| `silver_name`  | **silver** identifier -- the typed DB column; the canonical reference for every downstream consumer except the bronze runner | derived `silver_raw`, then `slugify(bronze_raw)`, then `slugify(extract_raw)`; explicit `Nom BDD` override wins outright | always |
+| `extract_name` | **raw extract** header as the spec author wrote it ("Reference Number", "Date d'envoi") | `Champ dans extract` | always (materializes to silver_name when no override) |
+| `bronze_name`  | **bronze** physical column when bronze diverges from silver (raw "Record Number" -> bronze "record no" -> silver "record_number") | optional `Nom Bronze` | always (materializes to silver_name when no override) |
 
-The silver `name` is derived by slugifying — but bronze wins over
+The silver name is derived by slugifying -- but bronze wins over
 extract because bronze is the same column in the same warehouse, just
 with bad name hygiene, while extract may have semantic drift. Declare a
 `Nom BDD` cell to override outright for acronyms, reserved words, or
 team conventions the auto-slugifier can't infer; the generator uses
 that verbatim and skips slugify for that row. Declare a `Nom Bronze`
 cell when the bronze warehouse column name diverges from silver. A
-bronze-only spec row (no extract, no silver) is legal — silver derives
+bronze-only spec row (no extract, no silver) is legal -- silver derives
 from `slugify(bronze_raw)`.
 
-At validation time the bronze runner cascades `bronze_name -> extract_name
--> name` when quoting SQL identifiers. So a contract with `extract_name`
-set but no `bronze_name` probes bronze using the extract header; declare
-`bronze_name` explicitly when the bronze warehouse uses silver-style
-column names.
+At validation time the bronze runner reads `f.bronze_name` directly
+(post-v3 always-emit bakes the cascade into the contract at build time;
+no runtime fallback). So a contract that emits no override for
+bronze_name uses silver_name as the bronze column identifier; declare
+`bronze_name` explicitly only when the bronze warehouse uses a
+different column name than silver.
 
 The validator's `exact` and `similarity` matching policies bind raw
-CSV/Excel/JSON headers using **extract_name first, then silver
-`name`**. Bronze is deliberately excluded from file-side matching --
-bronze identifiers are warehouse-internal artifacts that don't appear
-in upstream extract files. The per-table `field_mapping:` block in
+CSV/Excel/JSON headers using **extract_name first, then silver_name**.
+Bronze is deliberately excluded from file-side matching -- bronze
+identifiers are warehouse-internal artifacts that don't appear in
+upstream extract files. The per-table `field_mapping:` block in
 `validation.yaml` was removed -- every header rename now lives on the
 contract.
 
-### Migrating pre-v2 contracts
+### Migrating pre-v3 contracts
 
 > [!IMPORTANT]
-> Contracts generated before this rename used `source_name:` for the
-> raw extract header. Loading one through the current
-> `Contract.from_dict` raises `ConfigError` -- there is no
-> back-compatibility alias.
+> Contracts generated before v3 used `source_name:` (v1) and `name:`
+> (v2) for the raw extract header and silver identifier respectively.
+> Loading one through the current `Contract.from_dict` raises
+> `ConfigError` -- there is no back-compatibility alias. The same
+> command handles both cutovers on a single pass and materializes
+> missing extract_name / bronze_name slots from silver_name.
 >
 > Migrate per-epic contract YAMLs in place:
 >

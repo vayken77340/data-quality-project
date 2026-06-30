@@ -26,7 +26,7 @@ def check_nullable(frame, field: FieldContract):
         return None
     import polars as pl
 
-    return frame.filter(pl.col(field.name).is_null())
+    return frame.filter(pl.col(field.silver_name).is_null())
 
 
 def check_max_length(
@@ -46,7 +46,7 @@ def check_max_length(
     length_unit = (
         type_registry.length_unit_for(Type.STRING) if type_registry else "characters"
     )
-    col = pl.col(field.name).cast(pl.String, strict=False)
+    col = pl.col(field.silver_name).cast(pl.String, strict=False)
     length = col.str.len_bytes() if length_unit == "bytes" else col.str.len_chars()
     return frame.filter(col.is_not_null() & (length > field.max_length))
 
@@ -87,13 +87,13 @@ def check_type_coercion(
 
     kwargs = _parser_kwargs(field, type_registry)
     df = eager_df if eager_df is not None else frame.collect()
-    if field.name not in df.columns:
+    if field.silver_name not in df.columns:
         return None
 
     violating_rows: list[dict[str, Any]] = []
     schema = df.schema
     for row in df.iter_rows(named=True):
-        raw = row[field.name]
+        raw = row[field.silver_name]
         if raw is None:
             continue
         # Defensive: if a column has already been normalised to a non-string
@@ -134,9 +134,9 @@ def normalize_typed_column(
 
     import polars as pl
 
-    if field.name not in df.columns:
+    if field.silver_name not in df.columns:
         return df
-    if df.schema[field.name] != pl.String:
+    if df.schema[field.silver_name] != pl.String:
         return df
     target_dtype = _polars_dtype_for(
         field.type, precision=field.precision, scale=field.scale,
@@ -146,13 +146,13 @@ def normalize_typed_column(
 
     kwargs = _parser_kwargs(field, type_registry)
     parsed: list[Any] = []
-    for raw in df[field.name].to_list():
+    for raw in df[field.silver_name].to_list():
         if raw is None:
             parsed.append(None)
             continue
         value, _ = parser(raw, **kwargs)
         parsed.append(value)
-    return df.with_columns(pl.Series(field.name, parsed, dtype=target_dtype))
+    return df.with_columns(pl.Series(field.silver_name, parsed, dtype=target_dtype))
 
 
 def _parser_kwargs(field: FieldContract, type_registry: TypeRegistry | None) -> dict[str, Any]:
@@ -221,7 +221,7 @@ def check_boolean_coercion(frame, field: FieldContract, type_registry: TypeRegis
     import polars as pl
 
     accepted = sorted({*tokens.get("true", set()), *tokens.get("false", set())})
-    col = pl.col(field.name)
+    col = pl.col(field.silver_name)
     normalized = col.cast(pl.String, strict=False).str.strip_chars().str.to_lowercase()
     return frame.filter(col.is_not_null() & ~normalized.is_in(accepted))
 
@@ -242,11 +242,11 @@ def normalize_boolean_column(df, field: FieldContract, type_registry: TypeRegist
         return df
     import polars as pl
 
-    if field.name not in df.columns:
+    if field.silver_name not in df.columns:
         return df
     true_tokens = sorted(tokens.get("true", set()))
     false_tokens = sorted(tokens.get("false", set()))
-    col = pl.col(field.name)
+    col = pl.col(field.silver_name)
     normalized = col.cast(pl.String, strict=False).str.strip_chars().str.to_lowercase()
     expr = (
         pl.when(col.is_null())
@@ -257,7 +257,7 @@ def normalize_boolean_column(df, field: FieldContract, type_registry: TypeRegist
         .then(pl.lit(False))
         .otherwise(None)
         .cast(pl.Boolean)
-        .alias(field.name)
+        .alias(field.silver_name)
     )
     return df.with_columns(expr)
 

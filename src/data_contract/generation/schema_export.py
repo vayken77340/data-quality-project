@@ -37,9 +37,9 @@ def build_contract_json_schema() -> dict[str, Any]:
     type_enum = [t.value for t in Type]
 
     field_properties: dict[str, Any] = {
-        "name":          {"type": "string", "minLength": 1},
-        "extract_name":  {"type": "string"},
-        "bronze_name":   {"type": "string"},
+        "silver_name":   {"type": "string", "minLength": 1},
+        "extract_name":  {"type": "string", "minLength": 1},
+        "bronze_name":   {"type": "string", "minLength": 1},
         "type":          {"type": "string", "enum": type_enum},
         "physical_type": {"type": "string"},
         "nullable":      {"type": "boolean"},
@@ -101,7 +101,7 @@ def build_contract_json_schema() -> dict[str, Any]:
         "$defs": {
             "Field": {
                 "type": "object",
-                "required": ["name", "type"],
+                "required": ["silver_name", "extract_name", "bronze_name", "type"],
                 "properties": field_properties,
                 "additionalProperties": False,
             },

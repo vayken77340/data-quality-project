@@ -36,13 +36,13 @@ def build(ws, tr: TableReport, contract: Contract | None, S) -> None:
         v.get("field") for r in tr.rejected_rows for v in r.violations if v.get("field")
     }
     all_contract_fields = list(contract.fields) if contract else []
-    contract_fields = [f.name for f in all_contract_fields if f.name in violating_fields_set]
+    contract_fields = [f.silver_name for f in all_contract_fields if f.silver_name in violating_fields_set]
 
     field_type_label: dict[str, str] = {}
     if contract is not None:
         type_user_labels = S.get("rejected_sheet", "type_user_labels")
         for f in all_contract_fields:
-            field_type_label[f.name] = type_user_labels.get(
+            field_type_label[f.silver_name] = type_user_labels.get(
                 f.type.value, f.type.value
             )
 

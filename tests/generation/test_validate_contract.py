@@ -14,7 +14,7 @@ def _write_contract(path: Path, payload: dict) -> None:
 
 
 def _minimal_payload(table: str = "T", **field_overrides) -> dict:
-    field = {"name": "x", "type": "int64", "nullable": False}
+    field = {"silver_name": "x", "extract_name": "x", "bronze_name": "x", "type": "int64", "nullable": False}
     field.update(field_overrides)
     return {
         "version": "1.0",
@@ -94,7 +94,7 @@ def test_validate_contract_detects_duplicate_field_names(tmp_path, repo_root, mo
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "T.yaml"
     payload = _minimal_payload()
-    payload["fields"].append({"name": "x", "type": "string", "nullable": True})
+    payload["fields"].append({"silver_name": "x", "extract_name": "x", "bronze_name": "x", "type": "string", "nullable": True})
     _write_contract(p, payload)
     rc = main(["validate-contract", "--file", str(p)])
     assert rc == 2
@@ -129,12 +129,16 @@ def test_validate_contract_cross_table_fk_target_exists(tmp_path, repo_root, mon
     monkeypatch.chdir(tmp_path)
     contracts = tmp_path / "epics" / "E" / "contracts"
 
-    pk = _minimal_payload(table="PARENT", name="parent_id", primary_key=True)
-    pk["fields"][0]["name"] = "parent_id"
+    pk = _minimal_payload(table="PARENT", primary_key=True)
+    pk["fields"][0]["silver_name"] = "parent_id"
+    pk["fields"][0]["extract_name"] = "parent_id"
+    pk["fields"][0]["bronze_name"] = "parent_id"
     _write_contract(contracts / "PARENT.yaml", pk)
 
     child = _minimal_payload(table="CHILD")
-    child["fields"][0]["name"] = "parent_id"
+    child["fields"][0]["silver_name"] = "parent_id"
+    child["fields"][0]["extract_name"] = "parent_id"
+    child["fields"][0]["bronze_name"] = "parent_id"
     child["fields"][0]["foreign_key"] = {"table": "PARENT", "column": "MISSING"}
     _write_contract(contracts / "CHILD.yaml", child)
 
@@ -149,12 +153,13 @@ def test_validate_contract_cross_table_fk_clean(tmp_path, repo_root, monkeypatch
     contracts = tmp_path / "epics" / "E" / "contracts"
 
     pk = _minimal_payload(table="PARENT")
-    pk["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
+    pk["fields"][0] = {"silver_name": "parent_id", "extract_name": "parent_id", "bronze_name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
     _write_contract(contracts / "PARENT.yaml", pk)
 
     child = _minimal_payload(table="CHILD")
     child["fields"][0] = {
-        "name": "parent_id", "type": "int64", "nullable": False,
+        "silver_name": "parent_id", "extract_name": "parent_id", "bronze_name": "parent_id",
+        "type": "int64", "nullable": False,
         "foreign_key": {"table": "PARENT", "column": "parent_id"},
     }
     _write_contract(contracts / "CHILD.yaml", child)
@@ -239,7 +244,7 @@ def test_self_check_directly_via_check_invariants_catches_dangling_fk(repo_root)
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="CHILD",
         fields=[FieldContract(
-            name="parent_id", type=Type.INT64, nullable=False, description=None,
+            silver_name="parent_id", type=Type.INT64, nullable=False, description=None,
             foreign_key={"table": "PARENT", "column": "missing_col"},
         )],
     )
@@ -353,12 +358,12 @@ def _build_epic_with_joins(tmp_path: Path, joins_payload: dict) -> Path:
     contracts = tmp_path / "epics" / "E" / "contracts"
     pk_payload = _minimal_payload(table="PARENT")
     pk_payload["epic"] = "E"
-    pk_payload["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
+    pk_payload["fields"][0] = {"silver_name": "parent_id", "extract_name": "parent_id", "bronze_name": "parent_id", "type": "int64", "nullable": False, "primary_key": True}
     _write_contract(contracts / "PARENT.yaml", pk_payload)
 
     child_payload = _minimal_payload(table="CHILD")
     child_payload["epic"] = "E"
-    child_payload["fields"][0] = {"name": "parent_id", "type": "int64", "nullable": False}
+    child_payload["fields"][0] = {"silver_name": "parent_id", "extract_name": "parent_id", "bronze_name": "parent_id", "type": "int64", "nullable": False}
     _write_contract(contracts / "CHILD.yaml", child_payload)
 
     joins_payload.setdefault("epic", "E")

@@ -22,7 +22,7 @@ def predicate(field, check, table_name, dialect: str = "trino") -> PushdownSQL:
     return PushdownSQL(
         kind="where",
         sql=(
-            f'"{field.name}" IS NOT NULL '
-            f'AND "{field.name}" NOT IN ({quoted})'
+            f'"{field.silver_name}" IS NOT NULL '
+            f'AND "{field.silver_name}" NOT IN ({quoted})'
         ),
     )

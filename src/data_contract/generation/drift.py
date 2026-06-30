@@ -108,8 +108,8 @@ def diff_contracts(old: Contract, new: Contract, *, now: str | None = None) -> D
     """Compute drift between two contracts (older → newer) over the same table."""
     changes: list[DriftChange] = []
 
-    old_fields: dict[str, FieldContract] = {f.name: f for f in old.fields}
-    new_fields: dict[str, FieldContract] = {f.name: f for f in new.fields}
+    old_fields: dict[str, FieldContract] = {f.silver_name: f for f in old.fields}
+    new_fields: dict[str, FieldContract] = {f.silver_name: f for f in new.fields}
 
     # Removed fields.
     for name in old_fields:

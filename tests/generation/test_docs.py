@@ -39,7 +39,7 @@ def _contract(table: str, *fields: FieldContract) -> Contract:
 
 def _f(name: str, t: Type = Type.STRING, **kw) -> FieldContract:
     return FieldContract(
-        name=name,
+        silver_name=name,
         type=t,
         nullable=kw.get("nullable", True),
         description=kw.get("description"),

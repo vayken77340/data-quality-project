@@ -56,7 +56,7 @@ def run_validate_reconcile(
         print(f"validate-reconcile: {e}", file=sys.stderr)
         return 1
 
-    pk_fields = [f.name for f in setup.contract.primary_key_fields()]
+    pk_fields = [f.silver_name for f in setup.contract.primary_key_fields()]
     table_report = TableReport(
         table=setup.config.table_name,
         contract_version=setup.contract.version,

@@ -70,7 +70,7 @@ def run_boolean_phase(ctx: PhaseContext) -> None:
     )
 
     for fc in ctx.contract.fields:
-        if fc.type is not Type.BOOLEAN or fc.name not in ctx.data_columns:
+        if fc.type is not Type.BOOLEAN or fc.silver_name not in ctx.data_columns:
             continue
         field_tokens = _field_boolean_tokens(fc, ctx.type_registry)
         if field_tokens is None:
@@ -103,7 +103,7 @@ def run_typed_coercion_phase(ctx: PhaseContext) -> None:
     )
 
     for fc in ctx.contract.fields:
-        if fc.name not in ctx.data_columns:
+        if fc.silver_name not in ctx.data_columns:
             continue
         if fc.type in (Type.STRING, Type.TEXT, Type.UNKNOWN, Type.BOOLEAN):
             continue
@@ -131,7 +131,7 @@ def run_nullable_max_length_phase(ctx: PhaseContext) -> None:
     )
 
     for fc in ctx.contract.fields:
-        if fc.name not in ctx.data_columns:
+        if fc.silver_name not in ctx.data_columns:
             continue
         if ctx.gates.is_enabled("nullable"):
             ctx.emit(
@@ -157,7 +157,7 @@ def run_field_constraints_phase(ctx: PhaseContext) -> None:
     constraint families (e.g. `min_value: false`) without losing the others.
     """
     for fc, check in ctx.contract.iter_field_checks():
-        if fc.name not in ctx.data_columns:
+        if fc.silver_name not in ctx.data_columns:
             continue
         if not ctx.gates.is_enabled(check.constraint_cls.name):
             continue

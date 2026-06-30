@@ -95,8 +95,8 @@ def test_happy_path_returns_contract(tmp_path: Path, registry):
 
     assert isinstance(result, Contract)
     assert result.table == "T"
-    assert [f.name for f in result.fields] == ["id", "name"]
-    id_field = next(f for f in result.fields if f.name == "id")
+    assert [f.silver_name for f in result.fields] == ["id", "name"]
+    id_field = next(f for f in result.fields if f.silver_name == "id")
     assert id_field.primary_key is True
 
 

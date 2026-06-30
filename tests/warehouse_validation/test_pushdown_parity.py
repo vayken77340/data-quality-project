@@ -41,7 +41,7 @@ from warehouse_validation.sql_predicates.not_null import (
 
 
 def _field(name: str, type_: Type) -> FieldContract:
-    return FieldContract(name=name, type=type_, nullable=True, description="")
+    return FieldContract(silver_name=name, type=type_, nullable=True, description="")
 
 
 def _check(cls, value, **params) -> FieldCheck:

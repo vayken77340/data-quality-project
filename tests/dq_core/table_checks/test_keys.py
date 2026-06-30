@@ -12,7 +12,7 @@ from tests.conftest import contract as _contract
 
 
 def _f(name, *, t=Type.INT64, nullable=False, primary_key=None):
-    return FieldContract(name=name, type=t, nullable=nullable, description=None, primary_key=primary_key)
+    return FieldContract(silver_name=name, type=t, nullable=nullable, description=None, primary_key=primary_key)
 
 
 # ---------------------------------------------------------------------------

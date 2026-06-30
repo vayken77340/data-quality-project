@@ -36,13 +36,12 @@ SUBDIR = "bronze"
 
 
 def _bronze_col(f: FieldContract) -> str:
-    """Bronze physical column name for `f`, cascading bronze -> extract
-    -> silver. The bronze warehouse may name its columns differently from
-    silver (raw "Record Number" -> bronze "record no" -> silver
-    "record_number"). When `bronze_name` is unset, the runner falls back
-    to `extract_name` -- bronze tables that mirror the upstream extract
-    header are common -- and finally to silver `name`."""
-    return f.bronze_name or f.extract_name or f.name
+    """Bronze physical column name for `f`. Always populated post-v3 (the
+    always-emit invariant materializes bronze_name to extract_name or
+    silver_name when no override is set), so this is a direct read --
+    the previous bronze -> extract -> silver runtime cascade is now baked
+    into the FieldContract at build time."""
+    return f.bronze_name
 
 
 def run_validate_bronze(
@@ -72,7 +71,7 @@ def run_validate_bronze(
         print(f"validate-bronze: {e}", file=sys.stderr)
         return 1
 
-    pk_fields = [f.name for f in setup.contract.primary_key_fields()]
+    pk_fields = [f.silver_name for f in setup.contract.primary_key_fields()]
     table_report = TableReport(
         table=setup.config.table_name,
         contract_version=setup.contract.version,

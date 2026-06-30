@@ -37,8 +37,8 @@ def _build_epic(tmp_path: Path, *, target: str | None = None,
         "target": target or "postgres",
         "spec": {"file_path": "s", "sheet_name": "T"},
         "fields": [
-            {"name": "id", "type": "int64", "nullable": False, "primary_key": True},
-            {"name": "label", "type": "string", "nullable": False, "max_length": 3},
+            {"silver_name": "id", "extract_name": "id", "bronze_name": "id", "type": "int64", "nullable": False, "primary_key": True},
+            {"silver_name": "label", "extract_name": "label", "bronze_name": "label", "type": "string", "nullable": False, "max_length": 3},
         ],
     }
     (epic / "contracts" / "T.yaml").write_text(

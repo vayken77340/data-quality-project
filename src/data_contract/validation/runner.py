@@ -183,7 +183,7 @@ def _phase_a_load_and_check(
         report = TableReport(
             table=table_name,
             contract_version=contract.version,
-            pk_fields=[f.name for f in contract.primary_key_fields()],
+            pk_fields=[f.silver_name for f in contract.primary_key_fields()],
             input_files=[],
         )
         frame = _validate_one_table(
@@ -221,7 +221,7 @@ def _validate_one_table(
     if loaded is None:
         return None
 
-    pk_cols = [f.name for f in contract.primary_key_fields()]
+    pk_cols = [f.silver_name for f in contract.primary_key_fields()]
     ctx = PhaseContext(
         df=loaded.df, contract=contract, gates=table_cfg.checks,
         type_registry=type_registry, report=report,

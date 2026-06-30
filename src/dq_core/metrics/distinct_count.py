@@ -18,13 +18,13 @@ class DistinctCountMetric(TableMetric):
     def compute(self, df, contract, type_registry) -> MetricResult:
         values: dict[str, int] = {}
         for fc in contract.fields:
-            if fc.name not in df.columns:
-                values[fc.name] = 0
+            if fc.silver_name not in df.columns:
+                values[fc.silver_name] = 0
                 continue
-            col = df[fc.name]
+            col = df[fc.silver_name]
             null_count = int(col.is_null().sum())
             distinct = int(col.n_unique())
             if null_count > 0 and distinct > 0:
                 distinct -= 1
-            values[fc.name] = distinct
+            values[fc.silver_name] = distinct
         return MetricResult(name=self.name, scope=self.scope, values=values)

@@ -269,7 +269,7 @@ def _field_row(f: FieldContract) -> list[Any]:
     if f.foreign_key:
         fk = f"{f.foreign_key.get('table', '')}.{f.foreign_key.get('column', '')}"
     return [
-        f.name,
+        f.silver_name,
         f.type.value,
         _nullable_label(f.nullable),
         f.max_length if f.max_length is not None else "",

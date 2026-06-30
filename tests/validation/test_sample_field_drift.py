@@ -35,7 +35,7 @@ def _contract(*fields: FieldContract) -> Contract:
 
 
 def _f(name: str, t: Type = Type.STRING) -> FieldContract:
-    return FieldContract(name=name, type=t, nullable=True, description=None)
+    return FieldContract(silver_name=name, type=t, nullable=True, description=None)
 
 
 # ---------------------------------------------------------------------------

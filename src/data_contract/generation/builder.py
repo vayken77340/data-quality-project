@@ -82,19 +82,21 @@ def _resolve_name(
 ) -> tuple[str | None, str | None, str | None]:
     """Resolve the spec row's name cells into `(extract_name, silver_name, bronze_name)`.
 
-    Defaulting chain:
+    Defaulting chain (always-emit; all three returned slots are non-None
+    on success):
       silver_name  = silver_raw or slugify(bronze_raw) or slugify(extract_raw)
-      extract_name = extract_raw if extract_raw and extract_raw != silver_name, else None
-      bronze_name  = bronze_raw  if bronze_raw  and bronze_raw  != silver_name, else None
+      extract_name = extract_raw if non-empty, else silver_name
+      bronze_name  = bronze_raw  if non-empty, else extract_raw if non-empty,
+                                  else silver_name
 
     Silver prefers slugify(bronze) over slugify(extract): bronze is the same
     column in the same warehouse with bad name hygiene; extract may have
     semantic drift. At least one of {extract, silver, bronze} must yield a
     non-empty silver_name. silver_name becomes the contract field's silver-
-    layer identifier (`FieldContract.name`). Suppressing extract_name /
-    bronze_name when they equal silver_name keeps already-clean rows quiet
-    in the contract YAML; downstream code falls back to silver when
-    extract_name / bronze_name are absent.
+    layer identifier (`FieldContract.silver_name`). Per the addendum, the
+    "stay quiet when equal to silver" invariant is dropped: extract_name and
+    bronze_name are materialized to silver_name when no override is set, so
+    downstream consumers never read an absent slot as "undefined".
 
     Empty-slug guard: slugify can return "" for non-Latin / pure-punctuation
     input (e.g. "日付"). The guard fires only when ALL THREE candidates
@@ -102,7 +104,8 @@ def _resolve_name(
     slugify(extract_raw) "". Otherwise downstream code would consume '' as
     a valid identifier.
 
-    Blank-mandatory and empty-slug errors are appended to `errors`.
+    Blank-mandatory and empty-slug errors are appended to `errors`. Returns
+    (None, None, None) on rejection.
     """
     silver_override: str | None = None
     if cm.silver_name is not None and row.silver_raw is not None:
@@ -153,8 +156,11 @@ def _resolve_name(
         ))
         return None, None, None
 
-    extract_name_value = extract_value if extract_value and extract_value != silver_name_value else None
-    bronze_name_value = bronze_override if bronze_override and bronze_override != silver_name_value else None
+    # Always-emit: materialize extract_name and bronze_name to non-None
+    # strings. Defaults reproduce the prior runtime cascade so semantics are
+    # preserved -- only emission changes.
+    extract_name_value = extract_value or silver_name_value
+    bronze_name_value = bronze_override or extract_value or silver_name_value
     return extract_name_value, silver_name_value, bronze_name_value
 
 
@@ -278,7 +284,7 @@ def _build_one_field(
             }
 
     field = FieldContract(
-        name=name_value,
+        silver_name=name_value,
         extract_name=extract_name_value,
         bronze_name=bronze_name_value,
         type=parsed_type.type,
@@ -333,18 +339,18 @@ def build_contract(
             table_values.append(table_value)
         if field is None:
             continue
-        prev_row = seen_field_names.get(field.name)
+        prev_row = seen_field_names.get(field.silver_name)
         if prev_row is not None:
             collector.add(RejectionError(
                 kind="duplicate_field",
                 sheet_row=row.sheet_row,
                 column=cm.extract_name.spec_name,
-                field="name",
-                value=field.name,
-                message=f"duplicate field name {field.name!r} (first seen at sheet row {prev_row})",
+                field="silver_name",
+                value=field.silver_name,
+                message=f"duplicate field silver_name {field.silver_name!r} (first seen at sheet row {prev_row})",
             ))
             continue
-        seen_field_names[field.name] = row.sheet_row
+        seen_field_names[field.silver_name] = row.sheet_row
         fields.append(field)
 
     # Resolve the contract's table name.

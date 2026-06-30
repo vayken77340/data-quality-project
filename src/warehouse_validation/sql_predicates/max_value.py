@@ -17,4 +17,4 @@ def predicate(field, check, table_name, dialect: str = "trino") -> PushdownSQL:
     is unused; kept for dispatch signature uniformity with `unique`.
     """
     op = ">=" if check.params.get("strict") else ">"
-    return PushdownSQL(kind="where", sql=f'"{field.name}" {op} {check.value}')
+    return PushdownSQL(kind="where", sql=f'"{field.silver_name}" {op} {check.value}')

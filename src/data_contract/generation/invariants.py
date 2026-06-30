@@ -104,29 +104,29 @@ def check_invariants(
     seen_names: dict[str, bool] = {}
 
     for f in contract.fields:
-        if f.name in seen_names:
+        if f.silver_name in seen_names:
             out.append(InvariantError(
                 kind="duplicate_field_names",
-                table=contract.table, field=f.name,
-                message=f"field name {f.name!r} appears more than once on table {contract.table!r}",
+                table=contract.table, field=f.silver_name,
+                message=f"field name {f.silver_name!r} appears more than once on table {contract.table!r}",
             ))
-        seen_names[f.name] = True
+        seen_names[f.silver_name] = True
 
         if f.primary_key and f.nullable is True:
             out.append(InvariantError(
                 kind="pk_must_not_be_nullable",
-                table=contract.table, field=f.name,
+                table=contract.table, field=f.silver_name,
                 message="primary key field has nullable=true",
             ))
 
         if f.max_length is not None and f.type is not Type.STRING:
             out.append(InvariantError(
                 kind="max_length_only_on_string",
-                table=contract.table, field=f.name,
+                table=contract.table, field=f.silver_name,
                 message=(
                     f"max_length is set on a {f.type.value!r} field "
                     f"(only string carries max_length). Remove `max_length` from "
-                    f"field {f.name!r}, or change its type to `string`."
+                    f"field {f.silver_name!r}, or change its type to `string`."
                 ),
             ))
 
@@ -136,14 +136,14 @@ def check_invariants(
             if getattr(f, attr) is not None and f.type is not Type.DECIMAL:
                 out.append(InvariantError(
                     kind="precision_scale_only_on_decimal",
-                    table=contract.table, field=f.name,
+                    table=contract.table, field=f.silver_name,
                     message=f"{attr} is set on a {f.type.value!r} field (only decimal carries precision/scale)",
                 ))
 
         if f.precision is not None and f.scale is not None and f.scale > f.precision:
             out.append(InvariantError(
                 kind="precision_scale_consistency",
-                table=contract.table, field=f.name,
+                table=contract.table, field=f.silver_name,
                 message=f"scale ({f.scale}) is greater than precision ({f.precision})",
             ))
 
@@ -153,14 +153,14 @@ def check_invariants(
                 if not allow_unknown_constraints:
                     out.append(InvariantError(
                         kind="constraint_keys_registered",
-                        table=contract.table, field=f.name,
+                        table=contract.table, field=f.silver_name,
                         message=f"contract key {ck!r} is not in the constraint registry",
                     ))
                 continue
             if cls.CONTRACT_FIELDS and not isinstance(raw_value, dict):
                 out.append(InvariantError(
                     kind="constraint_structured_shape",
-                    table=contract.table, field=f.name,
+                    table=contract.table, field=f.silver_name,
                     message=f"{ck} expects a structured value (dict with {list(cls.CONTRACT_FIELDS)}); got {type(raw_value).__name__}",
                 ))
 
@@ -173,7 +173,7 @@ def check_invariants(
                 if min_v > max_v:
                     out.append(InvariantError(
                         kind="min_value_max_value_consistency",
-                        table=contract.table, field=f.name,
+                        table=contract.table, field=f.silver_name,
                         message=f"min_value ({min_v}) is greater than max_value ({max_v})",
                     ))
             except TypeError:
@@ -186,13 +186,13 @@ def check_invariants(
             if target_fields is None:
                 out.append(InvariantError(
                     kind="fk_target_exists",
-                    table=contract.table, field=f.name,
+                    table=contract.table, field=f.silver_name,
                     message=f"foreign key references unknown table {tgt_table!r}",
                 ))
             elif tgt_col not in target_fields:
                 out.append(InvariantError(
                     kind="fk_target_exists",
-                    table=contract.table, field=f.name,
+                    table=contract.table, field=f.silver_name,
                     message=f"foreign key references {tgt_table}.{tgt_col} but that column does not exist",
                 ))
 

@@ -23,7 +23,7 @@ from warehouse_validation.sql_predicates._util import PushdownSQL
 def predicate(field, check, table_name, dialect: str = "trino") -> PushdownSQL:
     """Return a full COUNT(*) query for rows whose value participates
     in a duplicate-value collision."""
-    col = field.name
+    col = field.silver_name
     return PushdownSQL(
         kind="count_query",
         sql=(

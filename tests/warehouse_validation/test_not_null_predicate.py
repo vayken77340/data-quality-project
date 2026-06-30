@@ -15,7 +15,7 @@ from warehouse_validation.sql_predicates._util import PushdownSQL
 
 def _field(name: str) -> FieldContract:
     return FieldContract(
-        name=name, type=Type.INT64, nullable=False, description="",
+        silver_name=name, type=Type.INT64, nullable=False, description="",
     )
 
 

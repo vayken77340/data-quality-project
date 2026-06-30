@@ -42,7 +42,7 @@ class PatternConstraint(FieldConstraint):
         import polars as pl
 
         regex = str(check.value)
-        col = pl.col(field.name).cast(pl.String, strict=False)
+        col = pl.col(field.silver_name).cast(pl.String, strict=False)
         return frame.filter(col.is_not_null() & ~col.str.contains(regex))
 
     @classmethod

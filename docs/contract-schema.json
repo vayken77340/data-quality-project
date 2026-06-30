@@ -48,19 +48,23 @@
     "Field": {
       "type": "object",
       "required": [
-        "name",
+        "silver_name",
+        "extract_name",
+        "bronze_name",
         "type"
       ],
       "properties": {
-        "name": {
+        "silver_name": {
           "type": "string",
           "minLength": 1
         },
         "extract_name": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "bronze_name": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "type": {
           "type": "string",

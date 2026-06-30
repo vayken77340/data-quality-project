@@ -75,7 +75,7 @@ def _field(
     nullable: bool = False, extract_name: str | None = None,
 ) -> FieldContract:
     return FieldContract(
-        name=name, type=type_, nullable=nullable, description=None,
+        silver_name=name, type=type_, nullable=nullable, description=None,
         extract_name=extract_name,
     )
 
@@ -369,7 +369,7 @@ def test_cross_table_fk_resolves_when_pk_extract_and_fk_silver():
         orders_fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index,
     )
     assert errors == [], f"FK should resolve; got: {errors}"
-    fk_field = next(f for f in orders_fields if f.name == "reference_number")
+    fk_field = next(f for f in orders_fields if f.silver_name == "reference_number")
     assert fk_field.foreign_key == {"table": "USERS", "column": "reference_number"}
 
 
@@ -453,7 +453,7 @@ def test_enrich_multiple_keys_rows_same_table_merge():
 def test_enrich_pk_with_nullable_true_rejects():
     """A field flagged as PK by the keys sheet must not be nullable.
     Otherwise: nullable_primary_key rejection."""
-    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=True, description=None)]
+    fields = [FieldContract(silver_name="user_id", type=Type.INT64, nullable=True, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -461,7 +461,7 @@ def test_enrich_pk_with_nullable_true_rejects():
 
 
 def test_enrich_pk_with_nullable_false_ok():
-    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=False, description=None)]
+    fields = [FieldContract(silver_name="user_id", type=Type.INT64, nullable=False, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -473,7 +473,7 @@ def test_enrich_pk_with_nullable_none_ok():
     """nullable=None means `default_value: null` on the source column with a blank
     cell — no explicit declaration. The PK+nullable rule only fires on
     nullable=True (explicit `is nullable`), not on absence."""
-    fields = [FieldContract(name="user_id", type=Type.INT64, nullable=None, description=None)]
+    fields = [FieldContract(silver_name="user_id", type=Type.INT64, nullable=None, description=None)]
     rows = [KeysRow(2, "USERS", ["user_id"], [])]
     pk_index = build_pk_index(rows)
     fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
@@ -604,7 +604,7 @@ column_mapping:
 
 def test_field_contract_round_trip_with_foreign_key():
     f = FieldContract(
-        name="user_id",
+        silver_name="user_id",
         type=Type.INT64,
         nullable=False,
         description="ref",
@@ -620,7 +620,9 @@ def test_field_contract_round_trip_with_foreign_key():
 
 def test_contract_from_dict_picks_up_keys_block_fields():
     payload = {
-        "name": "user_id",
+        "silver_name": "user_id",
+        "extract_name": "user_id",
+        "bronze_name": "user_id",
         "type": "integer",
         "primary_key": True,
         "foreign_key": {"table": "USERS", "column": "user_id"},
@@ -702,7 +704,7 @@ def test_cli_happy_path_pk_emits_primary_key_flag(tmp_path, repo_root, monkeypat
     rc = main(["generate", "--epic", "E"])
     assert rc == 0
     data = yaml.safe_load((edir / "contracts" / "T.yaml").read_text(encoding="utf-8"))
-    by_name = {f["name"]: f for f in data["fields"]}
+    by_name = {f["silver_name"]: f for f in data["fields"]}
     assert by_name["x"]["primary_key"] is True
 
 
@@ -731,7 +733,7 @@ def test_cli_happy_path_fk_emits_structured_foreign_key(tmp_path, repo_root, mon
     rc = main(["generate", "--epic", "E"])
     assert rc == 0
     orders = yaml.safe_load((edir / "contracts" / "ORDERS.yaml").read_text(encoding="utf-8"))
-    by_name = {f["name"]: f for f in orders["fields"]}
+    by_name = {f["silver_name"]: f for f in orders["fields"]}
     assert by_name["user_id"]["foreign_key"] == {"table": "USERS", "column": "user_id"}
 
 
@@ -803,7 +805,7 @@ def test_cli_fk_allow_violations_builds_clean(tmp_path, repo_root, monkeypatch):
     canonical = edir / "contracts" / "T.yaml"
     assert canonical.exists()
     data = yaml.safe_load(canonical.read_text(encoding="utf-8"))
-    by_name = {f["name"]: f for f in data["fields"]}
+    by_name = {f["silver_name"]: f for f in data["fields"]}
     # `x` got its PK flag; no `foreign_key` because the FK target was unresolved
     # and allow_foreign_key_violation downgraded it to a warning.
     assert by_name["x"].get("primary_key") is True

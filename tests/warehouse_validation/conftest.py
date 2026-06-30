@@ -103,7 +103,16 @@ def write_contract_yaml(
 ) -> Path:
     """Write a minimal contract YAML under `epic_root/<epic>/contracts/<table>.yaml`.
     Returns the contract path.
+
+    Post-v3 + always-emit: each field block needs silver_name, extract_name,
+    and bronze_name. Test fixtures usually only declare silver_name; this
+    helper runs the migrate-names materialization step (extract/bronze
+    default to silver) before writing so callers stay terse.
     """
+    import yaml as _yaml
+    from data_contract.migrate_names import _rename_field_keys
+    from dq_core.yaml_io import dump_yaml
+
     contracts_dir = epic_root / epic / "contracts"
     contracts_dir.mkdir(parents=True, exist_ok=True)
     fields_block = "\n".join(field_blocks)
@@ -118,8 +127,12 @@ def write_contract_yaml(
         target: {target}
         fields:
         """) + fields_block + "\n"
+    # Materialize extract_name and bronze_name to silver_name when omitted
+    # (per the always-emit addendum's from_dict requirement).
+    payload = _yaml.safe_load(body)
+    _rename_field_keys(payload)
     path = contracts_dir / f"{table}.yaml"
-    path.write_text(body, encoding="utf-8")
+    dump_yaml(path, payload)
     return path
 
 
@@ -136,13 +149,13 @@ def warehouse_epic(tmp_path):
         table="synth",
         field_blocks=[
             (
-                '  - name: pk\n'
+                '  - silver_name: pk\n'
                 '    type: int64\n'
                 '    nullable: false\n'
                 '    primary_key: true\n'
             ),
             (
-                '  - name: amount\n'
+                '  - silver_name: amount\n'
                 '    type: int64\n'
                 '    nullable: true\n'
                 '    min_value:\n'
@@ -150,7 +163,7 @@ def warehouse_epic(tmp_path):
                 '      strict: false\n'
             ),
             (
-                '  - name: quota\n'
+                '  - silver_name: quota\n'
                 '    type: int64\n'
                 '    nullable: true\n'
                 '    max_value:\n'
@@ -158,7 +171,7 @@ def warehouse_epic(tmp_path):
                 '      strict: false\n'
             ),
             (
-                '  - name: status\n'
+                '  - silver_name: status\n'
                 '    type: string\n'
                 '    nullable: true\n'
                 '    allowed_values:\n'

@@ -33,7 +33,7 @@ def emit_from_lazy(
     if lazy_or_none is None:
         return
     rows = lazy_or_none.collect().to_dicts()
-    field_name = field.name if isinstance(field, FieldContract) else None
+    field_name = field.silver_name if isinstance(field, FieldContract) else None
     for row in rows:
         pk_values = extract_pk_values(row, pk_cols)
         offending = row.get(field_name) if field_name else None

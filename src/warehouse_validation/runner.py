@@ -52,7 +52,7 @@ def run_validate_warehouse(
 
     started = time.perf_counter()
 
-    pk_fields = [f.name for f in setup.contract.primary_key_fields()]
+    pk_fields = [f.silver_name for f in setup.contract.primary_key_fields()]
     table_report = TableReport(
         table=setup.config.table_name,
         contract_version=setup.contract.version,
@@ -80,7 +80,7 @@ def run_validate_warehouse(
         except Exception as e:
             print(
                 f"validate-warehouse: connector failure on "
-                f"{setup.config.table_name}.{f.name}.{check.constraint_cls.name}: {e}",
+                f"{setup.config.table_name}.{f.silver_name}.{check.constraint_cls.name}: {e}",
                 file=sys.stderr,
             )
             return 1
@@ -90,7 +90,7 @@ def run_validate_warehouse(
                 kind=check.constraint_cls.VIOLATION_KIND,
                 severity="error",
                 table=setup.config.table_name,
-                field=f.name,
+                field=f.silver_name,
                 offending_value=count,
                 expected=describe_constraint(check),
             ))
@@ -114,7 +114,7 @@ def run_validate_warehouse(
         except Exception as e:
             print(
                 f"validate-warehouse: connector failure on "
-                f"{setup.config.table_name}.{f.name}.nullable: {e}",
+                f"{setup.config.table_name}.{f.silver_name}.nullable: {e}",
                 file=sys.stderr,
             )
             return 1
@@ -123,7 +123,7 @@ def run_validate_warehouse(
                 kind="nullable_violation",
                 severity="error",
                 table=setup.config.table_name,
-                field=f.name,
+                field=f.silver_name,
                 offending_value=count,
                 expected="not null",
             ))

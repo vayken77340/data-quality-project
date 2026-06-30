@@ -509,7 +509,7 @@ def test_default_value_drift_changed_is_breaking():
 def _field_with_constraints(name: str, constraints: dict) -> "FieldContract":
     from dq_core.contract import FieldContract
     return FieldContract(
-        name=name, type=Type.STRING, nullable=True, description=None,
+        silver_name=name, type=Type.STRING, nullable=True, description=None,
         constraints=dict(constraints),
     )
 
@@ -571,7 +571,7 @@ def test_iter_field_checks_walks_all_fields():
         ],
     )
     pairs = list(c.iter_field_checks())
-    by_field = {(f.name, chk.constraint_name) for f, chk in pairs}
+    by_field = {(f.silver_name, chk.constraint_name) for f, chk in pairs}
     assert by_field == {("a", "pattern"), ("b", "unique"), ("b", "pattern")}
 
 
@@ -581,13 +581,13 @@ def test_primary_key_fields_returns_pk_subset():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INT64, nullable=False, description=None, primary_key=True),
-            FieldContract(name="b", type=Type.STRING, nullable=True, description=None),
-            FieldContract(name="c", type=Type.INT64, nullable=False, description=None, primary_key=True),
+            FieldContract(silver_name="a", type=Type.INT64, nullable=False, description=None, primary_key=True),
+            FieldContract(silver_name="b", type=Type.STRING, nullable=True, description=None),
+            FieldContract(silver_name="c", type=Type.INT64, nullable=False, description=None, primary_key=True),
         ],
     )
     pks = c.primary_key_fields()
-    assert [f.name for f in pks] == ["a", "c"]
+    assert [f.silver_name for f in pks] == ["a", "c"]
 
 
 def test_foreign_key_fields_returns_fk_subset():
@@ -596,13 +596,13 @@ def test_foreign_key_fields_returns_fk_subset():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INT64, nullable=False, description=None),
-            FieldContract(name="b", type=Type.INT64, nullable=False, description=None,
+            FieldContract(silver_name="a", type=Type.INT64, nullable=False, description=None),
+            FieldContract(silver_name="b", type=Type.INT64, nullable=False, description=None,
                           foreign_key={"table": "OTHER", "column": "id"}),
         ],
     )
     fks = c.foreign_key_fields()
-    assert [f.name for f in fks] == ["b"]
+    assert [f.silver_name for f in fks] == ["b"]
     assert fks[0].foreign_key == {"table": "OTHER", "column": "id"}
 
 
@@ -612,8 +612,8 @@ def test_field_name_set_returns_just_names():
         version="1.0", epic="E", generated_at="t",
         spec_file="s", spec_sheet="S", table="T",
         fields=[
-            FieldContract(name="a", type=Type.INT64, nullable=False, description=None),
-            FieldContract(name="b", type=Type.STRING, nullable=True, description=None),
+            FieldContract(silver_name="a", type=Type.INT64, nullable=False, description=None),
+            FieldContract(silver_name="b", type=Type.STRING, nullable=True, description=None),
         ],
     )
     assert c.field_name_set() == {"a", "b"}
@@ -695,7 +695,7 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
         now="2026-06-02T14:00:00Z",
     )
     assert isinstance(result, Contract)
-    by_name = {f.name: f for f in result.fields}
+    by_name = {f.silver_name: f for f in result.fields}
     assert by_name["id"].constraints == {}
     assert by_name["status"].constraints == {
         "allowed_values": ["active", "pending"],
@@ -703,6 +703,6 @@ def test_end_to_end_constraint_round_trip(types_yaml_path: Path):
     }
     # to_dict flattens to top-level field keys
     payload = result.to_dict()
-    status_dict = next(f for f in payload["fields"] if f["name"] == "status")
+    status_dict = next(f for f in payload["fields"] if f["silver_name"] == "status")
     assert status_dict["allowed_values"] == ["active", "pending"]
     assert status_dict["pattern"] == r"^[a-z]+$"

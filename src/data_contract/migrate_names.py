@@ -1,14 +1,21 @@
 """migrate-names: rewrite per-epic contract YAMLs to the v3 name layout.
 
-Two rename rules apply on the same pass:
+Two rename rules + a materialization step apply on the same pass:
 
     V1 -> V2: each field block's ``source_name:`` -> ``extract_name:``.
     V2 -> V3: each field block's ``name:``         -> ``silver_name:``.
+    Materialization: every field block must carry silver_name, extract_name,
+    and bronze_name after migration. Missing extract_name defaults to
+    silver_name's value; missing bronze_name defaults to silver_name's value
+    (the tool has no spec-side bronze raw to default from extract).
 
 After cutover (see plan), ``Contract.from_dict`` rejects both legacy keys
-with actionable migrate-names hints. Same v2/v3 drift boundary applies as
-v1/v2 did: drift workflows must run after the migration has been applied
-to history.
+with actionable migrate-names hints AND requires all three name slots
+present on every field. Same v2/v3 drift boundary applies as v1/v2 did:
+drift workflows must run after the migration has been applied to history.
+Subsequent ``generate --epic <E>`` runs re-derive bronze from the spec's
+Nom Bronze column if present, producing a one-time bronze_name_changed
+drift event for any field whose bronze cell differs from silver.
 
 Uses ``yaml.safe_load`` + structured rewrite. Comments in the affected
 YAMLs are not preserved (verified empty on the canonical four files).
@@ -136,12 +143,16 @@ def _run(paths: Iterable[Path], *, dry_run: bool) -> MigrationReport:
 
 
 def _rename_field_keys(payload: dict) -> int:
-    """Apply every rule in ``_FIELD_KEY_RENAMES`` to each field block.
+    """Apply every rule in ``_FIELD_KEY_RENAMES`` plus the always-emit
+    materialization step to each field block.
 
-    Returns the count of field rows where at least one rename fired. Preserves
-    key order: rebuilds the field dict in-place rather than ``pop`` + reinsert
-    (which would move the renamed key to the end). Both rules run on the same
-    pass; a block that needs both renames counts once.
+    Returns the count of field rows mutated (renamed or materialized).
+    Preserves key order on rename: rebuilds the field dict in-place rather
+    than ``pop`` + reinsert. Materialised extract_name / bronze_name slots
+    are inserted in the canonical position (right after silver_name) so
+    output ordering matches what ``Contract.to_dict`` emits on a fresh
+    generate. Idempotent: a re-run finds all three slots present and the
+    legacy keys absent, makes no changes.
     """
     fields = payload.get("fields")
     if not isinstance(fields, list):
@@ -150,15 +161,50 @@ def _rename_field_keys(payload: dict) -> int:
     for i, field_block in enumerate(fields):
         if not isinstance(field_block, dict):
             continue
-        if not any(old in field_block for old in _FIELD_KEY_RENAMES):
-            continue
-        fields[i] = _replace_keys_preserving_order(field_block, _FIELD_KEY_RENAMES)
-        count += 1
+        needs_rename = any(old in field_block for old in _FIELD_KEY_RENAMES)
+        renamed = (
+            _replace_keys_preserving_order(field_block, _FIELD_KEY_RENAMES)
+            if needs_rename else dict(field_block)
+        )
+        materialised = _materialise_name_slots(renamed)
+        if needs_rename or materialised is not renamed:
+            fields[i] = materialised
+            count += 1
     return count
 
 
 def _replace_keys_preserving_order(d: dict, renames: dict[str, str]) -> dict:
     return {renames.get(k, k): v for k, v in d.items()}
+
+
+def _materialise_name_slots(field_block: dict) -> dict:
+    """Ensure every field block carries silver_name, extract_name, and
+    bronze_name in canonical order. Missing extract_name / bronze_name
+    default to silver_name's value. Returns the same dict if all three
+    slots are already present (caller uses identity to detect a no-op).
+
+    Canonical order: silver_name -> extract_name -> bronze_name -> rest.
+    This matches ``FieldContract.to_dict``'s emission order so a migrated
+    YAML looks identical to a freshly generated one regardless of the
+    input block's original key order.
+    """
+    silver = field_block.get("silver_name")
+    if silver is None:
+        # No silver to default from -- leave alone; from_dict will surface the
+        # missing-required-key error with the actionable migrate-names hint.
+        return field_block
+    if "extract_name" in field_block and "bronze_name" in field_block:
+        return field_block
+
+    out: dict = {
+        "silver_name":  silver,
+        "extract_name": field_block.get("extract_name", silver),
+        "bronze_name":  field_block.get("bronze_name",  silver),
+    }
+    for k, v in field_block.items():
+        if k not in ("silver_name", "extract_name", "bronze_name"):
+            out[k] = v
+    return out
 
 
 def _restore_flow_styles(payload: dict) -> None:

@@ -16,7 +16,7 @@ from dq_core.report_models import TableReport
 def _parent_contract() -> Contract:
     return Contract(
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="PARENT",
-        fields=[FieldContract(name="id", type=Type.STRING, nullable=False, description=None, primary_key=True)],
+        fields=[FieldContract(silver_name="id", type=Type.STRING, nullable=False, description=None, primary_key=True)],
     )
 
 
@@ -25,7 +25,7 @@ def _child_contract() -> Contract:
         version="1.0", epic="E", generated_at="", spec_file="", spec_sheet="", table="CHILD",
         fields=[
             FieldContract(
-                name="parent_id", type=Type.STRING, nullable=False, description=None,
+                silver_name="parent_id", type=Type.STRING, nullable=False, description=None,
                 foreign_key={"table": "PARENT", "column": "id"},
             ),
         ],

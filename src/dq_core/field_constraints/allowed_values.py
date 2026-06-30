@@ -65,7 +65,7 @@ class AllowedValuesConstraint(FieldConstraint):
         import polars as pl
 
         allowed = list(check.value or [])
-        col = pl.col(field.name).cast(pl.String, strict=False)
+        col = pl.col(field.silver_name).cast(pl.String, strict=False)
         return frame.filter(col.is_not_null() & ~col.is_in(allowed))
 
     @classmethod

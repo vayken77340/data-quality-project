@@ -11,14 +11,20 @@ from dq_core.type_mapping import Type
 
 
 def field_contract(
-    name: str,
+    silver_name: str,
     type_: Type = Type.STRING,
     *,
     nullable: bool = True,
     max_length: int | None = None,
     description: str | None = None,
+    extract_name: str | None = None,
+    bronze_name: str | None = None,
 ) -> FieldContract:
     """Canonical FieldContract factory for tests.
+
+    Always-emit (post-v3): if extract_name / bronze_name aren't supplied,
+    they materialize to silver_name (matching what migrate-names emits and
+    what the builder produces on a fresh generate).
 
     Default `nullable=True` matches FieldContract's natural shape for column
     checks / data validation tests. PK-enrichment tests in
@@ -27,7 +33,10 @@ def field_contract(
     invariant -- see that file for the rationale.
     """
     return FieldContract(
-        name=name, type=type_, nullable=nullable,
+        silver_name=silver_name,
+        extract_name=extract_name,  # None -> materialized to silver_name by __post_init__
+        bronze_name=bronze_name,    # None -> materialized to silver_name by __post_init__
+        type=type_, nullable=nullable,
         description=description, max_length=max_length,
     )
 

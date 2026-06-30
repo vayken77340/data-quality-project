@@ -76,7 +76,7 @@ class MinValueConstraint(FieldConstraint):
 
         threshold = check.value
         strict = bool(check.params.get("strict", False))
-        col = pl.col(field.name)
+        col = pl.col(field.silver_name)
         condition = (col <= threshold) if strict else (col < threshold)
         return frame.filter(col.is_not_null() & condition)
 
