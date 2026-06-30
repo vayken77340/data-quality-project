@@ -69,9 +69,11 @@ generated contract (the runner reads it from the loaded contracts).
 Per-field renames live on the contract: each `FieldContract` carries
 `extract_name` (the raw extract header), `name` (the silver/DB
 identifier), and optional `bronze_name` (the bronze warehouse column
-name when it diverges from silver). Spec authors override the
-auto-slug via a `Nom BDD` cell in the spec when needed; bronze
-divergence uses the optional `Nom Bronze` column.
+name when it diverges from silver). Silver derives `silver_raw`, then
+`slugify(bronze_raw)`, then `slugify(extract_raw)`; spec authors
+override outright via a `Nom BDD` cell when needed. Bronze divergence
+uses the optional `Nom Bronze` column; at validation time the bronze
+runner cascades `bronze_name -> extract_name -> name`.
 
 Operator toggles (`rejected_row_cap`, `extra_columns_severity`,
 `similarity_threshold`) live in `.env` so they can vary by environment

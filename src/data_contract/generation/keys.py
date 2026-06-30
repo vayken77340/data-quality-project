@@ -233,7 +233,14 @@ def enrich_field_contract_list(
     """
     errors: list[RejectionError] = []
     fk_warnings: list[RejectionError] = []
-    by_name: dict[str, FieldContract] = {f.name: f for f in fields}
+    # Two-index lookup: silver-canonical (silver -> extract precedence). The
+    # mutation site stays keyed by `f.name` (silver) so the rebuilt field list
+    # at the bottom remains silver-indexed; by_extract is read-only.
+    by_silver: dict[str, FieldContract]  = {f.name: f for f in fields}
+    by_extract: dict[str, FieldContract] = {f.extract_name: f for f in fields if f.extract_name}
+
+    def _lookup(col: str) -> FieldContract | None:
+        return by_silver.get(col) or by_extract.get(col)
 
     # Aggregate PK and FK columns across all rows for this table.
     pk_cols: set[str] = set()
@@ -242,12 +249,21 @@ def enrich_field_contract_list(
         pk_cols.update(r.primary_keys)
         fk_cols.update(r.foreign_keys)
 
+    # Mirror this table's silver-normalised PK cells into pk_index so peer
+    # tables' FK queries find them via the silver form too. build_pk_index
+    # keys entries by the raw PK string; without this mirror, an FK cell
+    # written in silver wouldn't resolve against a PK cell written in extract.
+    for col in pk_cols:
+        f = _lookup(col)
+        if f is not None and f.name != col:
+            pk_index.setdefault(f.name, set()).add(table)
+
     def _add_fk_error(err: RejectionError) -> None:
         (fk_warnings if fk_allow_violations else errors).append(err)
 
     # Primary keys.
     for col in sorted(pk_cols):
-        f = by_name.get(col)
+        f = _lookup(col)
         if f is None:
             errors.append(RejectionError(
                 kind="unknown_pk_field",
@@ -262,18 +278,18 @@ def enrich_field_contract_list(
         if f.nullable is True:
             errors.append(RejectionError(
                 kind="nullable_primary_key",
-                field=col,
-                value=col,
+                field=f.name,
+                value=f.name,
                 message=(
-                    f"field {col!r} on table {table!r} is declared as a primary key "
+                    f"field {f.name!r} on table {table!r} is declared as a primary key "
                     f"but its `nullable` flag is true; primary key columns must not be nullable"
                 ),
             ))
-        by_name[col] = replace(f, primary_key=True)
+        by_silver[f.name] = replace(f, primary_key=True)
 
     # Foreign keys.
     for col in sorted(fk_cols):
-        f = by_name.get(col)
+        f = _lookup(col)
         if f is None:
             _add_fk_error(RejectionError(
                 kind="unknown_foreign_key_target",
@@ -285,7 +301,9 @@ def enrich_field_contract_list(
                 ),
             ))
             continue
-        targets = pk_index.get(col, set()) - {table}
+        # Query pk_index with the silver-normalised key (paired with the PK-side
+        # mirror above), so silver -> extract precedence works at both ends.
+        targets = pk_index.get(f.name, set()) - {table}
         if not targets:
             _add_fk_error(RejectionError(
                 kind="unknown_foreign_key_target",
@@ -309,11 +327,11 @@ def enrich_field_contract_list(
             ))
             continue
         target_table = next(iter(targets))
-        by_name[col] = replace(f, foreign_key={"table": target_table, "column": col})
+        by_silver[f.name] = replace(f, foreign_key={"table": target_table, "column": f.name})
 
-    # Rebuild the list from `by_name` to pick up the replaced entries while
+    # Rebuild the list from `by_silver` to pick up the replaced entries while
     # preserving the original order.
-    new_fields = [by_name[f.name] for f in fields]
+    new_fields = [by_silver[f.name] for f in fields]
     return new_fields, errors, fk_warnings
 
 

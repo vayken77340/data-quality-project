@@ -259,17 +259,25 @@ A contract field carries up to three names, one per medallion layer:
 
 | Slot | What it names | Spec column | When emitted in YAML |
 |---|---|---|---|
-| `name`         | **silver** identifier (the typed DB column; the canonical reference for every consumer except the bronze runner and the file-side matcher) | derived from `Champ dans extract` via slugify, OR explicit `Nom BDD` override | always |
+| `name`         | **silver** identifier (the typed DB column; the canonical reference for every consumer except the bronze runner and the file-side matcher) | derived `silver_raw`, then `slugify(bronze_raw)`, then `slugify(extract_raw)`; explicit `Nom BDD` override wins outright | always |
 | `extract_name` | **raw extract** header as the spec author wrote it ("Reference Number", "Date d'envoi") | `Champ dans extract` | only when it differs from `name` |
 | `bronze_name`  | **bronze** physical column when bronze diverges from silver (raw "Record Number" -> bronze "record no" -> silver "record_number") | optional `Nom Bronze` | only when it differs from `name` |
 
-The silver `name` is derived by slugifying the extract value
-(lowercase, accents stripped, non-alphanumeric -> `_`). Declare a
-`Nom BDD` cell to override for acronyms, reserved words, or team
-conventions the auto-slugifier can't infer; the generator uses that as
-the silver `name` verbatim and skips slugify for that row. Declare a
-`Nom Bronze` cell only when the bronze warehouse column name diverges
-from silver -- otherwise the bronze runner falls back to `name`.
+The silver `name` is derived by slugifying — but bronze wins over
+extract because bronze is the same column in the same warehouse, just
+with bad name hygiene, while extract may have semantic drift. Declare a
+`Nom BDD` cell to override outright for acronyms, reserved words, or
+team conventions the auto-slugifier can't infer; the generator uses
+that verbatim and skips slugify for that row. Declare a `Nom Bronze`
+cell when the bronze warehouse column name diverges from silver. A
+bronze-only spec row (no extract, no silver) is legal — silver derives
+from `slugify(bronze_raw)`.
+
+At validation time the bronze runner cascades `bronze_name -> extract_name
+-> name` when quoting SQL identifiers. So a contract with `extract_name`
+set but no `bronze_name` probes bronze using the extract header; declare
+`bronze_name` explicitly when the bronze warehouse uses silver-style
+column names.
 
 The validator's `exact` and `similarity` matching policies bind raw
 CSV/Excel/JSON headers using **extract_name first, then silver

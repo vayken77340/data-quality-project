@@ -36,11 +36,13 @@ SUBDIR = "bronze"
 
 
 def _bronze_col(f: FieldContract) -> str:
-    """Bronze physical column name for `f`. The bronze warehouse may
-    name its columns differently from silver (raw "Record Number" ->
-    bronze "record no" -> silver "record_number"); `bronze_name`
-    captures the divergence when it exists."""
-    return f.bronze_name or f.name
+    """Bronze physical column name for `f`, cascading bronze -> extract
+    -> silver. The bronze warehouse may name its columns differently from
+    silver (raw "Record Number" -> bronze "record no" -> silver
+    "record_number"). When `bronze_name` is unset, the runner falls back
+    to `extract_name` -- bronze tables that mirror the upstream extract
+    header are common -- and finally to silver `name`."""
+    return f.bronze_name or f.extract_name or f.name
 
 
 def run_validate_bronze(

@@ -83,19 +83,24 @@ def _resolve_name(
     """Resolve the spec row's name cells into `(extract_name, silver_name, bronze_name)`.
 
     Defaulting chain:
-      silver_name  = silver_raw_clean or slugify(extract_raw_clean) (else error)
-      extract_name = extract_raw_clean if it differs from silver_name, else None
-      bronze_name  = bronze_raw_clean  if it differs from silver_name, else None
+      silver_name  = silver_raw or slugify(bronze_raw) or slugify(extract_raw)
+      extract_name = extract_raw if extract_raw and extract_raw != silver_name, else None
+      bronze_name  = bronze_raw  if bronze_raw  and bronze_raw  != silver_name, else None
 
-    At least one of {extract_raw, silver_raw} must be non-blank. silver_name
-    becomes the contract field's silver-layer identifier (`FieldContract.name`).
-    Suppressing extract_name / bronze_name when they equal silver_name keeps
-    already-clean rows quiet in the contract YAML; downstream code falls back
-    to silver when extract_name / bronze_name are absent.
+    Silver prefers slugify(bronze) over slugify(extract): bronze is the same
+    column in the same warehouse with bad name hygiene; extract may have
+    semantic drift. At least one of {extract, silver, bronze} must yield a
+    non-empty silver_name. silver_name becomes the contract field's silver-
+    layer identifier (`FieldContract.name`). Suppressing extract_name /
+    bronze_name when they equal silver_name keeps already-clean rows quiet
+    in the contract YAML; downstream code falls back to silver when
+    extract_name / bronze_name are absent.
 
     Empty-slug guard: slugify can return "" for non-Latin / pure-punctuation
-    extract names (e.g. "日付"). Treat that as no silver name and reject the
-    row with an actionable message.
+    input (e.g. "日付"). The guard fires only when ALL THREE candidates
+    resolved to empty -- silver_raw blank, slugify(bronze_raw) "", and
+    slugify(extract_raw) "". Otherwise downstream code would consume '' as
+    a valid identifier.
 
     Blank-mandatory and empty-slug errors are appended to `errors`.
     """
@@ -111,12 +116,12 @@ def _resolve_name(
         if bronze_raw:
             bronze_override = bronze_raw
 
-    # Plan rule: at least one of {extract, silver} must be set. When silver
-    # is explicit, extract becomes optional and the blank-mandatory check is
-    # suppressed -- otherwise it surfaces the usual "missing extract_name"
-    # error so spec authors see what's wrong.
+    # Plan rule: at least one of {extract, silver, bronze} must be set. When
+    # silver OR bronze is explicit, extract becomes optional and the blank-
+    # mandatory check is suppressed -- otherwise the usual "missing extract"
+    # error surfaces so spec authors see what's wrong.
     extract_value: str | None
-    if silver_override is None:
+    if silver_override is None and bronze_override is None:
         extract_value, err = _check_mandatory_blank(
             row.extract_raw, cm.extract_name, field_name="extract_name", sheet_row=row.sheet_row,
         )
@@ -127,7 +132,11 @@ def _resolve_name(
         raw = row.extract_raw
         extract_value = str(raw).strip() if raw is not None and str(raw).strip() else None
 
-    silver_name_value = silver_override or slugify(extract_value or "")
+    silver_name_value = (
+        silver_override
+        or slugify(bronze_override or "")
+        or slugify(extract_value or "")
+    )
     if not silver_name_value:
         errors.append(RejectionError(
             kind="missing_mandatory",
@@ -136,10 +145,10 @@ def _resolve_name(
             field="extract_name",
             value=extract_value,
             message=(
-                f"silver name resolves to empty string (extract value "
-                f"{extract_value!r} slugifies to ''); declare an explicit "
-                f"'Nom BDD' silver_name in the spec or use an ASCII "
-                f"extract header."
+                f"silver name resolves to empty string (extract={extract_value!r}, "
+                f"bronze={bronze_override!r} both slugify to ''); declare an explicit "
+                f"'Nom BDD' silver_name in the spec or use an ASCII extract/bronze "
+                f"header."
             ),
         ))
         return None, None, None

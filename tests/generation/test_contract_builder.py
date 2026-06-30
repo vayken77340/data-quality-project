@@ -249,34 +249,77 @@ def test_resolve_bronze_equal_to_silver_is_omitted(registry):
     assert result.fields[0].bronze_name is None
 
 
-def test_resolve_bronze_only_is_rejected(registry):
-    """Bronze without extract+silver has no identity -> the row is rejected
-    with a missing-extract-name error from the blank-mandatory check."""
+def test_resolve_bronze_only_resolves_via_slugify(registry):
+    """Bronze-only is legal under the cascade extension: silver derives
+    from slugify(bronze). Was rejected as missing_mandatory pre-extension."""
     rows = [_row3(2, bronze="record no")]
     result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    f = result.fields[0]
+    assert f.name == "record_no"
+    assert f.extract_name is None
+    assert f.bronze_name == "record no"
+
+
+def test_silver_derives_from_slugify_bronze_when_silver_blank(registry):
+    """Silver prefers slugify(bronze) over slugify(extract): bronze is the
+    same column in the same warehouse just with bad name hygiene; extract
+    may have semantic drift."""
+    rows = [_row3(2, extract="Reference Number", bronze="record no")]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    f = result.fields[0]
+    assert f.name == "record_no", "silver must derive from slugify(bronze), not slugify(extract)"
+    assert f.extract_name == "Reference Number"
+    assert f.bronze_name == "record no"
+
+
+def test_all_three_empty_after_slugify_rejects(registry):
+    """The empty-slug guard fires only when all three candidates resolve
+    to empty -- silver blank, slugify(bronze) == '', slugify(extract) == ''."""
+    rows = [_row3(2, extract="日付", bronze="天気")]
+    result = _build(rows, registry)
     assert isinstance(result, Rejection)
-    assert any(e.kind == "missing_mandatory" and e.field == "extract_name" for e in result.errors)
+    matching = [
+        e for e in result.errors
+        if e.field == "extract_name" and "slugify" in (e.message or "")
+    ]
+    assert matching, f"expected empty-slug rejection, got {result.errors}"
 
 
 def test_resolve_non_latin_extract_with_empty_slug_is_rejected(registry):
-    """Slugify returns '' for non-Latin input. The resolver guards against
-    that and rejects the row with an actionable error pointing at the
-    silver_name override -- otherwise downstream code would consume '' as
-    a valid identifier."""
+    """Slugify returns '' for non-Latin input. Without a bronze fallback or
+    explicit silver, the guard fires."""
     rows = [_row3(2, extract="日付")]
     result = _build(rows, registry)
     assert isinstance(result, Rejection)
-    matching = [e for e in result.errors if e.field == "extract_name" and "slugifies to ''" in (e.message or "")]
+    matching = [
+        e for e in result.errors
+        if e.field == "extract_name" and "slugify" in (e.message or "")
+    ]
     assert matching, f"expected empty-slug rejection, got {result.errors}"
 
 
 def test_resolve_non_latin_extract_with_explicit_silver_passes(registry):
-    """The empty-slug guard's escape hatch: declare an explicit silver_name."""
+    """Escape hatch #1: declare an explicit silver_name."""
     rows = [_row3(2, extract="日付", silver="date_value")]
     result = _build(rows, registry)
     assert isinstance(result, Contract)
     assert result.fields[0].name == "date_value"
     assert result.fields[0].extract_name == "日付"
+
+
+def test_resolve_non_latin_extract_with_ascii_bronze_passes(registry):
+    """Escape hatch #2: even without an explicit silver_name, an ASCII
+    bronze rescues a non-Latin extract because slugify(bronze) wins.
+    bronze_name itself is omitted on the field because bronze raw equals
+    the resulting silver slug (no divergence to record)."""
+    rows = [_row3(2, extract="日付", bronze="date_col")]
+    result = _build(rows, registry)
+    assert isinstance(result, Contract)
+    assert result.fields[0].name == "date_col"
+    assert result.fields[0].extract_name == "日付"
+    assert result.fields[0].bronze_name is None
 
 
 def test_write_outputs_success_creates_history_and_deletes_rejected(tmp_path: Path, registry):

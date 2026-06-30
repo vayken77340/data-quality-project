@@ -70,8 +70,14 @@ def _wb_with_keys(rows: list[tuple[str, str, str | None, str | None]], *, sheet_
 # default (the canonical factory uses `nullable=True`, which would trip the
 # `nullable_primary_key` invariant on every PK callsite). Renaming 15+
 # callsites to pass `nullable=False` explicitly was rejected in audit v7/v8.
-def _field(name: str, type_: Type = Type.STRING, *, nullable: bool = False) -> FieldContract:
-    return FieldContract(name=name, type=type_, nullable=nullable, description=None)
+def _field(
+    name: str, type_: Type = Type.STRING, *,
+    nullable: bool = False, extract_name: str | None = None,
+) -> FieldContract:
+    return FieldContract(
+        name=name, type=type_, nullable=nullable, description=None,
+        extract_name=extract_name,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +301,76 @@ def test_enrich_unknown_foreign_key_target():
     pk_index = build_pk_index(rows)
     fields, errors, _ = enrich_field_contract_list(fields, "ORDERS", rows, pk_index)
     assert any(e.kind == "unknown_foreign_key_target" for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# PK/FK silver -> extract precedence: keys.py is silver-canonical (silver IS
+# the contract identifier); the extract fallback is an ergonomic concession
+# for spec authors who write the business header in PK cells. pk_index is
+# normalised to silver on both ends so cross-table FK resolution works
+# regardless of which form (silver or extract) each cell uses.
+# ---------------------------------------------------------------------------
+
+
+def test_pk_cell_matches_extract_name():
+    """PK cell containing the field's extract_name binds successfully."""
+    fields = [_field("reference_number", extract_name="Reference Number")]
+    rows = [KeysRow(2, "USERS", ["Reference Number"], [])]
+    pk_index = build_pk_index(rows)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert errors == []
+    assert fields[0].primary_key is True
+
+
+def test_pk_cell_matches_silver_name_regression():
+    """PK cell containing the silver name still binds (precedence: silver
+    is tried first, then extract)."""
+    fields = [_field("reference_number", extract_name="Reference Number")]
+    rows = [KeysRow(2, "USERS", ["reference_number"], [])]
+    pk_index = build_pk_index(rows)
+    fields, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert errors == []
+    assert fields[0].primary_key is True
+
+
+def test_pk_cell_matches_neither_emits_unknown_pk_field():
+    """A PK cell that matches neither silver nor extract still surfaces
+    the unknown_pk_field error -- precedence doesn't relax this gate."""
+    fields = [_field("reference_number", extract_name="Reference Number")]
+    rows = [KeysRow(2, "USERS", ["made_up"], [])]
+    pk_index = build_pk_index(rows)
+    _, errors, _ = enrich_field_contract_list(fields, "USERS", rows, pk_index)
+    assert any(e.kind == "unknown_pk_field" for e in errors)
+
+
+def test_cross_table_fk_resolves_when_pk_extract_and_fk_silver():
+    """Both-ends normalisation: USERS declares PK in extract form
+    ("Reference Number"); ORDERS declares FK in silver form
+    ("reference_number"). The pk_index mirror on USERS' enrich side adds
+    the silver key, and ORDERS' FK loop queries with the silver-normalised
+    key -- so the cross-table FK resolves to USERS.reference_number."""
+    users_fields = [_field("reference_number", extract_name="Reference Number")]
+    orders_fields = [
+        _field("order_id"),
+        _field("reference_number", extract_name="Reference Number"),
+    ]
+    rows = [
+        KeysRow(2, "USERS",  ["Reference Number"], []),
+        KeysRow(3, "ORDERS", ["order_id"], ["reference_number"]),
+    ]
+    pk_index = build_pk_index(rows)
+
+    # Enrich USERS first so its silver-normalised PK key lands in pk_index
+    # before ORDERS' FK loop queries it.
+    enrich_field_contract_list(
+        users_fields, "USERS", [r for r in rows if r.table_name == "USERS"], pk_index,
+    )
+    orders_fields, errors, _ = enrich_field_contract_list(
+        orders_fields, "ORDERS", [r for r in rows if r.table_name == "ORDERS"], pk_index,
+    )
+    assert errors == [], f"FK should resolve; got: {errors}"
+    fk_field = next(f for f in orders_fields if f.name == "reference_number")
+    assert fk_field.foreign_key == {"table": "USERS", "column": "reference_number"}
 
 
 def test_enrich_ambiguous_foreign_key_target():
