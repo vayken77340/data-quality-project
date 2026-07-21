@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from openpyxl.workbook.workbook import Workbook
 
 from data_contract.generation.config import KeysSpec
+from dq_core.column_ref import split_on_separators
 from dq_core.contract import Contract, FieldContract, Rejection
 from dq_core.errors import RejectionError
 from data_contract.generation.header_matcher import find_column, normalize
@@ -64,16 +65,50 @@ class KeysData:
 # ---------------------------------------------------------------------------
 
 
-def split_separated(raw: object, separator: str) -> list[str]:
-    """Split a raw cell value on `separator`, strip whitespace from each piece,
-    and drop empty pieces. Returns [] if the cell is None/blank."""
+def split_separated(raw: object, separators: str | tuple[str, ...]) -> list[str]:
+    """Split a raw cell value on any of `separators`, strip whitespace, drop
+    empty pieces. `separators` may be a single string or a tuple of strings.
+    Returns [] if the cell is None/blank."""
     if raw is None:
         return []
     text = str(raw).strip()
     if not text:
         return []
-    parts = [p.strip() for p in text.split(separator)]
-    return [p for p in parts if p]
+    seps = (separators,) if isinstance(separators, str) else separators
+    return split_on_separators(text, seps)
+
+
+def apply_sheet_name_fallback(
+    keys_data: "KeysData",
+    sheet_to_effective: dict[str, str],
+) -> None:
+    """Rewrite `keys_data.rows` in place so a `table_name` cell that names a
+    structure sheet resolves to that sheet's effective table name.
+
+    `sheet_to_effective` maps every structure sheet's name to its effective
+    `contract.table`. Precedence: if the cell value already matches some
+    effective name, leave it alone (direct-table match wins over sheet-name
+    fallback). Rows whose cell matches neither are left untouched so the
+    downstream `keys_missing_table` rejection fires with its normal message.
+
+    Runs before `build_pk_index` so PK/FK enrichment sees only effective
+    table names.
+    """
+    if not sheet_to_effective:
+        return
+    all_effective = set(sheet_to_effective.values())
+    rewritten: list[KeysRow] = []
+    for row in keys_data.rows:
+        raw = row.table_name
+        if raw in all_effective:
+            rewritten.append(row)
+            continue
+        mapped = sheet_to_effective.get(raw)
+        if mapped is not None and mapped != raw:
+            rewritten.append(replace(row, table_name=mapped))
+        else:
+            rewritten.append(row)
+    keys_data.rows = rewritten
 
 
 def build_pk_index(rows: list[KeysRow]) -> dict[str, set[str]]:
@@ -172,7 +207,7 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
         table_name = str(table_raw).strip()
 
         # primary_key: must yield >=1 after split unless `default_value` declared.
-        primary_keys = split_separated(pk_raw, cm.primary_key.separator)
+        primary_keys = split_separated(pk_raw, cm.primary_key.separators)
         if not primary_keys:
             if not cm.primary_key.has_default:
                 out.errors.append(RejectionError(
@@ -191,7 +226,7 @@ def read_keys_sheet(wb: Workbook, keys_spec: KeysSpec) -> KeysData:
         # foreign_key (optional)
         foreign_keys: list[str] = []
         if cm.foreign_key is not None and fk_idx is not None:
-            foreign_keys = split_separated(fk_raw, cm.foreign_key.separator)
+            foreign_keys = split_separated(fk_raw, cm.foreign_key.separators)
 
         out.rows.append(KeysRow(
             sheet_row=row_idx,

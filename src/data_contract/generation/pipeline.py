@@ -21,6 +21,7 @@ from dq_core.errors import SpecReaderError
 from data_contract.generation.builder import (
     build_one_table,
     history_path_for_table,
+    resolve_effective_table_name,
     write_history_only,
     write_outputs,
 )
@@ -43,7 +44,11 @@ from data_contract.generation.joins import (
     read_joins_sheet,
     write_joins_outputs,
 )
-from data_contract.generation.keys import build_pk_index, read_keys_sheet
+from data_contract.generation.keys import (
+    apply_sheet_name_fallback,
+    build_pk_index,
+    read_keys_sheet,
+)
 from data_contract.generation.spec_reader import (
     list_table_spec_sheets,
     open_workbook,
@@ -332,6 +337,21 @@ def _build_one_version(
     try:
         selected = resolve_table_selectors(merged, wb)
         keys_data = read_keys_sheet(wb, merged.keys)
+
+        # Sheet-name fallback: authors may put a structure sheet's tab name in
+        # the keys sheet's `table_name` column instead of the eventual warehouse
+        # table name (which they often don't know at spec-writing time). Build
+        # a sheet->effective map, then rewrite matching cells so every
+        # downstream consumer sees only effective table names.
+        sheet_to_effective: dict[str, str] = {}
+        for sel in selected:
+            effective, _err = resolve_effective_table_name(
+                wb, sel.table_name, merged.column_mapping,
+            )
+            if effective is not None:
+                sheet_to_effective[sel.table_name] = effective
+        apply_sheet_name_fallback(keys_data, sheet_to_effective)
+
         pk_index = build_pk_index(keys_data.rows)
         seen_tables: dict[str, str] = {}
         version_contracts: dict[str, Contract] = {}

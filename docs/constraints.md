@@ -14,7 +14,7 @@ constraint's docstring. Run `python -m data_contract regen-docs` to refresh it;
 
 | Name | Contract key | Spec cell | Contract output | Drift |
 |---|---|---|---|---|
-| `allowed_values` | `allowed_values` | delimited string (separator configurable, default `|`). | flat list `allowed_values: [...]`. | values added = additive; values removed = breaking. |
+| `allowed_values` | `allowed_values` | delimited string (separator configurable, default `|`; may be a scalar string or a list of strings). | flat list `allowed_values: [...]`. | values added = additive; values removed = breaking. |
 | `default_value` | `default` | a typed value, coerced against the field's declared type via parse_typed_value; cells matching `spec_parsing.null_tokens` (e.g. "-", "n/a") are treated as blank. | flat scalar `default: <value>` (no params). | added/changed = breaking; removed = additive. |
 | `format` | `format` | a case-insensitive token registered in FORMAT_REGISTRY. | flat string `format: <token>`. | added/changed = breaking; removed = additive. |
 | `max_value` | `max_value` | a typed value (coerced via `parse_typed_value`); for string fields, treated as a length cap. | structured `max_value: {value, strict}`; `strict: false` means `<=`, `true` means `<`. | value lowered = breaking; value raised = additive; strict tightened (<= -> <) = breaking; strict loosened = additive. |

@@ -551,6 +551,14 @@ def test_cardinality_custom_separator_with_spaces():
     assert parse_cardinality("1->n", separator="-->") is None
 
 
+def test_cardinality_multi_separator_accepts_any_declared():
+    """`separator: ["->", ":"]` accepts either divider (longest-first)."""
+    assert parse_cardinality("1 -> n", separator=("->", ":")) == "1:n"
+    assert parse_cardinality("1:n", separator=("->", ":")) == "1:n"
+    # ` to ` isn't declared -> rejected.
+    assert parse_cardinality("1 to n", separator=("->", ":")) is None
+
+
 def test_cardinality_separator_flows_from_config_through_reader():
     """End-to-end: defaults declares `separator: "->"`, the parser rejects
     `1:n` style values from the spec but accepts `1 -> n`."""

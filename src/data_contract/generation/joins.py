@@ -77,12 +77,15 @@ _CARDINALITY_RE = re.compile(
 _CARD_SIDE = r"(?:1|n|m|\*|many)"
 
 
-def parse_cardinality(raw: str, separator: str | None = None) -> str | None:
+def parse_cardinality(
+    raw: str, separator: str | tuple[str, ...] | None = None,
+) -> str | None:
     """Normalize a cardinality string to `1:1`, `1:n`, `n:1`, or `n:m`.
 
     With `separator=None`, accepts the permissive default set (`:`, `->`, ` to `).
-    With an explicit separator (e.g. `"->"`), only that exact divider is accepted
-    between the two sides (whitespace around it is still tolerated).
+    With an explicit separator (e.g. `"->"` or `("->", ":")`), only the declared
+    dividers are accepted between the two sides (whitespace around them is still
+    tolerated). Multi-character separators are matched greedy-longest-first.
 
     Both `n` and `m` are treated as "many"; the canonical output uses `n:m` for
     the many-to-many case. Returns `None` on unparseable input.
@@ -90,8 +93,10 @@ def parse_cardinality(raw: str, separator: str | None = None) -> str | None:
     if separator is None:
         m = _CARDINALITY_RE.match(raw)
     else:
-        sep = re.escape(separator)
-        pattern = rf"^\s*(?P<left>{_CARD_SIDE})\s*{sep}\s*(?P<right>{_CARD_SIDE})\s*$"
+        seps = (separator,) if isinstance(separator, str) else separator
+        ordered = sorted(seps, key=len, reverse=True)
+        sep_group = "|".join(re.escape(s) for s in ordered)
+        pattern = rf"^\s*(?P<left>{_CARD_SIDE})\s*(?:{sep_group})\s*(?P<right>{_CARD_SIDE})\s*$"
         m = re.match(pattern, raw, re.IGNORECASE)
     if m is None:
         return None
@@ -346,7 +351,7 @@ def _process_join_row(
     cardinality_value: str | None = None
     raw_card = raw_cells.get("cardinality")
     if raw_card is not None and str(raw_card).strip() != "":
-        cardinality_separator = cm.cardinality.separator if cm.cardinality else None
+        cardinality_separator = cm.cardinality.separators if cm.cardinality else None
         parsed = parse_cardinality(str(raw_card), separator=cardinality_separator)
         if parsed is None:
             errors.append(RejectionError(

@@ -23,7 +23,9 @@ from data_contract.generation.config import Defaults, KeysSpec
 from dq_core.contract import FieldContract
 from dq_core.errors import ConfigError
 from data_contract.generation.keys import (
+    KeysData,
     KeysRow,
+    apply_sheet_name_fallback,
     build_pk_index,
     enrich_field_contract_list,
     read_keys_sheet,
@@ -221,6 +223,55 @@ column_mapping:
     assert result.rows[0].primary_keys == ["a", "b", "c"]
 
 
+def test_multi_separator_list_accepts_any_declared():
+    """`separator: ["&", "+", ","]` splits on any of the listed dividers."""
+    spec = _keys_spec("""
+sheet_name: Keys
+column_mapping:
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: ["&", "+", ","] }
+""")
+    wb = Workbook()
+    ws = wb.create_sheet("Keys")
+    ws.append(["Table", "PK"])
+    ws.append(["ORDERS", "a & b + c , d"])
+    result = read_keys_sheet(wb, spec)
+    assert not result.errors
+    assert result.rows[0].primary_keys == ["a", "b", "c", "d"]
+
+
+def test_multi_separator_longest_wins():
+    """Overlapping separators: the longest match wins so `,,` isn't chopped
+    into two `,` splits with an empty piece in between."""
+    assert split_separated("a,,b", (",,", ",")) == ["a", "b"]
+    assert split_separated("a,b,,c", (",,", ",")) == ["a", "b", "c"]
+
+
+def test_multi_separator_tuple_and_scalar_produce_same_result():
+    """`split_separated` accepts both a scalar string and a tuple."""
+    assert split_separated("a|b", "|") == split_separated("a|b", ("|",)) == ["a", "b"]
+
+
+def test_multi_separator_empty_list_rejected():
+    with pytest.raises(ConfigError, match="separator"):
+        _keys_spec("""
+sheet_name: Keys
+column_mapping:
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: [] }
+""")
+
+
+def test_multi_separator_empty_string_entry_rejected():
+    with pytest.raises(ConfigError, match="separator"):
+        _keys_spec("""
+sheet_name: Keys
+column_mapping:
+  table_name:  { spec_name: Table }
+  primary_key: { spec_name: PK, separator: ["|", ""] }
+""")
+
+
 # ---------------------------------------------------------------------------
 # 2. PK index
 # ---------------------------------------------------------------------------
@@ -245,6 +296,55 @@ def test_build_pk_index_same_column_two_tables():
     ]
     idx = build_pk_index(rows)
     assert idx == {"id": {"TABLE_A", "TABLE_B"}}
+
+
+# ---------------------------------------------------------------------------
+# 2b. Sheet-name fallback (apply_sheet_name_fallback)
+# ---------------------------------------------------------------------------
+
+
+def _keys_data(*rows: KeysRow) -> KeysData:
+    return KeysData(rows=list(rows))
+
+
+def test_apply_sheet_name_fallback_rewrites_sheet_names():
+    """A keys row whose table_name equals a sheet name gets rewritten to the
+    sheet's effective (override) table name."""
+    kd = _keys_data(KeysRow(2, "MySheet", ["a"], []))
+    apply_sheet_name_fallback(kd, {"MySheet": "dim_thing"})
+    assert kd.rows[0].table_name == "dim_thing"
+
+
+def test_apply_sheet_name_fallback_no_op_when_names_match():
+    """When sheet_name == effective_table_name, no rewrite happens."""
+    kd = _keys_data(KeysRow(2, "USERS", ["user_id"], []))
+    apply_sheet_name_fallback(kd, {"USERS": "USERS"})
+    assert kd.rows[0].table_name == "USERS"
+
+
+def test_apply_sheet_name_fallback_actual_table_name_wins_over_sheet_name():
+    """If a raw value is already an effective table name, leave it alone even
+    if another sheet has that same string as its own name."""
+    kd = _keys_data(KeysRow(2, "orders", ["id"], []))
+    # Sheet "orders_tab" overrides to "orders" (effective); sheet "orders" has
+    # no override so its effective name is "orders" too. The raw value "orders"
+    # already matches an effective name -> unchanged.
+    apply_sheet_name_fallback(kd, {"orders_tab": "orders", "orders": "orders"})
+    assert kd.rows[0].table_name == "orders"
+
+
+def test_apply_sheet_name_fallback_unknown_value_untouched():
+    """Values matching neither an effective name nor a sheet name pass through
+    so the downstream `keys_missing_table` rejection fires normally."""
+    kd = _keys_data(KeysRow(2, "typo_here", ["x"], []))
+    apply_sheet_name_fallback(kd, {"real_sheet": "real_table"})
+    assert kd.rows[0].table_name == "typo_here"
+
+
+def test_apply_sheet_name_fallback_empty_map_is_noop():
+    kd = _keys_data(KeysRow(2, "T", ["x"], []))
+    apply_sheet_name_fallback(kd, {})
+    assert kd.rows[0].table_name == "T"
 
 
 # ---------------------------------------------------------------------------
@@ -822,3 +922,64 @@ def test_cli_unknown_pk_field_rejection(tmp_path, repo_root, monkeypatch):
     assert rc == 2
     rej = yaml.safe_load((edir / "contracts" / "rejected" / "T.yaml").read_text(encoding="utf-8"))
     assert any(e["kind"] == "unknown_pk_field" for e in rej["errors"])
+
+
+def test_cli_keys_sheet_accepts_sheet_name_when_structure_sheet_overrides_table(
+    tmp_path, repo_root, monkeypatch,
+):
+    """Business authors don't always know the eventual warehouse table name
+    at spec-writing time. Putting the structure sheet's tab name in the keys
+    sheet's `table_name` column must resolve to the effective override."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "configs" / "types.yaml").write_text(
+        (repo_root / "configs" / "types.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    write_test_parsers_yaml(tmp_path / "configs")
+    edir = tmp_path / "epics" / "E"
+    (edir / "configs" / "contracts").mkdir(parents=True)
+    (edir / "specs").mkdir(parents=True)
+    (edir / "contracts").mkdir(parents=True)
+
+    # defaults.yaml with a Table column declared in the structure-sheet mapping.
+    (tmp_path / "configs" / "specs_parsing.yaml").write_text(
+        """
+fields:
+  column_mapping:
+    extract_name: { spec_name: Champ dans extract }
+    type:         { spec_name: Type }
+    description:  { spec_name: Description, default_value: null }
+    table:        { spec_name: Table, column_required: false, default_value: null }
+    nullable:
+      spec_name: Obligatoire
+      values:
+        "true":  ["non"]
+        "false": ["oui"]
+""" + minimal_keys_block_yaml(),
+        encoding="utf-8",
+    )
+    (edir / "configs" / "contracts" / "v1.0.yaml").write_text(
+        "epic: E\nversion: '1.0'\nspec_file_name: spec.xlsx\ntarget: postgres\n"
+        "tables:\n  - table_name: MySheet\n",
+        encoding="utf-8",
+    )
+
+    wb = Workbook()
+    wb.active.title = "MySheet"
+    ws = wb["MySheet"]
+    # Structure sheet uses `Table` override to name the warehouse table `dim_thing`.
+    ws.append(["Champ dans extract", "Type", "Description", "Obligatoire ?", "Table"])
+    ws.append(["x", "Double", "d", "OUI", "dim_thing"])
+    # Keys sheet says "MySheet" (the sheet tab name), NOT "dim_thing".
+    add_keys_sheet(wb, [("MySheet", "x", None)])
+    wb.save(edir / "specs" / "spec.xlsx")
+
+    rc = main(["generate", "--epic", "E"])
+    assert rc == 0
+    emitted = edir / "contracts" / "dim_thing.yaml"
+    assert emitted.exists()
+    data = yaml.safe_load(emitted.read_text(encoding="utf-8"))
+    assert data["table"] == "dim_thing"
+    by_name = {f["silver_name"]: f for f in data["fields"]}
+    assert by_name["x"]["primary_key"] is True

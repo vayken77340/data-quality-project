@@ -52,6 +52,16 @@ def test_allowed_values_custom_separator():
     assert err is None and v == ["a", "b", "c"]
 
 
+def test_allowed_values_multi_separator_list():
+    """`separator: ["&", "+"]` splits on either divider."""
+    c = AllowedValuesConstraint.from_config({
+        "spec_name": "Values",
+        "spec_parsing": {"separator": ["&", "+"]},
+    })
+    v, err = c.parse_cell("a & b + c", _ctx(Type.STRING))
+    assert err is None and v == ["a", "b", "c"]
+
+
 def test_allowed_values_separator_not_emitted_into_contract():
     """spec_parsing knobs MUST NOT leak into the contract output."""
     c = AllowedValuesConstraint.from_config({"spec_name": "Values", "spec_parsing": {"separator": ","}})

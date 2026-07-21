@@ -15,6 +15,7 @@ used to reimplement.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,16 +83,22 @@ class ColumnRef:
 
 @dataclass(frozen=True)
 class SeparatedColumnRef(ColumnRef):
-    """Column whose cell contains a list of items joined by a separator."""
-    separator: str = "|"
+    """Column whose cell contains a list of items joined by any of `separators`.
+
+    YAML `separator:` accepts a scalar string or a list of strings; both
+    normalise to this tuple. A cell may mix declared separators — every
+    occurrence divides the cell.
+    """
+    separators: tuple[str, ...] = ("|",)
 
 
 @dataclass(frozen=True)
 class CardinalityColumnRef(ColumnRef):
-    """Cardinality column. Optional explicit `separator` constrains the divider
-    between the two sides (e.g. `1 -> n` with separator `->`). When None, the
-    parser falls back to its default permissive set (`:`, `->`, ` to `)."""
-    separator: str | None = None
+    """Cardinality column. Optional explicit `separators` constrain the divider
+    between the two sides (e.g. `1 -> n` with separators `("->",)`). When None,
+    the parser falls back to its default permissive set (`:`, `->`, ` to `).
+    Multiple separators (`("->", ":")`) accept any of them."""
+    separators: tuple[str, ...] | None = None
 
 
 def parse_column_ref(raw: dict, *, prefix: str, key: str) -> ColumnRef:
@@ -120,37 +127,91 @@ def parse_column_ref(raw: dict, *, prefix: str, key: str) -> ColumnRef:
     )
 
 
+def normalise_separators(
+    raw: Any, *, prefix: str, key: str, default: tuple[str, ...] = ("|",),
+) -> tuple[str, ...]:
+    """Normalise a YAML `separator:` value into a tuple.
+
+    Accepts a scalar string, a list of strings, or `None`/missing (then
+    `default` is returned). Every element must be a non-empty string.
+    Duplicates are preserved to keep the message stable when reflected
+    back to the author.
+    """
+    if raw is None:
+        return default
+    items: list[str]
+    if isinstance(raw, str):
+        items = [raw]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        raise ConfigError(
+            f"{prefix}.{key}.separator must be a string or a list of strings"
+        )
+    if not items:
+        raise ConfigError(
+            f"{prefix}.{key}.separator, when a list, must contain at least one entry"
+        )
+    for item in items:
+        if not isinstance(item, str) or not item:
+            raise ConfigError(
+                f"{prefix}.{key}.separator entries must be non-empty strings "
+                f"(got {item!r})"
+            )
+    return tuple(items)
+
+
+def split_on_separators(text: str, separators: tuple[str, ...]) -> list[str]:
+    """Split `text` on any of `separators`. Strips whitespace, drops empty pieces.
+
+    Longer separators are matched first so that e.g. `,,` is preferred over `,`
+    when both are declared. Returns `[]` on blank input.
+    """
+    if not text:
+        return []
+    ordered = sorted(separators, key=len, reverse=True)
+    pattern = "|".join(re.escape(s) for s in ordered)
+    parts = re.split(pattern, text)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def parse_separated_column_ref(
     raw: dict, *, prefix: str, key: str, default_separator: str = "|",
 ) -> SeparatedColumnRef:
-    """Parse a `{spec_name, separator, column_required, default_value}` block."""
+    """Parse a `{spec_name, separator, column_required, default_value}` block.
+
+    `separator` may be a scalar string or a list of strings; either way the
+    result is stored as a tuple on `SeparatedColumnRef.separators`.
+    """
     base = parse_column_ref(raw, prefix=prefix, key=key)
-    separator = raw.get("separator", default_separator)
-    if not isinstance(separator, str) or not separator:
-        raise ConfigError(
-            f"{prefix}.{key}.separator must be a non-empty string"
-        )
+    separators = normalise_separators(
+        raw.get("separator"), prefix=prefix, key=key,
+        default=(default_separator,),
+    )
     return SeparatedColumnRef(
         spec_name=base.spec_name,
         column_required=base.column_required,
         default_value=base.default_value,
-        separator=separator,
+        separators=separators,
     )
 
 
 def parse_cardinality_column_ref(
     raw: dict, *, prefix: str, key: str,
 ) -> CardinalityColumnRef:
-    """Parse a cardinality column block (optional separator, may be None)."""
+    """Parse a cardinality column block. `separator` is optional; may be a
+    scalar string, a list of strings, or omitted (parser falls back to its
+    permissive default set)."""
     base = parse_column_ref(raw, prefix=prefix, key=key)
-    separator = raw.get("separator")
-    if separator is not None and (not isinstance(separator, str) or not separator):
-        raise ConfigError(
-            f"{prefix}.{key}.separator, if set, must be a non-empty string"
-        )
+    raw_sep = raw.get("separator")
+    separators: tuple[str, ...] | None
+    if raw_sep is None:
+        separators = None
+    else:
+        separators = normalise_separators(raw_sep, prefix=prefix, key=key)
     return CardinalityColumnRef(
         spec_name=base.spec_name,
         column_required=base.column_required,
         default_value=base.default_value,
-        separator=separator,
+        separators=separators,
     )

@@ -30,7 +30,10 @@ from dq_core.contract import (
     FieldContract,
     Rejection,
 )
+from openpyxl.workbook.workbook import Workbook
+
 from dq_core.column_ref import ColumnRef
+from data_contract.generation.config import ColumnMapping
 from dq_core.slugify import slugify
 from dq_core.yaml_io import dump_yaml
 from dq_core.errors import ErrorCollector, RejectionError
@@ -305,6 +308,68 @@ def _build_one_field(
     return field, errors, table_value
 
 
+def _derive_table_name(
+    sheet_name: str,
+    table_values: list[str],
+    *,
+    table_column_spec_name: str | None,
+) -> tuple[str, RejectionError | None]:
+    """Apply the effective-table-name precedence:
+
+      * empty `table_values` (no `table` column, or all rows blank) -> sheet name
+      * one distinct override value                                 -> that value
+      * two or more distinct values                                 -> `multi_table_in_sheet` error
+    """
+    if not table_values:
+        return sheet_name, None
+    distinct = sorted(set(table_values))
+    if len(distinct) > 1:
+        return sheet_name, RejectionError(
+            kind="multi_table_in_sheet",
+            column=table_column_spec_name,
+            field="table",
+            value=distinct,
+            message=(
+                f"sheet {sheet_name!r} contains rows for multiple tables: {distinct}; "
+                "multi-table sheets are not yet supported"
+            ),
+        )
+    return distinct[0], None
+
+
+def resolve_effective_table_name(
+    wb: Workbook, sheet_name: str, mapping: ColumnMapping,
+) -> tuple[str | None, RejectionError | None]:
+    """Return `(effective_table_name, error)` for one structure sheet.
+
+    Reads the sheet header + rows, applies the same precedence
+    `build_contract` uses. Callers rely on this for the pipeline's
+    sheet-name fallback in the keys sheet (see `pipeline.py`).
+
+    On header failure the error surfaces; on row iteration the only
+    possible error is `multi_table_in_sheet`, in which case the returned
+    name falls back to the sheet name and the caller decides whether to
+    ignore or propagate the error.
+    """
+    read = read_sheet(wb, sheet_name, mapping)
+    if read.error is not None or read.spec is None:
+        return None, read.error
+    sheet_spec = read.spec
+    if not sheet_spec.has_table_column or mapping.table is None:
+        return sheet_name, None
+    table_values: list[str] = []
+    for row in iter_field_rows(wb, sheet_spec):
+        if row.table_raw is None:
+            continue
+        s = str(row.table_raw).strip()
+        if s:
+            table_values.append(s)
+    return _derive_table_name(
+        sheet_name, table_values,
+        table_column_spec_name=mapping.table.spec_name,
+    )
+
+
 def build_contract(
     merged: MergedConfig,
     sheet_spec: SheetSpec,
@@ -354,22 +419,12 @@ def build_contract(
         fields.append(field)
 
     # Resolve the contract's table name.
-    table_name = sheet_spec.sheet_name
-    if table_values:
-        distinct = sorted(set(table_values))
-        if len(distinct) > 1:
-            collector.add(RejectionError(
-                kind="multi_table_in_sheet",
-                column=cm.table.spec_name if cm.table else None,
-                field="table",
-                value=distinct,
-                message=(
-                    f"sheet {sheet_spec.sheet_name!r} contains rows for multiple tables: {distinct}; "
-                    "multi-table sheets are not yet supported"
-                ),
-            ))
-        else:
-            table_name = distinct[0]
+    table_name, table_err = _derive_table_name(
+        sheet_spec.sheet_name, table_values,
+        table_column_spec_name=cm.table.spec_name if cm.table else None,
+    )
+    if table_err is not None:
+        collector.add(table_err)
 
     generated_at = now if now is not None else now_iso_z()
     common = dict(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dq_core.errors import ConfigError
+from dq_core.column_ref import normalise_separators, split_on_separators
 from dq_core.field_constraints.base import (
     DriftChange,
     FieldConstraint,
@@ -11,7 +11,8 @@ from dq_core.field_constraints.base import (
 class AllowedValuesConstraint(FieldConstraint):
     """An enumerated whitelist of permitted values for a field.
 
-    Spec cell:    delimited string (separator configurable, default `|`).
+    Spec cell:    delimited string (separator configurable, default `|`;
+                  may be a scalar string or a list of strings).
     Contract output: flat list `allowed_values: [...]`.
     Drift:        values added = additive; values removed = breaking.
     """
@@ -31,26 +32,28 @@ class AllowedValuesConstraint(FieldConstraint):
 
     VIOLATION_KIND = "allowed_values_violation"
 
-    separator: str
+    separators: tuple[str, ...]
 
     def _configure(self) -> None:
-        sep = self._spec_parsing_params.get("separator", "|")
-        if not isinstance(sep, str) or not sep:
-            raise ConfigError(
-                f"column_mapping.{self.name}.spec_parsing.separator must be a non-empty string"
-            )
-        self.separator = sep
+        self.separators = normalise_separators(
+            self._spec_parsing_params.get("separator"),
+            prefix=f"column_mapping.{self.name}", key="spec_parsing",
+        )
 
     def _parse_non_empty(self, raw_str, raw_original, ctx):
-        values = [p for p in (s.strip() for s in raw_str.split(self.separator)) if p]
+        values = split_on_separators(raw_str, self.separators)
         if not values:
+            sep_msg = (
+                repr(self.separators[0]) if len(self.separators) == 1
+                else "any of " + ", ".join(repr(s) for s in self.separators)
+            )
             return None, self._reject(
                 "list_empty",
                 ctx,
                 raw=raw_original,
                 message=(
                     f"{self.name!r} cell {raw_original!r} yields no values "
-                    f"after splitting on {self.separator!r}"
+                    f"after splitting on {sep_msg}"
                 ),
             )
         return values, None
