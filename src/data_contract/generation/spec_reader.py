@@ -206,17 +206,19 @@ def iter_field_rows(wb: Workbook, sheet_spec: SheetSpec) -> Iterator[RawField]:
     silver_idx = sheet_spec.col_idx.get("silver_name")
     bronze_idx = sheet_spec.col_idx.get("bronze_name")
 
-    mapped_indices = {
-        i for i in (extract_idx, type_idx, desc_idx, null_idx, table_idx, silver_idx, bronze_idx)
-        if i is not None
-    }
-    for idx in sheet_spec.constraint_cols.values():
-        mapped_indices.add(idx)
+    # Emptiness is keyed on extract_name (the field's identity column) so
+    # trailing rows with stray content in other columns -- a pre-filled Table
+    # value, a leftover Obligatoire dropdown default, a stray Description --
+    # don't trip missing_mandatory on the blank extract_name. Semantic: a row
+    # without a field name isn't a field. Trade-off: an author who fills
+    # type/nullable but forgets extract_name silently loses the row instead
+    # of getting a rejection (spec-hygiene issue, not a build issue).
+    identity_indices = [extract_idx] if extract_idx is not None else []
 
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx <= sheet_spec.header_row:
             continue
-        if _row_is_empty(row, mapped_indices):
+        if _row_is_empty(row, identity_indices):
             continue
         extras = {
             c_name: _cell(row, idx)

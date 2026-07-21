@@ -100,6 +100,34 @@ def test_iter_field_rows_reads_silver_and_bronze_columns(tmp_path: Path):
     assert [r.bronze_raw for r in rows] == ["record no", None]
 
 
+def test_iter_field_rows_skips_row_with_only_stray_non_identity_cell(tmp_path: Path):
+    """Trailing rows with junk in non-identity columns (Table override, a
+    stray Obligatoire dropdown default, a leftover Description) but blank
+    extract_name are treated as empty and skipped -- not flagged as
+    missing_mandatory extract_name."""
+    path = tmp_path / "trailing_junk.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "WIDGETS"
+    ws.append(["Champ dans extract", "Type", "Description", "Obligatoire"])
+    ws.append(["widget_id", "Double", "id", "non"])
+    # Trailing row: extract_name blank, but Obligatoire has a leftover "oui"
+    # (very common with dropdown-validation defaults extending down the column).
+    ws.append([None, None, None, "oui"])
+    # Another trailing row with only Description stray content.
+    ws.append([None, None, "leftover description", None])
+    wb.save(path)
+
+    workbook = open_workbook(path)
+    try:
+        sheet_spec = read_sheet(workbook, "WIDGETS", _mapping()).spec
+        rows = list(iter_field_rows(workbook, sheet_spec))
+    finally:
+        workbook.close()
+
+    assert [r.extract_raw for r in rows] == ["widget_id"]
+
+
 def test_read_sheet_missing_sheet_returns_error(tiny_spec: Path):
     wb = open_workbook(tiny_spec)
     try:
